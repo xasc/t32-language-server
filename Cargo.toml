@@ -1,0 +1,23 @@
+# SPDX-FileCopyrightText: 2024 Christoph Sax <c_sax@mailbox.org>
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+[package]
+name = "t32-language-server"
+description = "Language server for Lauterbach TRACE32® script language"
+version = "0.1.0"
+authors = ["Christoph Sax <c_sax@mailbox.org>"]
+keywords = [
+  "language-server",
+  "lsp",
+  "trace32",
+  "lauterbach"
+]
+categories = ["parsing", "text-editors"]
+repository = "https://codeberg.org/xasc/t32-language-server/"
+edition = "2021"
+
+[dependencies]
+serde = { version = ">=1.0.215", features = ["derive"] }
+serde_json = ">=1.0"
+tree-sitter-t32 = ">=4.0.0"
