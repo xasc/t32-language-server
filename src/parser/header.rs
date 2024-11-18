@@ -7,7 +7,7 @@ use std::{collections, io::BufRead};
 
 use crate::{
     parser::{Token, TokenType},
-    ErrorCode,
+    protocol::{ErrorCodes, ResponseError},
 };
 
 struct ScanState<'a> {
@@ -18,7 +18,7 @@ struct ScanState<'a> {
     column: u32,
 }
 
-pub fn scan(buf: &mut impl BufRead, line: &mut u32) -> Result<Vec<Token>, ErrorCode> {
+pub fn scan(buf: &mut impl BufRead, line: &mut u32) -> Result<Vec<Token>, ResponseError> {
     let mut tokens = Vec::<Token>::new();
 
     let mut lexeme = String::new();
@@ -34,8 +34,6 @@ pub fn scan(buf: &mut impl BufRead, line: &mut u32) -> Result<Vec<Token>, ErrorC
                 }
             }
         }
-
-        println!("{}", msg);
 
         let mut state = ScanState {
             source: msg.chars(),
@@ -62,16 +60,20 @@ pub fn scan(buf: &mut impl BufRead, line: &mut u32) -> Result<Vec<Token>, ErrorC
     Ok(tokens)
 }
 
-fn read_line(buf: &mut impl BufRead, msg: &mut String) -> Option<ErrorCode> {
+fn read_line(buf: &mut impl BufRead, msg: &mut String) -> Option<ResponseError> {
     if let Err(err) = buf.read_line(msg) {
         crate::error(&err.to_string());
-        Some(ErrorCode::IoErr)
+        Some(ResponseError {
+            code: ErrorCodes::ParseError as i64,
+            message: err.to_string(),
+            data: None,
+        })
     } else {
         None
     }
 }
 
-fn consume_line(state: &mut ScanState, tokens: &mut Vec<Token>) -> Option<ErrorCode> {
+fn consume_line(state: &mut ScanState, tokens: &mut Vec<Token>) -> Option<ResponseError> {
     while let Some(ch) = advance(state) {
         match scan_token(state, ch) {
             Ok(Some(token)) => {
@@ -94,18 +96,18 @@ fn consume_line(state: &mut ScanState, tokens: &mut Vec<Token>) -> Option<ErrorC
     None
 }
 
-fn scan_token(state: &mut ScanState, next: char) -> Result<Option<Token>, ErrorCode> {
+fn scan_token(state: &mut ScanState, next: char) -> Result<Option<Token>, ResponseError> {
     let kind = match next {
         ':' => {
             if r#match(state, ' ') {
                 value(state);
                 TokenType::HeaderFieldValue
             } else {
-                crate::error(&format!(
-                    "Unexpected character in line {} column {}.",
-                    state.line, state.column
-                ));
-                return Err(ErrorCode::ProtocolErr);
+                return Err(ResponseError {
+                    code: ErrorCodes::ParseError as i64,
+                    message: format!("Unexpected character in line {} column {}.", state.line, state.column),
+                    data: None,
+                })
             }
         }
         '\r' => {
@@ -127,11 +129,11 @@ fn scan_token(state: &mut ScanState, next: char) -> Result<Option<Token>, ErrorC
                 name(state);
                 TokenType::HeaderFieldName
             } else {
-                crate::error(&format!(
-                    "Unexpected character in line {} column {}.",
-                    state.line, state.column
-                ));
-                return Err(ErrorCode::ProtocolErr);
+                return Err(ResponseError {
+                    code: ErrorCodes::ParseError as i64,
+                    message: format!("Unexpected character in line {} column {}.", state.line, state.column),
+                    data: None,
+                })
             }
         }
     };

@@ -172,7 +172,7 @@ pub enum Id {
     Null,
 }
 
-pub enum ErrorCode {
+pub enum ErrorCodes {
     ParseError = -32700,
     InvalidRequest = -32600,
     MethodNotFound = -32601,
@@ -200,16 +200,16 @@ pub struct ResponseMessage {
     error: Option<ResponseError>,
 }
 
+#[derive(Debug)]
 pub struct ResponseError {
-    code: i64,
-    message: i64,
-    data: Option<Value>,
+    pub code: i64,
+    pub message: String,
+    pub data: Option<Value>,
 }
 
 pub struct NotificationMessage {
     jsonrpc: String,
     method: String,
-    params: Option<Value>,
 }
 
 pub struct InitializeParams {
