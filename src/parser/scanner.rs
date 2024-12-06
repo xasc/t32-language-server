@@ -6,9 +6,9 @@ use core::{char, str};
 use serde_json::{Result, Value};
 use std::{collections, io::BufRead};
 
-use crate::{parser::Token, ErrorCode};
+use crate::{parser::Token, ReturnCode};
 
-pub fn scan(buf: &mut impl BufRead) -> Option<ErrorCode> {
+pub fn scan(buf: &mut impl BufRead) -> Option<ReturnCode> {
     // let mut line = 1;
 
     // let tokens = header::scan(buf, &mut line);

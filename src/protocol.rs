@@ -173,7 +173,7 @@ pub enum PositionEncodingKind {
 pub enum TraceValue {
     Off,
     Messages,
-    Verbose
+    Verbose,
 }
 
 pub enum ProgressTokenKind {
@@ -592,7 +592,8 @@ pub struct CompletionItemCompletionClientCapabilities {
     tag_support: Option<TagSupportCompletionItemCompletionClientCapabilities>,
     insert_replace_support: Option<bool>,
     resolve_support: Option<ResolveSupportCompletionItemCompletionClientCapabilities>,
-    insert_text_mode_support: Option<InsertTextModeSupportCompletionItemCompletionClientCapabilities>,
+    insert_text_mode_support:
+        Option<InsertTextModeSupportCompletionItemCompletionClientCapabilities>,
     label_details_support: Option<bool>,
 }
 
@@ -1306,4 +1307,3 @@ pub struct FileOperationPattern {
 pub struct FileOperationPatternOptions {
     ignore_case: Option<bool>,
 }
-

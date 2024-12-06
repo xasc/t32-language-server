@@ -105,9 +105,12 @@ fn scan_token(state: &mut ScanState, next: char) -> Result<Option<Token>, Respon
             } else {
                 return Err(ResponseError {
                     code: ErrorCodes::ParseError as i64,
-                    message: format!("Unexpected character in line {} column {}.", state.line, state.column),
+                    message: format!(
+                        "Unexpected character in line {} column {}.",
+                        state.line, state.column
+                    ),
                     data: None,
-                })
+                });
             }
         }
         '\r' => {
@@ -131,9 +134,12 @@ fn scan_token(state: &mut ScanState, next: char) -> Result<Option<Token>, Respon
             } else {
                 return Err(ResponseError {
                     code: ErrorCodes::ParseError as i64,
-                    message: format!("Unexpected character in line {} column {}.", state.line, state.column),
+                    message: format!(
+                        "Unexpected character in line {} column {}.",
+                        state.line, state.column
+                    ),
                     data: None,
-                })
+                });
             }
         }
     };

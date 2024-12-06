@@ -13,6 +13,11 @@ fn main() {
         process::exit(64);
     }
 
+    if let Err(err) = t32_language_server::Config::build(&args) {
+        let code = err as i32;
+        process::exit(code);
+    }
+
     if let Some(err) = t32_language_server::run(args, &mut io::stdin().lock()) {
         let code = err as i32;
         process::exit(code);

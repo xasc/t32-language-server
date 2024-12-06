@@ -2,10 +2,10 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use std::{fmt, str};
 use std::io::BufRead;
+use std::{fmt, str};
 
-use serde_json::{Value};
+use serde_json::Value;
 
 use crate::protocol::{ErrorCodes, ResponseError};
 
@@ -58,20 +58,24 @@ pub fn parse(buf: &mut impl BufRead) -> Option<ResponseError> {
 
     let repr = match str::from_utf8(&content) {
         Ok(str) => str,
-        Err(err) => return Some(ResponseError {
-            code: ErrorCodes::ParseError as i64,
-            message: err.to_string(),
-            data: None,
-        }),
+        Err(err) => {
+            return Some(ResponseError {
+                code: ErrorCodes::ParseError as i64,
+                message: err.to_string(),
+                data: None,
+            })
+        }
     };
 
     let json: Value = match serde_json::from_str(repr) {
         Ok(v) => v,
-        Err(err) => return Some(ResponseError {
-            code: ErrorCodes::ParseError as i64,
-            message: err.to_string(),
-            data: None,
-        }),
+        Err(err) => {
+            return Some(ResponseError {
+                code: ErrorCodes::ParseError as i64,
+                message: err.to_string(),
+                data: None,
+            })
+        }
     };
 
     None
