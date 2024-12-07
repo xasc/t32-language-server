@@ -4,7 +4,7 @@
 
 use std::{env, io, process};
 
-use t32_language_server;
+use t32_language_server::{Config, Streams};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -13,13 +13,17 @@ fn main() {
         process::exit(64);
     }
 
-    if let Err(err) = t32_language_server::Config::build(&args) {
+    let mut streams = Streams {
+        reader: io::stdin().lock(),
+        writer: io::stdout(),
+        error: io::stderr(),
+    };
+
+    if let Err(err) = Config::build(&args, &mut streams.writer) {
         let code = err as i32;
         process::exit(code);
     }
 
-    if let Some(err) = t32_language_server::run(args, &mut io::stdin().lock()) {
-        let code = err as i32;
-        process::exit(code);
-    }
+    let rc = t32_language_server::run(args, &mut streams);
+    process::exit(rc as i32)
 }

@@ -2,11 +2,11 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use std::io::BufRead;
+use std::io::{BufRead, Write};
 
 mod parser;
 mod protocol;
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ReturnCode {
     OkExit = 0,
     DataErr = 64,
@@ -15,12 +15,34 @@ pub enum ReturnCode {
     ProtocolErr = 76,
 }
 
+pub struct Streams<R: BufRead, W: Write, E: Write> {
+    pub reader: R,
+    pub writer: W,
+    pub error: E,
+}
+
 pub struct Config {
     parent_pid: usize,
 }
 
+pub fn run<R, W, E>(args: Vec<String>, streams: &mut Streams<R, W, E>) -> ReturnCode
+where
+    R: BufRead,
+    W: Write,
+    E: Write,
+{
+    let cfg = Config::build(&args, &mut streams.writer);
+    if let Err(rc) = cfg {
+        return rc;
+    }
+
+    serve(&mut streams.reader);
+    ReturnCode::OkExit
+}
+
 impl Config {
-    pub fn build(args: &[String]) -> Result<Self, ReturnCode> {
+    pub fn build(args: &[String], writer: &mut impl Write) -> Result<Self, ReturnCode>
+    {
         let mut ppid: Option<usize> = None;
         let mut show_help: bool = false;
 
@@ -50,7 +72,7 @@ impl Config {
         }
 
         if show_help {
-            usage();
+            usage(writer);
             return Err(ReturnCode::OkExit);
         } else if ppid.is_none() {
             error_missing("--clientProcessId=PID");
@@ -93,12 +115,7 @@ impl Config {
             .filter(|s| !s.is_empty())
             .collect();
 
-        if val.len() != 1 {
-            error_format(long);
-            return Err(ReturnCode::UsageErr);
-        }
-
-        if val.len() != 1 {
+        if val.len() != 2 {
             error_format(long);
             return Err(ReturnCode::UsageErr);
         }
@@ -115,11 +132,6 @@ impl Config {
     fn parse_flag(long: &str, short: &str, arg: &str) -> bool {
         arg == short || arg == long
     }
-}
-
-pub fn run(args: Vec<String>, buf: &mut impl BufRead) -> Option<ReturnCode> {
-    serve(buf);
-    Option::None
 }
 
 fn serve(buf: &mut impl BufRead) -> Option<ReturnCode> {
@@ -148,8 +160,8 @@ fn error_missing(param: &str) {
     eprintln!("Error: Missing argument \"{param}\"");
 }
 
-fn usage() {
-    println!(r#"Usage: t32-language-server [OPTIONS]
+fn usage(writer: &mut impl Write) {
+    writeln!(writer, r#"Usage: t32-language-server [OPTIONS]
 
 Language server for the Lauterbach TRACE32® script language.
 
@@ -161,5 +173,5 @@ General options:
   -c PID, --clientProcessId=PID
     Process ID of the client that started the server. The server can use the
     PID to monitor the client process and shut itself down if the client
-    process dies."#);
+    process dies."#).expect("Writer must be configured correctly.");
 }
