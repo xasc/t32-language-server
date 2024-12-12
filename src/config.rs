@@ -17,7 +17,7 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn build(args: &[String], writer: &mut impl Write) -> Result<Self, ReturnCode>
+    pub fn build(args: &[String], outs: &mut impl Write, errs: &mut impl Write) -> Result<Self, ReturnCode>
     {
         let mut ppid: Option<usize> = None;
         let mut show_help: bool = false;
@@ -25,6 +25,7 @@ impl Config {
         let len = args[1..].len();
         for (ii, arg) in args[1..].iter().enumerate() {
             match Self::parse_flag_value::<usize>(
+                errs,
                 "--clientProcessId=",
                 "-c",
                 arg,
@@ -48,10 +49,10 @@ impl Config {
         }
 
         if show_help {
-            usage(writer);
+            usage(outs);
             return Err(ReturnCode::OkExit);
         } else if ppid.is_none() {
-            error_missing("--clientProcessId=PID");
+            error_missing(errs, "--clientProcessId=PID");
             return Err(ReturnCode::UsageErr);
         }
 
@@ -62,6 +63,7 @@ impl Config {
     }
 
     fn parse_flag_value<T: std::str::FromStr>(
+        errs: &mut impl Write,
         long: &str,
         short: &str,
         arg: &str,
@@ -69,14 +71,14 @@ impl Config {
     ) -> Result<Option<T>, ReturnCode> {
         if arg == short {
             if let None = next {
-                error_format_value(short);
+                error_format_value(errs, short);
                 return Err(ReturnCode::UsageErr);
             }
 
             match next.unwrap().parse::<T>() {
                 Ok(v) => return Ok(Some(v)),
                 Err(_) => {
-                    error_format(long);
+                    error_format(errs, long);
                     return Err(ReturnCode::UsageErr);
                 }
             }
@@ -93,14 +95,14 @@ impl Config {
             .collect();
 
         if val.len() != 2 {
-            error_format(long);
+            error_format(errs, long);
             return Err(ReturnCode::UsageErr);
         }
 
         match val[1].parse::<T>() {
             Ok(v) => Ok(Some(v)),
             Err(_) => {
-                error_format(long);
+                error_format(errs, long);
                 Err(ReturnCode::UsageErr)
             }
         }
@@ -111,20 +113,20 @@ impl Config {
     }
 }
 
-fn error_format(param: &str) {
-    eprintln!("Error: Invalid format for argument \"{param}\"");
+fn error_format(writer: &mut impl Write, param: &str) {
+    let _ = writeln!(writer, "Error: Invalid format for argument \"{param}\"");
 }
 
-fn error_format_value(param: &str) {
-    eprintln!("Error: Invalid format for argument value \"{param}\"");
+fn error_format_value(writer: &mut impl Write, param: &str) {
+    let _ = writeln!(writer, "Error: Invalid format for argument value \"{param}\"");
 }
 
-fn error_missing(param: &str) {
-    eprintln!("Error: Missing argument \"{param}\"");
+fn error_missing(writer: &mut impl Write, param: &str) {
+    let _ = writeln!(writer, "Error: Missing argument \"{param}\"");
 }
 
 fn usage(writer: &mut impl Write) {
-    writeln!(writer, r#"Usage: t32-language-server [OPTIONS]
+    let _ = writeln!(writer, r#"Usage: t32-language-server [OPTIONS]
 
 Language server for the Lauterbach TRACE32® script language.
 

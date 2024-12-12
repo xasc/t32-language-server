@@ -30,7 +30,7 @@ where
     W: Write,
     E: Write,
 {
-    let cfg = config::Config::build(&args, &mut streams.writer);
+    let cfg = config::Config::build(&args, &mut streams.writer, &mut streams.error);
     if let Err(rc) = cfg {
         return rc;
     }
