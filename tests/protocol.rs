@@ -32,7 +32,11 @@ Content-Length: {}\r\n\r\n",
 
     let msg = build_msg(&header, content);
 
-    let mut input = io::BufReader::new(msg.as_bytes());
-    t32_language_server::run(Vec::new(), &mut input);
+    let mut streams = t32_language_server::Stdio {
+        reader: io::BufReader::new(msg.as_bytes()),
+        writer: io::stdout(),
+        error: io::stderr(),
+    };
+    t32_language_server::run(Vec::new(), &mut streams);
     assert!(false);
 }

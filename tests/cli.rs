@@ -10,7 +10,7 @@ use t32_language_server;
 fn prints_help() {
     let args = vec![String::from("t32-language-server"), String::from("--help")];
 
-    let mut streams = t32_language_server::Streams {
+    let mut streams = t32_language_server::Stdio {
         reader: io::stdin().lock(),
         writer: Vec::new(),
         error: io::stderr(),
