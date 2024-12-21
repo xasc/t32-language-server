@@ -2,211 +2,211 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use std::io::BufRead;
-use std::{fmt, str};
+//! # LSP Protocol Notes
+//!
+//! HTTP header fields are normally preceded by a CRLF sequence. However, the LSP
+//! base protocol does not specify how the first header field of a message shall
+//! be delimited from the previous one. Hence, we need to handle sequences like
+//! "`abcContent-Length: 100`" where one message passes directly into the first
+//! header field of the next one.
+//! The whitespace after the colon delimter between HTTP header field name and
+//! value is normally optional. The LSP protocol makes it mandatory.
 
-use serde_json::Value;
+use std::fmt;
 
-use crate::protocol::{ErrorCodes, ResponseError};
+use crate::protocol::{RequestMessage, ResponseError};
 
+mod content;
 mod header;
 mod scanner;
 
-#[derive(Debug, PartialEq)]
+use header::ScanError;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum TokenType {
     HeaderFieldTerm,
     HeaderFieldName,
     HeaderFieldValue,
+    EndOfHeaders,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
+pub enum ParseState {
+    Syncing,
+    InHeader,
+    InContent(usize),
+}
+
+#[derive(Clone, Debug)]
 pub struct Token {
     pub kind: TokenType,
     pub lexeme: String,
-    pub line: u32,
-    pub column: u32,
+    pub start: usize,
+    pub end: usize,
+    pub fusible: bool,
 }
 
 impl fmt::Display for Token {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?} {}", self.kind, self.lexeme)
+        write!(
+            f,
+            "{:?}[{}]",
+            self.kind,
+            if self.lexeme.is_empty() {
+                "empty"
+            } else {
+                &self.lexeme
+            }
+        )
     }
 }
 
-#[derive(Debug)]
-enum HeaderValue {
-    ContentType(String),
-    ContentLength(u32),
+impl fmt::Display for TokenType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
-pub fn parse(buf: &mut impl BufRead) -> Option<ResponseError> {
-    let mut line = 1;
+pub fn parse(
+    state: &mut ParseState,
+    buf: &mut Vec<u8>,
+    tokens: &mut Vec<Token>,
+) -> Result<Option<RequestMessage>, ResponseError> {
+    if *state == ParseState::Syncing {
+        assert_eq!(tokens.len(), 0);
 
-    let len = match parse_header(buf, &mut line) {
-        Ok(len) => len,
-        Err(err) => return Some(err),
-    };
-
-    let mut content = vec![0u8; len as usize];
-    if let Err(err) = buf.read_exact(&mut content) {
-        return Some(ResponseError {
-            code: ErrorCodes::ParseError as i64,
-            message: err.to_string(),
-            data: None,
-        });
-    };
-
-    let repr = match str::from_utf8(&content) {
-        Ok(str) => str,
-        Err(err) => {
-            return Some(ResponseError {
-                code: ErrorCodes::ParseError as i64,
-                message: err.to_string(),
-                data: None,
-            })
+        if let Some(offset) = guess_msg_start(buf) {
+            buf.drain(0..offset);
+            *state = ParseState::InHeader;
+        } else {
+            buf.clear();
+            return Ok(None);
         }
-    };
+    }
 
-    let json: Value = match serde_json::from_str(repr) {
-        Ok(v) => v,
-        Err(err) => {
-            return Some(ResponseError {
-                code: ErrorCodes::ParseError as i64,
-                message: err.to_string(),
-                data: None,
-            })
+    if *state == ParseState::InHeader {
+        let content_len = parse_header(buf, tokens)?;
+        if content_len > 0 {
+            *state = ParseState::InContent(content_len);
+            tokens.clear();
+        } else {
+            debug_assert!(buf.len() <= 0);
+            return Ok(None);
         }
-    };
+    }
 
-    None
-}
+    if let ParseState::InContent(len) = *state {
+        debug_assert!(len > 0);
+        if buf.len() < len {
+            Ok(None)
+        } else {
+            let msg = parse_content(&buf[..len]);
 
-fn parse_header(buf: &mut impl BufRead, line: &mut u32) -> Result<u32, ResponseError> {
-    let tokens = header::scan(buf, line)?;
-    if tokens.len() < 5 {
-        min_header(&tokens)
+            buf.drain(..len);
+            *state = ParseState::Syncing;
+
+            match msg {
+                Ok(msg) => Ok(Some(msg)),
+                Err(err) => Err(err),
+            }
+        }
     } else {
-        full_header(&tokens)
+        Ok(None)
     }
 }
 
-fn min_header(tokens: &[Token]) -> Result<u32, ResponseError> {
-    if tokens.len() != 4
-        || !(tokens[0].kind == TokenType::HeaderFieldName
-            && tokens[1].kind == TokenType::HeaderFieldValue
-            && tokens[2].kind == TokenType::HeaderFieldTerm
-            && tokens[3].kind == TokenType::HeaderFieldTerm)
-    {
-        return Err(ResponseError {
-            code: ErrorCodes::ParseError as i64,
-            message: String::from("Header format is invalid."),
-            data: None,
-        });
-    }
-
-    let value = parse_header_field(&tokens[0].lexeme, &tokens[1].lexeme)?;
-    if let HeaderValue::ContentType(_) = value {
-        return Err(ResponseError {
-            code: ErrorCodes::ParseError as i64,
-            message: String::from("Header \"Content-Type\" is not allowed here."),
-            data: None,
-        });
-    }
-
-    if let HeaderValue::ContentLength(len) = value {
-        return Ok(len);
-    }
-    unreachable!()
-}
-
-fn full_header(tokens: &[Token]) -> Result<u32, ResponseError> {
-    if tokens.len() != 7
-        || !(tokens[0].kind == TokenType::HeaderFieldName
-            && tokens[1].kind == TokenType::HeaderFieldValue
-            && tokens[2].kind == TokenType::HeaderFieldTerm
-            && tokens[3].kind == TokenType::HeaderFieldName
-            && tokens[4].kind == TokenType::HeaderFieldValue
-            && tokens[5].kind == TokenType::HeaderFieldTerm
-            && tokens[6].kind == TokenType::HeaderFieldTerm)
-    {
-        return Err(ResponseError {
-            code: ErrorCodes::ParseError as i64,
-            message: String::from("Header format is invalid."),
-            data: None,
-        });
-    }
-
-    let mut headers = Vec::<HeaderValue>::new();
-
-    let value = parse_header_field(&tokens[0].lexeme, &tokens[1].lexeme)?;
-    headers.push(value);
-
-    let value = parse_header_field(&tokens[3].lexeme, &tokens[4].lexeme)?;
-    headers.push(value);
-
-    match &headers[0] {
-        HeaderValue::ContentType(r#type) => {
-            if let HeaderValue::ContentType(_) = headers[1] {
-                return Err(ResponseError {
-                    code: ErrorCodes::ParseError as i64,
-                    message: String::from("Header \"Content-Type\" is not allowed here."),
-                    data: None,
-                });
-            }
-            if r#type != "application/vscode-jsonrpc; charset=utf-8" {
-                return Err(ResponseError {
-                    code: ErrorCodes::ParseError as i64,
-                    message: String::from("Header \"Content-Type\" has invalid value."),
-                    data: None,
-                });
-            }
-            if let HeaderValue::ContentLength(len) = headers[1] {
-                return Ok(len);
-            }
-            unreachable!();
-        }
-        HeaderValue::ContentLength(len) => {
-            if let HeaderValue::ContentLength(_) = headers[1] {
-                return Err(ResponseError {
-                    code: ErrorCodes::ParseError as i64,
-                    message: String::from("Header \"Content-Length\" is not allowed here."),
-                    data: None,
-                });
-            }
-            if let HeaderValue::ContentType(r#type) = &headers[1] {
-                if r#type != "application/vscode-jsonrpc; charset=utf-8" {
-                    return Err(ResponseError {
-                        code: ErrorCodes::ParseError as i64,
-                        message: String::from("Header \"Content-Type\" has invalid value."),
-                        data: None,
-                    });
+fn parse_header(buf: &mut Vec<u8>, hist: &mut Vec<Token>) -> Result<usize, ResponseError> {
+    // Next token might end the header section
+    if hist.len() > 0 && hist[hist.len() - 1].kind == TokenType::HeaderFieldTerm {
+        match header::scan(buf, true) {
+            Ok(mut token) => {
+                buf.drain(..=token[0].end);
+                if token[0].kind == TokenType::HeaderFieldTerm {
+                    token[0].kind = TokenType::EndOfHeaders;
                 }
+                hist.append(&mut token)
             }
-            return Ok(*len);
+            Err(ScanError(offset)) => {
+                buf.drain(..=offset);
+                hist.clear();
+            }
+        }
+    }
+
+    while buf.len() > 0 {
+        let mut scanned = match header::scan(buf, false) {
+            Ok(tokens) => {
+                if tokens.len() > 0 {
+                    buf.drain(..=tokens[tokens.len() - 1].end);
+                } else {
+                    buf.clear();
+                    continue;
+                }
+                tokens
+            }
+            Err(ScanError(offset)) => {
+                buf.drain(..=offset);
+                hist.clear();
+                continue;
+            }
+        };
+
+        // We tolerate data sequences that are either so short or so repetitive that
+        // the scanner cannot detect any token. The token history remains valid.
+        if scanned.len() > 0 {
+            if hist.len() > 0 {
+                header::assemble_sequence(hist, &mut scanned);
+            } else {
+                hist.append(&mut scanned);
+            }
+            debug_assert_eq!(scanned.len(), 0);
+        } else if hist.len() <= 0 {
+            continue;
+        }
+
+        // Scanner stops as soon as the end of the header section is detected. No
+        // further characters should be scanned.
+        if header_section_ends(hist) {
+            break;
+        }
+    }
+
+    if hist.len() <= 0 || !header_section_ends(hist) {
+        Ok(0)
+    } else {
+        // Try to recover from errors by parsing the remaining
+        // tokens until they all are used up. Should we detect
+        // all valid header structure we will accept it.
+        match header::validate_headers(hist) {
+            Ok(len) => Ok(len),
+            Err(err) => {
+                while hist.len() > 0 {
+                    if let Ok(len) = header::validate_headers(hist) {
+                        return Ok(len);
+                    }
+                }
+                Err(err)
+            }
         }
     }
 }
 
-fn parse_header_field(name: &str, value: &str) -> Result<HeaderValue, ResponseError> {
-    match name {
-        "Content-Type" => Ok(HeaderValue::ContentType(value.parse::<String>().unwrap())),
-        "Content-Length" => {
-            let val = value.parse::<u32>();
-            if let Err(_) = val {
-                return Err(ResponseError {
-                    code: ErrorCodes::ParseError as i64,
-                    message: String::from("Invalid header format."),
-                    data: None,
-                });
-            }
-            Ok(HeaderValue::ContentLength(val.unwrap()))
-        }
-        _ => Err(ResponseError {
-            code: ErrorCodes::ParseError as i64,
-            message: String::from("Invalid header detected."),
-            data: None,
-        }),
-    }
+fn parse_content(buf: &[u8]) -> Result<RequestMessage, ResponseError> {
+    let msg = content::parse_request(buf)?;
+    Ok(msg)
+}
+
+/// Guess the start of the next message by looking for the start of the next
+/// header. Valid header names start with the letter "C". Header field names
+/// are case insensitive.
+///
+fn guess_msg_start(buf: &mut [u8]) -> Option<usize> {
+    buf.iter()
+        .position(|&c| (c as char).to_ascii_lowercase() == 'c')
+}
+
+fn header_section_ends(tokens: &[Token]) -> bool {
+    tokens[tokens.len() - 1].kind == TokenType::EndOfHeaders
 }
 
 #[cfg(test)]
@@ -214,223 +214,96 @@ mod tests {
     use super::*;
 
     #[test]
-    fn valid_full_header() {
-        let tokens = vec![
-            Token {
-                kind: TokenType::HeaderFieldName,
-                lexeme: "Content-Type".to_string(),
-                line: 1,
-                column: 13,
-            },
-            Token {
-                kind: TokenType::HeaderFieldValue,
-                lexeme: "application/vscode-jsonrpc; charset=utf-8".to_string(),
-                line: 1,
-                column: 55,
-            },
-            Token {
-                kind: TokenType::HeaderFieldTerm,
-                lexeme: "".to_string(),
-                line: 2,
-                column: 1,
-            },
-            Token {
-                kind: TokenType::HeaderFieldName,
-                lexeme: "Content-Length".to_string(),
-                line: 2,
-                column: 15,
-            },
-            Token {
-                kind: TokenType::HeaderFieldValue,
-                lexeme: "724".to_string(),
-                line: 2,
-                column: 19,
-            },
-            Token {
-                kind: TokenType::HeaderFieldTerm,
-                lexeme: "".to_string(),
-                line: 3,
-                column: 1,
-            },
-            Token {
-                kind: TokenType::HeaderFieldTerm,
-                lexeme: "".to_string(),
-                line: 4,
-                column: 1,
-            },
-        ];
+    fn parses_full_header() {
+        let header =
+        "Content-Type: application/vscode-jsonrpc; charset=utf-8\r\nContent-Length: 100\r\n\r\n";
 
-        let len = full_header(&tokens);
-        assert_eq!(len.unwrap(), 724);
+        let mut state = ParseState::Syncing;
+        let mut tokens = Vec::<Token>::new();
+        let rc = parse(&mut state, &mut header.as_bytes().to_vec(), &mut tokens).expect("Should not fail.");
+
+        assert!(rc.is_none());
+        assert_eq!(state, ParseState::InContent(100));
     }
 
     #[test]
-    fn valid_min_header() {
-        let tokens = vec![
-            Token {
-                kind: TokenType::HeaderFieldName,
-                lexeme: "Content-Length".to_string(),
-                line: 1,
-                column: 15,
-            },
-            Token {
-                kind: TokenType::HeaderFieldValue,
-                lexeme: "5340".to_string(),
-                line: 1,
-                column: 19,
-            },
-            Token {
-                kind: TokenType::HeaderFieldTerm,
-                lexeme: "".to_string(),
-                line: 2,
-                column: 1,
-            },
-            Token {
-                kind: TokenType::HeaderFieldTerm,
-                lexeme: "".to_string(),
-                line: 3,
-                column: 1,
-            },
-        ];
+    fn parses_all_lowercase_header() {
+        let header =
+        "content-type: application/vscode-jsonrpc; charset=utf-8\r\ncontent-length: 99\r\n\r\n";
 
-        let len = min_header(&tokens);
-        assert_eq!(len.unwrap(), 5340);
+        let mut state = ParseState::Syncing;
+        let mut tokens = Vec::<Token>::new();
+        let rc = parse(&mut state, &mut header.as_bytes().to_vec(), &mut tokens).expect("Should not fail.");
+
+        assert!(rc.is_none());
+        assert_eq!(state, ParseState::InContent(99));
     }
 
     #[test]
-    fn header_missing_content_length() {
-        let tokens = [
-            Token {
-                kind: TokenType::HeaderFieldName,
-                lexeme: "Content-Type".to_string(),
-                line: 1,
-                column: 13,
-            },
-            Token {
-                kind: TokenType::HeaderFieldValue,
-                lexeme: "application/vscode-jsonrpc; charset=utf-8".to_string(),
-                line: 1,
-                column: 55,
-            },
-            Token {
-                kind: TokenType::HeaderFieldTerm,
-                lexeme: "".to_string(),
-                line: 2,
-                column: 1,
-            },
-            Token {
-                kind: TokenType::HeaderFieldName,
-                lexeme: "Content-Leng".to_string(),
-                line: 2,
-                column: 15,
-            },
-            Token {
-                kind: TokenType::HeaderFieldValue,
-                lexeme: "724".to_string(),
-                line: 2,
-                column: 19,
-            },
-            Token {
-                kind: TokenType::HeaderFieldTerm,
-                lexeme: "".to_string(),
-                line: 3,
-                column: 1,
-            },
-            Token {
-                kind: TokenType::HeaderFieldTerm,
-                lexeme: "".to_string(),
-                line: 4,
-                column: 1,
-            },
-        ];
+    fn ignores_garbage_before_header() {
+        let header =
+        "abcContent-Type: application/vscode-jsonrpc; charset=utf-8\r\nContent-Length: 1\r\n\r\n";
 
-        let len = full_header(&tokens);
-        assert!(len.is_err());
+        let mut state = ParseState::Syncing;
+        let mut tokens = Vec::<Token>::new();
+        let rc = parse(&mut state, &mut header.as_bytes().to_vec(), &mut tokens).expect("Should not fail.");
 
-        let tokens = vec![
-            Token {
-                kind: TokenType::HeaderFieldTerm,
-                lexeme: "".to_string(),
-                line: 2,
-                column: 1,
-            },
-            Token {
-                kind: TokenType::HeaderFieldTerm,
-                lexeme: "".to_string(),
-                line: 3,
-                column: 1,
-            },
-        ];
-
-        let len = min_header(&tokens);
-        assert!(len.is_err());
+        assert!(rc.is_none());
+        assert_eq!(state, ParseState::InContent(1));
     }
 
     #[test]
-    fn header_missing_termination() {
-        let tokens = vec![
-            Token {
-                kind: TokenType::HeaderFieldName,
-                lexeme: "Content-Type".to_string(),
-                line: 1,
-                column: 13,
-            },
-            Token {
-                kind: TokenType::HeaderFieldValue,
-                lexeme: "application/vscode-jsonrpc; charset=utf-8".to_string(),
-                line: 1,
-                column: 55,
-            },
-            Token {
-                kind: TokenType::HeaderFieldName,
-                lexeme: "Content-Length".to_string(),
-                line: 2,
-                column: 15,
-            },
-            Token {
-                kind: TokenType::HeaderFieldValue,
-                lexeme: "724".to_string(),
-                line: 2,
-                column: 19,
-            },
-            Token {
-                kind: TokenType::HeaderFieldTerm,
-                lexeme: "".to_string(),
-                line: 3,
-                column: 1,
-            },
-            Token {
-                kind: TokenType::HeaderFieldTerm,
-                lexeme: "".to_string(),
-                line: 4,
-                column: 1,
-            },
-        ];
-        let len = full_header(&tokens);
-        assert!(len.is_err());
+    fn parses_msg_content() {
+        let content = r#"{ "jsonrpc": "2.0", "id": 1, "method": "shutdown" }"#;
 
-        let tokens = vec![
-            Token {
-                kind: TokenType::HeaderFieldName,
-                lexeme: "Content-Length".to_string(),
-                line: 1,
-                column: 15,
-            },
-            Token {
-                kind: TokenType::HeaderFieldValue,
-                lexeme: "5340".to_string(),
-                line: 1,
-                column: 19,
-            },
-            Token {
-                kind: TokenType::HeaderFieldTerm,
-                lexeme: "".to_string(),
-                line: 2,
-                column: 1,
-            },
-        ];
+        let mut state = ParseState::InContent(content.len());
+        let mut tokens = Vec::<Token>::new();
 
-        let len = min_header(&tokens);
-        assert!(len.is_err());
+        let rc = parse(&mut state, &mut content.as_bytes().to_vec(), &mut tokens).expect("Should not fail.");
+
+        assert!(rc.is_some());
+        assert_eq!(state, ParseState::Syncing);
+    }
+
+    #[test]
+    fn waits_for_content_len() {
+        let content = r#"{ "jsonrpc": "2.0", "id": 1, "method": "shutdown" }"#;
+
+        let mut state = ParseState::InContent(content.len());
+        let mut tokens = Vec::<Token>::new();
+
+        let rc = parse(&mut state, &mut content.as_bytes()[..(content.len() -1)].to_vec(), &mut tokens).expect("Should not fail.");
+
+        assert!(rc.is_none());
+        assert_eq!(state, ParseState::InContent(content.len()));
+    }
+
+    #[test]
+    fn parses_msg() {
+        let content = r#"{ "jsonrpc": "2.0", "id": 1, "method": "shutdown" }"#;
+        let header = format!("Content-Type: application/vscode-jsonrpc; charset=utf-8\r\nContent-Length: {}\r\n\r\n", content.len());
+
+        let msg = format!("{}{}", header, content);
+
+        let mut state = ParseState::Syncing;
+        let mut tokens = Vec::<Token>::new();
+
+        let rc = parse(&mut state, &mut msg.as_bytes().to_vec(), &mut tokens).expect("Should not fail.");
+
+        assert!(rc.is_some());
+        assert_eq!(state, ParseState::Syncing);
+
+        let content = r#"{ "jsonrpc": "2.0", "id": 1, "method": "shutdown" }"#;
+        let header = format!("abcdefContent-Length: {}\r\n\r\n", content.len());
+
+        let msg = format!("{}{}", header, content);
+
+        let mut state = ParseState::Syncing;
+        let mut tokens = Vec::<Token>::new();
+
+        let rc = parse(&mut state, &mut msg.as_bytes().to_vec(), &mut tokens).expect("Should not fail.");
+
+        assert!(rc.is_some());
+        assert_eq!(state, ParseState::Syncing);
     }
 }

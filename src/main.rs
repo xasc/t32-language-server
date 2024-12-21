@@ -13,12 +13,12 @@ fn main() {
         process::exit(64);
     }
 
-    let mut streams = Stdio {
+    let streams = Stdio {
         reader: io::stdin().lock(),
-        writer: io::stdout(),
-        error: io::stderr(),
+        writer: &mut io::stdout(),
+        error: &mut io::stderr(),
     };
 
-    let rc = t32_language_server::run(args, &mut streams);
+    let rc = t32_language_server::run(args, streams);
     process::exit(rc as i32)
 }

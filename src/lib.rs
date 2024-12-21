@@ -5,9 +5,10 @@
 mod config;
 mod parser;
 mod protocol;
+mod transport;
 
+pub use config::Config;
 use std::io::{BufRead, Write};
-pub use config::Config as Config;
 
 #[derive(Debug, PartialEq)]
 pub enum ReturnCode {
@@ -18,34 +19,35 @@ pub enum ReturnCode {
     ProtocolErr = 76,
 }
 
-pub struct Stdio<R: BufRead, W: Write, E: Write> {
+pub struct Stdio<'a, R: BufRead, W: Write, E: Write> {
     pub reader: R,
-    pub writer: W,
-    pub error: E,
+    pub writer: &'a mut W,
+    pub error: &'a mut E,
 }
 
-pub fn run<R, W, E>(args: Vec<String>, streams: &mut Stdio<R, W, E>) -> ReturnCode
+pub fn run<R, W, E>(args: Vec<String>, stdio: Stdio<R, W, E>) -> ReturnCode
 where
     R: BufRead,
     W: Write,
     E: Write,
 {
-    let cfg = config::Config::build(&args, &mut streams.writer, &mut streams.error);
-    if let Err(rc) = cfg {
-        return rc;
+    let cfg = match config::Config::build(&args, stdio.reader, stdio.writer, stdio.error) {
+        Ok(conf) => conf,
+        Err(rc) => return rc,
+    };
+    let channel = transport::build_channel(cfg, stdio.writer);
+
+    serve(channel)
+}
+
+fn serve<R: BufRead, W: Write>(mut channel: transport::Channel<R, W>) -> ReturnCode {
+    loop {
+        let _ = channel.read_msg();
+        break;
     }
-    serve(&mut streams.reader);
+
+    // let _ = eval(buf);
     ReturnCode::OkExit
-}
-
-fn serve(buf: &mut impl BufRead) -> Option<ReturnCode> {
-    let _ = eval(buf);
-    None
-}
-
-fn eval(buf: &mut impl BufRead) -> Result<(), ReturnCode> {
-    parser::parse(buf);
-    Ok(())
 }
 
 pub fn error(message: &str) {

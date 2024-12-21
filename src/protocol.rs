@@ -181,10 +181,17 @@ pub enum ProgressTokenKind {
     String(String),
 }
 
-pub enum Id {
+pub enum NumberStringOrNull {
     Number(i64),
     String(String),
     Null,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub enum NumberOrString {
+    Number(i64),
+    String(String),
 }
 
 pub enum TextDocumentSyncServerCapabilities {
@@ -384,16 +391,17 @@ pub enum InitializeErrorCodes {
     unknownProtocolVersion = 1,
 }
 
+#[derive(Deserialize)]
 pub struct RequestMessage {
-    jsonrpc: String,
-    id: Id,
-    method: String,
-    params: Option<Value>,
+    pub jsonrpc: String,
+    pub id: NumberOrString,
+    pub method: String,
+    pub params: Option<Value>,
 }
 
 pub struct ResponseMessage {
     jsonrpc: String,
-    id: Id,
+    id: NumberStringOrNull,
     result: Option<Value>,
     error: Option<ResponseError>,
 }
@@ -404,10 +412,12 @@ pub struct NotificationMessage {
     params: Value,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct ResponseError {
     pub code: i64,
     pub message: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<Value>,
 }
 

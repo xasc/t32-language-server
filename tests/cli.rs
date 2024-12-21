@@ -10,13 +10,14 @@ use t32_language_server;
 fn prints_help() {
     let args = vec![String::from("t32-language-server"), String::from("--help")];
 
-    let mut streams = t32_language_server::Stdio {
+    let mut stdout = Vec::new();
+    let streams = t32_language_server::Stdio {
         reader: io::stdin().lock(),
-        writer: Vec::new(),
-        error: io::stderr(),
+        writer: &mut stdout,
+        error: &mut io::stderr(),
     };
-    let rc = t32_language_server::run(args, &mut streams);
-    let output = String::from_utf8(streams.writer).expect("Invalid UTF-8");
+    let rc = t32_language_server::run(args, streams);
+    let output = String::from_utf8(stdout).expect("Invalid UTF-8");
 
     assert_eq!(rc, t32_language_server::ReturnCode::OkExit);
     assert!(output.starts_with("Usage: t32-language-server"));
@@ -26,14 +27,18 @@ fn prints_help() {
 fn reports_missing_ppid() {
     let args = vec![String::from("t32-language-server")];
 
-    let mut streams = t32_language_server::Stdio {
+    let mut stderr = Vec::new();
+    let streams = t32_language_server::Stdio {
         reader: io::stdin().lock(),
-        writer: io::stdout().lock(),
-        error: Vec::new(),
+        writer: &mut io::stdout().lock(),
+        error: &mut stderr,
     };
-    let rc = t32_language_server::run(args, &mut streams);
-    let error = String::from_utf8(streams.error).expect("Invalid UTF-8");
+    let rc = t32_language_server::run(args, streams);
+    let error = String::from_utf8(stderr).expect("Invalid UTF-8");
 
     assert_eq!(rc, t32_language_server::ReturnCode::UsageErr);
-    assert_eq!(format!("{error}"), "Error: Missing argument \"--clientProcessId=PID\"\n");
+    assert_eq!(
+        format!("{error}"),
+        "Error: Missing argument \"--clientProcessId=PID\"\n"
+    );
 }

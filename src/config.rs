@@ -2,23 +2,29 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use std::io::Write;
 use crate::ReturnCode;
+use std::io::{BufRead, Write};
 
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ChannelKind {
     Pipe,
     Socket,
     Stdio,
 }
 
-pub struct Config {
+pub struct Config<R: BufRead> {
     pub parent_pid: usize,
     pub channel: ChannelKind,
+    pub stdin: R,
 }
 
-impl Config {
-    pub fn build(args: &[String], outs: &mut impl Write, errs: &mut impl Write) -> Result<Self, ReturnCode>
-    {
+impl<R: BufRead> Config<R> {
+    pub fn build<W: Write, E: Write>(
+        args: &[String],
+        ins: R,
+        outs: &mut W,
+        errs: &mut E,
+    ) -> Result<Self, ReturnCode> {
         let mut ppid: Option<usize> = None;
         let mut show_help: bool = false;
 
@@ -59,6 +65,7 @@ impl Config {
         Ok(Config {
             parent_pid: ppid.unwrap(),
             channel: ChannelKind::Stdio,
+            stdin: ins,
         })
     }
 
@@ -118,7 +125,10 @@ fn error_format(writer: &mut impl Write, param: &str) {
 }
 
 fn error_format_value(writer: &mut impl Write, param: &str) {
-    let _ = writeln!(writer, "Error: Invalid format for argument value \"{param}\"");
+    let _ = writeln!(
+        writer,
+        "Error: Invalid format for argument value \"{param}\""
+    );
 }
 
 fn error_missing(writer: &mut impl Write, param: &str) {
@@ -126,7 +136,9 @@ fn error_missing(writer: &mut impl Write, param: &str) {
 }
 
 fn usage(writer: &mut impl Write) {
-    let _ = writeln!(writer, r#"Usage: t32-language-server [OPTIONS]
+    let _ = writeln!(
+        writer,
+        r#"Usage: t32-language-server [OPTIONS]
 
 Language server for the Lauterbach TRACE32® script language.
 
@@ -138,5 +150,7 @@ General options:
   -c PID, --clientProcessId=PID
     Process ID of the client that started the server. The server can use the
     PID to monitor the client process and shut itself down if the client
-    process dies."#).expect("Writer must be configured correctly.");
+    process dies."#
+    )
+    .expect("Writer must be configured correctly.");
 }
