@@ -18,7 +18,6 @@ use crate::protocol::{RequestMessage, ResponseError};
 
 mod content;
 mod header;
-mod scanner;
 
 use header::ScanError;
 

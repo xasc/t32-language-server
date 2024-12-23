@@ -30,17 +30,7 @@ impl<'a, R: BufRead, W: Write> Channel<'a, R, W> {
         if len <= 0 {
             return Ok(None);
         }
-
-        self.decode_stream();
-
-        Ok(None)
-
-        // RequestMessage {
-        //     jsonrpc: String::new(),
-        //     id: Id::Null,
-        //     method: String::new(),
-        //     params: None,
-        // }
+        self.decode_stream()
     }
 
     fn read_all(&mut self) -> Result<usize, ResponseError> {
@@ -58,11 +48,11 @@ impl<'a, R: BufRead, W: Write> Channel<'a, R, W> {
         }
     }
 
-    fn decode_stream(&mut self) {
+    fn decode_stream(&mut self) -> Result<Option<RequestMessage>, ResponseError> {
         let decoder: &mut Decoder = match self {
             Channel::StdioChannel { decoder, .. } => decoder,
         };
-        parser::parse(&mut decoder.state, &mut decoder.rest, &mut decoder.tokens);
+        parser::parse(&mut decoder.state, &mut decoder.rest, &mut decoder.tokens)
     }
 }
 
