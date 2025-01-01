@@ -18,6 +18,7 @@ repository = "https://codeberg.org/xasc/t32-language-server/"
 edition = "2021"
 
 [dependencies]
+libc = "0.2.169"
 serde = { version = ">=1.0.215", features = ["derive"] }
 serde_json = ">=1.0"
 tree-sitter-t32 = ">=4.0.0"
