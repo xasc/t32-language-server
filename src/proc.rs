@@ -7,13 +7,13 @@ use libc::kill;
 use std::io::Error;
 
 #[derive(Debug, PartialEq)]
-enum ProcState {
+pub enum ProcState {
     Alive,
     Dead,
     Unknown,
 }
 
-fn proc_alive(pid: u32) -> ProcState {
+pub fn proc_alive(pid: u32) -> ProcState {
     let proc = pid.try_into();
     // pid is out of range
     if let Err(_) = proc {
@@ -26,7 +26,9 @@ fn proc_alive(pid: u32) -> ProcState {
         }
     }
 
-    let errno = Error::last_os_error().raw_os_error().expect("Call to kill() should have set errno.");
+    let errno = Error::last_os_error()
+        .raw_os_error()
+        .expect("Call to kill() should have set errno.");
     assert_ne!(errno, libc::EINVAL);
     if errno == libc::ESRCH {
         ProcState::Dead

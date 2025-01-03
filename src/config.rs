@@ -12,22 +12,25 @@ pub enum ChannelKind {
     Stdio,
 }
 
-pub struct Config<R: BufRead> {
+pub struct Config<'a, R: BufRead, W: Write, E: Write> {
     pub parent_pid: usize,
     pub channel: ChannelKind,
     pub stdin: R,
+    pub stdout: &'a mut W,
+    pub stderr: &'a mut E,
 }
 
-impl<R: BufRead> Config<R> {
-    pub fn build<W: Write, E: Write>(
+impl<'a, R: BufRead, W: Write, E: Write> Config<'a, R, W, E> {
+    pub fn build(
         args: &[String],
         ins: R,
-        outs: &mut W,
-        errs: &mut E,
+        outs: &'a mut W,
+        errs: &'a mut E,
     ) -> Result<Self, ReturnCode> {
         let mut ppid: Option<usize> = None;
         let mut show_help: bool = false;
 
+        debug_assert!(args.len() > 0);
         let len = args[1..].len();
         for (ii, arg) in args[1..].iter().enumerate() {
             match Self::parse_flag_value::<usize>(
@@ -66,6 +69,8 @@ impl<R: BufRead> Config<R> {
             parent_pid: ppid.unwrap(),
             channel: ChannelKind::Stdio,
             stdin: ins,
+            stdout: outs,
+            stderr: errs,
         })
     }
 

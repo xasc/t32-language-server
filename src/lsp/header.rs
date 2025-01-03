@@ -5,7 +5,7 @@
 use std::fmt;
 
 use crate::{
-    parser::{Token, TokenType},
+    lsp::{Token, TokenType},
     protocol::{ErrorCodes, ResponseError},
 };
 
@@ -403,7 +403,10 @@ fn try_recover(tokens: &mut Vec<Token>, offset: usize) {
 fn error_missing_header_token(token: TokenType) -> ResponseError {
     ResponseError {
         code: ErrorCodes::ParseError as i64,
-        message: String::from(format!("Syntax error: Missing token in message header. Expected token \"{}\".", token)),
+        message: String::from(format!(
+            "Syntax error: Missing token in message header. Expected token \"{}\".",
+            token
+        )),
         data: None,
     }
 }

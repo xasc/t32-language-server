@@ -3,11 +3,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
 mod config;
-mod parser;
+mod lsp;
+mod proc;
 mod protocol;
+mod request;
+mod response;
 mod transport;
 
 pub use config::Config;
+
 use std::io::{BufRead, Write};
 
 #[derive(Debug, PartialEq)]
@@ -35,21 +39,59 @@ where
         Ok(conf) => conf,
         Err(rc) => return rc,
     };
-    let channel = transport::build_channel(cfg, stdio.writer);
+    let channel = transport::build_channel(cfg);
 
     serve(channel)
 }
 
-fn serve<R: BufRead, W: Write>(mut channel: transport::Channel<R, W>) -> ReturnCode {
-    loop {
-        let _ = channel.read_msg();
-        break;
-    }
+fn serve<R: BufRead, W: Write, E: Write>(mut channel: transport::Channel<R, W, E>) -> ReturnCode {
+    let req = wait_for_initialization(&mut channel);
+    debug_assert!(
+        matches!(req, request::Request::InitializeRequest(_))
+            || matches!(req, request::Request::InitializeRequest(_))
+    );
 
     // let _ = eval(buf);
     ReturnCode::OkExit
 }
 
-pub fn error(message: &str) {
-    println!("Error: {message}");
+/// Wait for initialization request. Returns `ServerNotInitialized` error for
+/// other types of `RequestMessage`. Notifications are dropped. The only
+/// exception is the exit notification after which the server shuts down.
+fn wait_for_initialization<R: BufRead, W: Write, E: Write>(
+    channel: &mut transport::Channel<R, W, E>,
+) -> request::Request
+where
+    R: BufRead,
+    W: Write,
+    E: Write,
+{
+    loop {
+        let req = match channel.read_msg() {
+            Ok(Some(r)) => r,
+            Ok(None) => continue,
+            Err(err) => {
+                channel.write_response_error(None, err);
+                continue;
+            }
+        };
+
+        match &req {
+            request::Request::InitializeRequest(_) | request::Request::ExitNotification(_) => {
+                return req
+            }
+            r if r.is_request() => {
+                channel.write_response_error(Some(req.get_id()), error_not_initialized());
+            }
+            _ => (),
+        }
+    }
+}
+
+pub fn error_not_initialized() -> protocol::ResponseError {
+    protocol::ResponseError {
+        code: protocol::ErrorCodes::ServerNotInitialized as i64,
+        message: "Error: Server not initialized. Cannot handle request.".to_string(),
+        data: None,
+    }
 }

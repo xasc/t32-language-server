@@ -4,7 +4,7 @@
 
 use std::{env, io, process};
 
-use t32_language_server::Stdio;
+use t32_language_server;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -13,7 +13,7 @@ fn main() {
         process::exit(64);
     }
 
-    let streams = Stdio {
+    let streams = t32_language_server::Stdio {
         reader: io::stdin().lock(),
         writer: &mut io::stdout(),
         error: &mut io::stderr(),

@@ -14,7 +14,7 @@
 
 use std::fmt;
 
-use crate::protocol::{RequestMessage, ResponseError};
+use crate::{protocol::ResponseError, request::Request};
 
 mod content;
 mod header;
@@ -70,7 +70,7 @@ pub fn parse(
     state: &mut ParseState,
     buf: &mut Vec<u8>,
     tokens: &mut Vec<Token>,
-) -> Result<Option<RequestMessage>, ResponseError> {
+) -> Result<Option<Request>, ResponseError> {
     if *state == ParseState::Syncing {
         assert_eq!(tokens.len(), 0);
 
@@ -190,9 +190,9 @@ fn parse_header(buf: &mut Vec<u8>, hist: &mut Vec<Token>) -> Result<usize, Respo
     }
 }
 
-fn parse_content(buf: &[u8]) -> Result<RequestMessage, ResponseError> {
-    let msg = content::parse_request(buf)?;
-    Ok(msg)
+fn parse_content(buf: &[u8]) -> Result<Request, ResponseError> {
+    let msg = content::parse_message(buf)?;
+    Ok(content::make_request(msg)?)
 }
 
 /// Guess the start of the next message by looking for the start of the next
@@ -219,7 +219,8 @@ mod tests {
 
         let mut state = ParseState::Syncing;
         let mut tokens = Vec::<Token>::new();
-        let rc = parse(&mut state, &mut header.as_bytes().to_vec(), &mut tokens).expect("Should not fail.");
+        let rc = parse(&mut state, &mut header.as_bytes().to_vec(), &mut tokens)
+            .expect("Should not fail.");
 
         assert!(rc.is_none());
         assert_eq!(state, ParseState::InContent(100));
@@ -228,11 +229,12 @@ mod tests {
     #[test]
     fn parses_all_lowercase_header() {
         let header =
-        "content-type: application/vscode-jsonrpc; charset=utf-8\r\ncontent-length: 99\r\n\r\n";
+            "content-type: application/vscode-jsonrpc; charset=utf-8\r\ncontent-length: 99\r\n\r\n";
 
         let mut state = ParseState::Syncing;
         let mut tokens = Vec::<Token>::new();
-        let rc = parse(&mut state, &mut header.as_bytes().to_vec(), &mut tokens).expect("Should not fail.");
+        let rc = parse(&mut state, &mut header.as_bytes().to_vec(), &mut tokens)
+            .expect("Should not fail.");
 
         assert!(rc.is_none());
         assert_eq!(state, ParseState::InContent(99));
@@ -245,7 +247,8 @@ mod tests {
 
         let mut state = ParseState::Syncing;
         let mut tokens = Vec::<Token>::new();
-        let rc = parse(&mut state, &mut header.as_bytes().to_vec(), &mut tokens).expect("Should not fail.");
+        let rc = parse(&mut state, &mut header.as_bytes().to_vec(), &mut tokens)
+            .expect("Should not fail.");
 
         assert!(rc.is_none());
         assert_eq!(state, ParseState::InContent(1));
@@ -258,7 +261,8 @@ mod tests {
         let mut state = ParseState::InContent(content.len());
         let mut tokens = Vec::<Token>::new();
 
-        let rc = parse(&mut state, &mut content.as_bytes().to_vec(), &mut tokens).expect("Should not fail.");
+        let rc = parse(&mut state, &mut content.as_bytes().to_vec(), &mut tokens)
+            .expect("Should not fail.");
 
         assert!(rc.is_some());
         assert_eq!(state, ParseState::Syncing);
@@ -271,7 +275,12 @@ mod tests {
         let mut state = ParseState::InContent(content.len());
         let mut tokens = Vec::<Token>::new();
 
-        let rc = parse(&mut state, &mut content.as_bytes()[..(content.len() -1)].to_vec(), &mut tokens).expect("Should not fail.");
+        let rc = parse(
+            &mut state,
+            &mut content.as_bytes()[..(content.len() - 1)].to_vec(),
+            &mut tokens,
+        )
+        .expect("Should not fail.");
 
         assert!(rc.is_none());
         assert_eq!(state, ParseState::InContent(content.len()));
@@ -280,14 +289,18 @@ mod tests {
     #[test]
     fn parses_msg() {
         let content = r#"{ "jsonrpc": "2.0", "id": 1, "method": "shutdown" }"#;
-        let header = format!("Content-Type: application/vscode-jsonrpc; charset=utf-8\r\nContent-Length: {}\r\n\r\n", content.len());
+        let header = format!(
+            "Content-Type: application/vscode-jsonrpc; charset=utf-8\r\nContent-Length: {}\r\n\r\n",
+            content.len()
+        );
 
         let msg = format!("{}{}", header, content);
 
         let mut state = ParseState::Syncing;
         let mut tokens = Vec::<Token>::new();
 
-        let rc = parse(&mut state, &mut msg.as_bytes().to_vec(), &mut tokens).expect("Should not fail.");
+        let rc =
+            parse(&mut state, &mut msg.as_bytes().to_vec(), &mut tokens).expect("Should not fail.");
 
         assert!(rc.is_some());
         assert_eq!(state, ParseState::Syncing);
@@ -300,7 +313,8 @@ mod tests {
         let mut state = ParseState::Syncing;
         let mut tokens = Vec::<Token>::new();
 
-        let rc = parse(&mut state, &mut msg.as_bytes().to_vec(), &mut tokens).expect("Should not fail.");
+        let rc =
+            parse(&mut state, &mut msg.as_bytes().to_vec(), &mut tokens).expect("Should not fail.");
 
         assert!(rc.is_some());
         assert_eq!(state, ParseState::Syncing);

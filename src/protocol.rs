@@ -4,9 +4,11 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use serde_repr::{Deserialize_repr, Serialize_repr};
 
 type Uri = String;
 type DocumentSelector = Vec<DocumentFilter>;
+type ProgressToken = NumberOrString;
 
 pub enum ErrorCodes {
     ParseError = -32700,
@@ -39,6 +41,8 @@ pub enum FailureHandlingKind {
     TextOnlyTransactional,
 }
 
+#[derive(Deserialize_repr)]
+#[repr(u8)]
 pub enum SymbolKind {
     File = 1,
     Module = 2,
@@ -68,26 +72,27 @@ pub enum SymbolKind {
     TypeParameter = 26,
 }
 
+#[derive(Deserialize_repr)]
+#[repr(u8)]
 pub enum SymbolTag {
     Deprecated = 1,
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum MarkupKind {
-    PlainText,
-    Markdown,
-}
-
+#[derive(Deserialize_repr)]
+#[repr(u8)]
 pub enum CompletionItemTag {
     Deprecated = 1,
 }
 
+#[derive(Deserialize_repr)]
+#[repr(u8)]
 pub enum InsertTextMode {
     AsIs = 1,
     AdjustIndentation = 2,
 }
 
+#[derive(Deserialize_repr)]
+#[repr(u8)]
 pub enum CompletionItemKind {
     Text = 1,
     Method = 2,
@@ -116,31 +121,80 @@ pub enum CompletionItemKind {
     TypeParameter = 25,
 }
 
-pub enum CodeActionKind {
-    Empty,
-    QuickFix,
-    Refactor,
-    RefactorExtract,
-    RefactorInline,
-    RefactorMove,
-    RefactorRewrite,
-    Source,
-    SourceOrganizeImports,
-    SourceFixAll,
-    Notebook,
-}
-
+#[derive(Deserialize_repr)]
+#[repr(u8)]
 pub enum CodeActionTag {
     LlmGenerated = 1,
 }
 
+#[derive(Deserialize_repr)]
+#[repr(u8)]
 pub enum PrepareSupportDefaultBehavior {
     Identifier = 1,
 }
 
+#[derive(Deserialize_repr)]
+#[repr(u8)]
 pub enum DiagnosticTag {
     Unnecessary = 1,
     Deprecated = 2,
+}
+
+#[derive(Serialize_repr)]
+#[repr(u8)]
+pub enum InitializeErrorCodes {
+    UnknownProtocolVersion = 1,
+}
+
+#[derive(Serialize_repr)]
+#[repr(u8)]
+pub enum TextDocumentSyncKind {
+    None = 0,
+    Full = 1,
+    Incremental = 2,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MarkupKind {
+    PlainText,
+    Markdown,
+}
+
+#[derive(Deserialize, Serialize)]
+pub enum CodeActionKind {
+    #[serde(rename(deserialize = ""))]
+    Empty,
+
+    #[serde(rename(deserialize = "quickfix"))]
+    QuickFix,
+
+    #[serde(rename(deserialize = "refactor"))]
+    Refactor,
+
+    #[serde(rename(deserialize = "refactor.extract"))]
+    RefactorExtract,
+
+    #[serde(rename(deserialize = "refactor.inline"))]
+    RefactorInline,
+
+    #[serde(rename(deserialize = "refactor.move"))]
+    RefactorMove,
+
+    #[serde(rename(deserialize = "refactor.rewrite"))]
+    RefactorRewrite,
+
+    #[serde(rename(deserialize = "source"))]
+    Source,
+
+    #[serde(rename(deserialize = "source.organizeImports"))]
+    SourceOrganizeImports,
+
+    #[serde(rename(deserialize = "source.fixAll"))]
+    SourceFixAll,
+
+    #[serde(rename(deserialize = "notebook"))]
+    Notebook,
 }
 
 #[derive(Deserialize)]
@@ -151,9 +205,14 @@ pub enum FoldingRangeKind {
     Region,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", untagged)]
 pub enum SemanticTokenFullRequestsCapabilities {
     Bool(bool),
-    Delta { delta: Option<bool> },
+    Delta {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        delta: Option<bool>,
+    },
 }
 
 #[derive(Deserialize)]
@@ -162,14 +221,20 @@ pub enum TokenFormat {
     Relative,
 }
 
+#[derive(Deserialize, Serialize)]
 pub enum PositionEncodingKind {
+    #[serde(rename(deserialize = "utf-8"))]
     Utf8,
+
+    #[serde(rename(deserialize = "utf-16"))]
     Utf16,
+
+    #[serde(rename(deserialize = "utf-32"))]
     Utf32,
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "lowercase", untagged)]
 pub enum TraceValue {
     Off,
     Messages,
@@ -181,200 +246,257 @@ pub enum ProgressTokenKind {
     String(String),
 }
 
-pub enum NumberStringOrNull {
-    Number(i64),
-    String(String),
-    Null,
-}
-
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum NumberOrString {
     Number(i64),
     String(String),
 }
 
+#[derive(Serialize)]
+#[serde(untagged)]
 pub enum TextDocumentSyncServerCapabilities {
     TextDocumentSyncOptions,
     TextDocumentSyncKind,
 }
 
-pub enum TextDocumentSyncKind {
-    None = 0,
-    Full = 1,
-    Incremental = 2,
-}
-
+#[derive(Serialize)]
+#[serde(untagged)]
 pub enum NotebookDocumentSyncServerCapabilities {
-    NotebookDocumentSyncOptions,
-    NotebookDocumentSyncRegistrationOptions,
+    NotebookDocumentSyncOptions(NotebookDocumentSyncOptions),
+    NotebookDocumentSyncRegistrationOptions(NotebookDocumentSyncRegistrationOptions),
 }
 
+#[derive(Serialize)]
+#[serde(untagged)]
 pub enum NotebookSelector {
-    NotebookSelectorByNotebook,
-    NotebookSelectorByCell,
+    NotebookSelectorByNotebook(NotebookSelectorByNotebook),
+    NotebookSelectorByCell(NotebookSelectorByCell),
 }
 
+#[derive(Serialize)]
+#[serde(untagged)]
 pub enum NotebookSelectorNotebook {
-    String,
+    String(String),
     NotebookDocumentFilter,
 }
 
+#[derive(Serialize)]
+#[serde(untagged)]
 pub enum NotebookDocumentFilter {
-    NotebookDocumentFilterByType,
-    NotebookDocumentFilterByScheme,
-    NotebookDocumentFilterByPattern,
+    NotebookDocumentFilterByType(NotebookDocumentFilterByType),
+    NotebookDocumentFilterByScheme(NotebookDocumentFilterByScheme),
+    NotebookDocumentFilterByPattern(NotebookDocumentFilterByPattern),
 }
 
+#[derive(Serialize)]
+#[serde(untagged)]
 pub enum GlobPattern {
-    String,
-    RelativePattern,
+    String(String),
+    RelativePattern(RelativePattern),
 }
 
+#[derive(Serialize)]
+#[serde(untagged)]
 pub enum HoverProvider {
     Bool(bool),
-    HoverOptions,
+    HoverOptions(HoverOptions),
 }
 
+#[derive(Serialize)]
+#[serde(untagged)]
 pub enum DeclarationProvider {
     Bool(bool),
-    DeclarationOptions,
-    DeclarationRegistrationOptions,
+    DeclarationOptions(DeclarationOptions),
+    DeclarationRegistrationOptions(DeclarationRegistrationOptions),
 }
 
+#[derive(Serialize)]
+#[serde(untagged)]
 pub enum DefinitionProvider {
     Bool(bool),
-    DefinitionOptions,
+    DefinitionOptions(DefinitionOptions),
 }
 
+#[derive(Serialize)]
+#[serde(untagged)]
 pub enum TypeDefinitionProvider {
     Bool(bool),
-    TypeDefinitionOptions,
-    TypeDefinitionRegistrationOptions,
+    TypeDefinitionOptions(TypeDefinitionOptions),
+    TypeDefinitionRegistrationOptions(TypeDefinitionRegistrationOptions),
 }
 
+#[derive(Serialize)]
+#[serde(untagged)]
 pub enum ImplementationProvider {
     Bool(bool),
-    ImplementationOptions,
-    ImplementationRegistrationOptions,
+    ImplementationOptions(ImplementationOptions),
+    ImplementationRegistrationOptions(ImplementationRegistrationOptions),
 }
 
+#[derive(Serialize)]
+#[serde(untagged)]
 pub enum ReferencesProvider {
     Bool(bool),
-    ReferenceOptions,
+    ReferenceOptions(ReferenceOptions),
 }
 
+#[derive(Serialize)]
+#[serde(untagged)]
 pub enum DocumentHighlightProvider {
     Bool(bool),
-    DocumentHighlightOptions,
+    DocumentHighlightOptions(DocumentHighlightOptions),
 }
 
+#[derive(Serialize)]
+#[serde(untagged)]
 pub enum DocumentSymbolProvider {
     Bool(bool),
-    DocumentSymbolOptions,
+    DocumentSymbolOptions(DocumentSymbolOptions),
 }
 
+#[derive(Serialize)]
+#[serde(untagged)]
 pub enum CodeActionProvider {
     Bool(bool),
-    CodeActionOptions,
+    CodeActionOptions(CodeActionOptions),
 }
 
+#[derive(Serialize)]
+#[serde(untagged)]
 pub enum ColorProvider {
     Bool(bool),
-    DocumentColorOptions,
-    DocumentColorRegistrationOptions,
+    DocumentColorOptions(DocumentColorOptions),
+    DocumentColorRegistrationOptions(DocumentColorRegistrationOptions),
 }
 
+#[derive(Serialize)]
+#[serde(untagged)]
 pub enum DocumentFormattingProvider {
     Bool(bool),
-    DocumentFormattingOptions,
+    DocumentFormattingOptions(DocumentFormattingOptions),
 }
 
+#[derive(Serialize)]
+#[serde(untagged)]
 pub enum DocumentRangeFormattingProvider {
     Bool(bool),
-    DocumentRangeFormattingOptions,
+    DocumentRangeFormattingOptions(DocumentRangeFormattingOptions),
 }
 
+#[derive(Serialize)]
+#[serde(untagged)]
 pub enum RenameProvider {
     Bool(bool),
-    RenameOptions,
+    RenameOptions(RenameOptions),
 }
 
+#[derive(Serialize)]
+#[serde(untagged)]
 pub enum FoldingRangeProvider {
     Bool(bool),
-    FoldingRangeOptions,
-    FoldingRangeRegistrationOptions,
+    FoldingRangeOptions(FoldingRangeOptions),
+    FoldingRangeRegistrationOptions(FoldingRangeRegistrationOptions),
 }
 
+#[derive(Serialize)]
+#[serde(untagged)]
 pub enum SelectionRangeProvider {
     Bool(bool),
-    SelectionRangeOptions,
-    SelectionRangeRegistrationOptions,
+    SelectionRangeOptions(SelectionRangeOptions),
+    SelectionRangeRegistrationOptions(SelectionRangeRegistrationOptions),
 }
 
+#[derive(Serialize)]
+#[serde(untagged)]
 pub enum LinkedEditingRangeProvider {
     Bool(bool),
-    LinkedEditingRangeOptions,
-    LinkedEditingRangeRegistrationOptions,
+    LinkedEditingRangeOptions(LinkedEditingRangeOptions),
+    LinkedEditingRangeRegistrationOptions(LinkedEditingRangeRegistrationOptions),
 }
 
+#[derive(Serialize)]
+#[serde(untagged)]
 pub enum CallHierarchyProvider {
     Bool(bool),
-    CallHierarchyOptions,
-    CallHierarchyRegistrationOptions,
+    CallHierarchyOptions(CallHierarchyOptions),
+    CallHierarchyRegistrationOptions(CallHierarchyRegistrationOptions),
 }
 
+#[derive(Serialize)]
+#[serde(untagged)]
 pub enum SemanticTokensProvider {
-    SemanticTokensOptions,
-    SemanticTokensRegistrationOptions,
+    SemanticTokensOptions(SemanticTokensOptions),
+    SemanticTokensRegistrationOptions(SemanticTokensRegistrationOptions),
 }
 
+#[derive(Serialize)]
+#[serde(untagged)]
 pub enum SemanticTokensFullDocumentCapabilities {
     Bool(bool),
-    Delta { delta: Option<bool> },
+    Delta {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        delta: Option<bool>,
+    },
 }
 
+#[derive(Serialize)]
+#[serde(untagged)]
 pub enum MonikerProvider {
     Bool(bool),
-    MonikerOptions,
-    MonikerRegistrationOptions,
+    MonikerOptions(MonikerOptions),
+    MonikerRegistrationOptions(MonikerRegistrationOptions),
 }
 
+#[derive(Serialize)]
+#[serde(untagged)]
 pub enum TypeHierarchyProvider {
     Bool(bool),
-    TypeHierarchyOptions,
-    TypeHierarchyRegistrationOptions,
+    TypeHierarchyOptions(TypeHierarchyOptions),
+    TypeHierarchyRegistrationOptions(TypeHierarchyRegistrationOptions),
 }
 
+#[derive(Serialize)]
+#[serde(untagged)]
 pub enum InlineValueProvider {
     Bool(bool),
-    InlineValueOptions,
-    InlineValueRegistrationOptions,
+    InlineValueOptions(InlineValueOptions),
+    InlineValueRegistrationOptions(InlineValueRegistrationOptions),
 }
 
+#[derive(Serialize)]
+#[serde(untagged)]
 pub enum InlayHintProvider {
     Bool(bool),
-    InlayHintOptions,
-    InlayHintRegistrationOptions,
+    InlayHintOptions(InlayHintOptions),
+    InlayHintRegistrationOptions(InlayHintRegistrationOptions),
 }
 
+#[derive(Serialize)]
+#[serde(untagged)]
 pub enum DiagnosticProvider {
-    DiagnosticOptions,
-    DiagnosticRegistrationOptions,
+    DiagnosticOptions(DiagnosticOptions),
+    DiagnosticRegistrationOptions(DiagnosticRegistrationOptions),
 }
 
+#[derive(Serialize)]
+#[serde(untagged)]
 pub enum WorkspaceSymbolProvider {
     Bool(bool),
-    WorkspaceSymbolOptions,
+    WorkspaceSymbolOptions(WorkspaceSymbolOptions),
 }
 
+#[derive(Serialize)]
+#[serde(untagged)]
 pub enum InlineCompletionProvider {
     Bool(bool),
-    InlineCompletionOptions,
+    InlineCompletionOptions(InlineCompletionOptions),
 }
 
+#[derive(Serialize)]
+#[serde(untagged)]
 pub enum ChangeNotifications {
-    String,
+    String(String),
     Bool(bool),
 }
 
@@ -385,31 +507,29 @@ pub enum FileOperationPatternKind {
     Folder,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum InitializeErrorCodes {
-    unknownProtocolVersion = 1,
-}
-
+/// Line format of `RequestMessage` or `NotificationMessage` requests from
+/// client to server.
 #[derive(Deserialize)]
 pub struct RequestMessage {
     pub jsonrpc: String,
-    pub id: NumberOrString,
     pub method: String,
     pub params: Option<Value>,
+
+    // Only for `RequestMessage`
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<NumberOrString>,
 }
 
+#[derive(Serialize)]
 pub struct ResponseMessage {
-    jsonrpc: String,
-    id: NumberStringOrNull,
-    result: Option<Value>,
-    error: Option<ResponseError>,
-}
+    pub jsonrpc: String,
+    pub id: Option<NumberOrString>,
 
-pub struct NotificationMessage {
-    jsonrpc: String,
-    method: String,
-    params: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<Value>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<ResponseError>,
 }
 
 #[derive(Debug, Serialize)]
@@ -421,488 +541,1615 @@ pub struct ResponseError {
     pub data: Option<Value>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InitializeParams {
-    process_id: Option<u32>,
-    client_info: Option<ClientInfo>,
-    locale: String,
-    root_path: Option<String>,
-    root_uri: Uri,
-    initialization_options: Option<Value>,
-    capabilities: ClientCapabilities,
-    trace: Option<TraceValue>,
-    workspace_folders: Option<Vec<WorkspaceFolder>>,
-    work_done_token: Option<WorkDoneProgressParams>,
+    pub process_id: Option<i64>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_info: Option<ClientInfo>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub locale: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub root_path: Option<String>,
+    pub root_uri: Option<Uri>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub initialization_options: Option<Value>,
+    pub capabilities: ClientCapabilities,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trace: Option<TraceValue>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace_folders: Option<Vec<WorkspaceFolder>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub work_done_token: Option<WorkDoneProgressParams>,
 }
 
+#[derive(Deserialize)]
 pub struct ClientInfo {
     name: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     version: Option<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ClientCapabilities {
-    workspace: Option<WorkspaceClientCapabilities>,
-    text_document: Option<TextDocumentClientCapabilities>,
-    notebook_document: Option<NotebookDocumentClientCapabilities>,
-    window: Option<WindowClientCapabilities>,
-    general: Option<GeneralClientCapabilities>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<WorkspaceClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text_document: Option<TextDocumentClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notebook_document: Option<NotebookDocumentClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub window: Option<WindowClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub general: Option<GeneralClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub experimental: Option<Value>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WorkspaceClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     apply_edit: Option<bool>,
-    workspace_edit: Option<WorkspaceEditClientCapabilities>,
-    did_change_configuration: Option<DidChangeConfigurationClientCapabilities>,
-    did_change_watched_files: Option<DidChangeWatchedFilesClientCapabilities>,
-    symbol: Option<WorkspaceSymbolClientCapabilities>,
-    execute_command: Option<ExecuteCommandClientCapabilities>,
-}
 
-pub struct WorkspaceEditClientCapabilities {
-    document_changes: Option<bool>,
-    resource_operations: Option<Vec<ResourceOperationKind>>,
-    failure_handling: Option<FailureHandlingKind>,
-    normalizes_line_endings: Option<bool>,
-    change_annotation_support: Option<ChangeAnnotation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workspace_edit: Option<WorkspaceEditClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    did_change_configuration: Option<DidChangeConfigurationClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    did_change_watched_files: Option<DidChangeWatchedFilesClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    symbol: Option<WorkspaceSymbolClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    execute_command: Option<ExecuteCommandClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     workspace_folders: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     configuration: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     semantic_tokens: Option<SemanticTokensWorkspaceClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     code_lens: Option<CodeLensWorkspaceClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     file_operations: Option<FileOperationsWorkspaceClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     inline_value: Option<InlineValueWorkspaceClientCapabilities>,
-    inlay_hint: Option<InlineValueWorkspaceClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    inlay_hint: Option<InlayHintWorkspaceClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     diagnostics: Option<DiagnosticWorkspaceClientCapabilities>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceEditClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    document_changes: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    resource_operations: Option<Vec<ResourceOperationKind>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    failure_handling: Option<FailureHandlingKind>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    normalizes_line_endings: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    change_annotation_support: Option<ChangeAnnotation>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    metadata_support: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    snippet_edit_support: Option<bool>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ChangeAnnotation {
+    #[serde(skip_serializing_if = "Option::is_none")]
     groups_on_label: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DidChangeConfigurationClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DidChangeWatchedFilesClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     relative_pattern_support: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WorkspaceSymbolClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     symbol_kind: Option<SymbolKindCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     tag_support: Option<SymbolTagSupportCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     resolve_support: Option<ResolveSupportWorkspaceSymbolClientCapabilities>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SymbolKindCapabilities {
     value_set: Option<Vec<SymbolKind>>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SymbolTagSupportCapabilities {
     value_set: Vec<SymbolTag>,
 }
 
+#[derive(Deserialize)]
 pub struct ResolveSupportWorkspaceSymbolClientCapabilities {
     properties: Vec<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ExecuteCommandClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SemanticTokensWorkspaceClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     refresh_support: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CodeLensWorkspaceClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     refresh_support: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FileOperationsWorkspaceClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     did_create: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     will_create: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     did_rename: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     will_rename: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     did_delete: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     will_delete: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InlineValueWorkspaceClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     refresh_support: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InlayHintWorkspaceClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     refresh_support: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DiagnosticWorkspaceClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     refresh_support: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TextDocumentClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     synchronization: Option<TextDocumentSyncClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     filters: Option<TextDocumentFilterClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     completion: Option<CompletionClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     hover: Option<HoverClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     signature_help: Option<SignatureHelpClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     declaration: Option<DeclarationClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     definition: Option<DefinitionClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     type_definition: Option<TypeDefinitionClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     implementation: Option<ImplementationClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     references: Option<ReferenceClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     document_highlight: Option<DocumentHighlightClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     document_symbol: Option<DocumentSymbolClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     code_action: Option<CodeActionClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     code_lens: Option<CodeLensClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     document_link: Option<DocumentLinkClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     color_provider: Option<DocumentColorClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     formatting: Option<DocumentFormattingClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     range_formatting: Option<DocumentRangeFormattingClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     on_type_formatting: Option<DocumentOnTypeFormattingClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     rename: Option<RenameClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     publish_diagnostics: Option<PublishDiagnosticsClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     folding_range: Option<FoldingRangeClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     selection_range: Option<SelectionRangeClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     linked_editing_range: Option<LinkedEditingRangeClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     call_hierarchy: Option<CallHierarchyClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     semantic_tokens: Option<SemanticTokensClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     moniker: Option<MonikerClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     type_hierarchy: Option<TypeHierarchyClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     inline_value: Option<InlineValueClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     inlay_hint: Option<InlayHintClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     diagnostic: Option<DiagnosticClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     inline_completion: Option<InlineCompletionClientCapabilities>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TextDocumentSyncClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     will_save: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     will_save_wait_until: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     did_save: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TextDocumentFilterClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     relative_pattern_support: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CompletionClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     completion_item: Option<CompletionItemCompletionClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     completion_item_kind: Option<CompletionItemKindCompletionClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     context_support: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     insert_text_mode: InsertTextMode,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     completion_list: Option<CompletionListCompletionClientCapabilities>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CompletionItemCompletionClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     snippet_support: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     commit_characters_support: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     documentation_format: Option<Vec<MarkupKind>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     deprecated_support: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     preselect_support: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     tag_support: Option<TagSupportCompletionItemCompletionClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     insert_replace_support: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     resolve_support: Option<ResolveSupportCompletionItemCompletionClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     insert_text_mode_support:
         Option<InsertTextModeSupportCompletionItemCompletionClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     label_details_support: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TagSupportCompletionItemCompletionClientCapabilities {
     value_set: Vec<CompletionItemTag>,
 }
 
+#[derive(Deserialize)]
 pub struct ResolveSupportCompletionItemCompletionClientCapabilities {
     properties: Vec<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InsertTextModeSupportCompletionItemCompletionClientCapabilities {
     value_set: Vec<InsertTextMode>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CompletionItemKindCompletionClientCapabilities {
     value_set: Vec<CompletionItemKind>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CompletionListCompletionClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     item_defaults: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     apply_kind_support: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct HoverClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     content_format: Option<MarkupKind>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SignatureHelpClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     signature_information: Option<SignatureInformationCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     context_support: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SignatureInformationCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     documentation_format: Option<Vec<MarkupKind>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     parameter_information: Option<ParameterInformationCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     active_parameter_support: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     no_active_parameter_support: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ParameterInformationCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     label_offset_support: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DeclarationClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     link_support: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DefinitionClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     link_support: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TypeDefinitionClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     link_support: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ImplementationClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     link_support: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ReferenceClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DocumentHighlightClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DocumentSymbolClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     symbol_kind: Option<SymbolKindCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     hierarchical_document_symbol_support: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     tag_support: Option<SymbolTagSupportCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     label_support: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CodeActionClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     code_action_literal_support: Option<CodeActionLiteralSupportCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     is_preferred_support: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     disabled_support: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     data_support: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     resolve_support: Option<ResolveSupportCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     honors_change_annotations: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     documentation_support: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     tag_support: Option<CodeActionTagSupportCapabilities>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CodeActionLiteralSupportCapabilities {
     code_action_kind: CodeActionKindCapabilities,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CodeActionKindCapabilities {
     value_set: Vec<CodeActionKind>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ResolveSupportCapabilities {
     properties: Vec<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CodeActionTagSupportCapabilities {
     value_set: Vec<CodeActionTag>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CodeLensClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     resolve_support: Option<ClientCodeLensResolveOptions>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ClientCodeLensResolveOptions {
     properties: Vec<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DocumentLinkClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     tooltip_support: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DocumentColorClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DocumentFormattingClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DocumentRangeFormattingClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     ranges_support: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DocumentOnTypeFormattingClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RenameClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     prepare_support: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     prepare_support_default_behavior: Option<PrepareSupportDefaultBehavior>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     honors_change_annotations: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PublishDiagnosticsClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     related_information: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     tag_support: Option<DiagnosticTagSupportCapability>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     version_support: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     code_description_support: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     data_support: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DiagnosticTagSupportCapability {
     value_set: Vec<DiagnosticTag>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FoldingRangeClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     range_limit: Option<u32>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     line_folding_only: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     folding_range_kind: Option<FoldingRangeKindCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     folding_range: Option<FoldingRangeCapabilities>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FoldingRangeKindCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     value_set: Vec<FoldingRangeKind>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FoldingRangeCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     collapsed_text: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SelectionRangeClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LinkedEditingRangeClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CallHierarchyClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SemanticTokensClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
     requests: Option<SemanticTokenRequestsCapabilities>,
-}
-
-pub struct SemanticTokenRequestsCapabilities {
-    range: Option<bool>,
-    full: Option<SemanticTokenFullRequestsCapabilities>,
     token_types: Vec<String>,
     token_modifiers: Vec<String>,
     formats: Vec<TokenFormat>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     overlapping_token_support: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     multiline_token_support: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     server_cancel_support: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     augments_syntax_tokens: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SemanticTokenRequestsCapabilities {
+    range: Option<bool>,
+    full: Option<SemanticTokenFullRequestsCapabilities>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MonikerClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TypeHierarchyClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InlineValueClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InlayHintClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     resolve_support: Option<ResolveSupportCapabilities>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DiagnosticClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     related_document_support: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     markup_message_support: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InlineCompletionClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct NotebookDocumentClientCapabilities {
     synchronization: NotebookDocumentSyncClientCapabilities,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct NotebookDocumentSyncClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     execution_summary_support: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WindowClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     work_done_progress: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     show_message: Option<ShowMessageRequestClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     show_document: Option<ShowDocumentClientCapabilities>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ShowMessageRequestClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     message_action_item: Option<MessageActionItemClientCapabilities>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MessageActionItemClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     additional_properties_support: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ShowDocumentClientCapabilities {
     support: bool,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GeneralClientCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
     stale_request_support: Option<StaleRequestSupportClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     regular_expressions: Option<RegularExpressionsClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     markdown: Option<MarkdownClientCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     position_encodings: Option<Vec<PositionEncodingKind>>,
-    experimental: Option<Value>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StaleRequestSupportClientCapabilities {
     cancel: bool,
     retry_on_content_modified: Vec<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RegularExpressionsClientCapabilities {
     engine: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     version: Option<bool>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MarkdownClientCapabilities {
     parser: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     version: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     allowed_tags: Option<Vec<String>>,
 }
 
+#[derive(Deserialize, Serialize)]
 pub struct WorkspaceFolder {
     uri: Uri,
     name: String,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WorkDoneProgressParams {
     work_done_token: Option<ProgressToken>,
 }
 
-pub struct ProgressToken {
+pub struct ProgressParams {
     token: ProgressTokenKind,
     value: Value,
 }
 
+#[derive(Serialize)]
+pub struct TextDocumentSyncOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    open_close: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    change: Option<TextDocumentSyncKind>,
+}
+
+#[derive(Serialize)]
+pub struct NotebookDocumentSyncOptions {
+    notebook_selector: Vec<NotebookSelector>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    save: Option<bool>,
+}
+
+#[derive(Serialize)]
+pub struct NotebookDocumentSyncRegistrationOptions {
+    notebook_selector: Vec<NotebookSelector>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    save: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct NotebookSelectorByNotebook {
+    notebook: NotebookSelectorNotebook,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cells: Option<Vec<NotebookSelectorCell>>,
+}
+
+#[derive(Serialize)]
+pub struct NotebookSelectorByCell {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    notebook: Option<NotebookSelectorNotebook>,
+
+    cells: Vec<NotebookSelectorCell>,
+}
+
+#[derive(Serialize)]
+pub struct NotebookDocumentFilterByType {
+    notebook_type: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    scheme: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pattern: Option<GlobPattern>,
+}
+
+#[derive(Serialize)]
+pub struct NotebookDocumentFilterByScheme {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    notebook_type: Option<String>,
+
+    scheme: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pattern: Option<GlobPattern>,
+}
+
+#[derive(Serialize)]
+pub struct NotebookDocumentFilterByPattern {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    notebook_type: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    scheme: Option<String>,
+    pattern: GlobPattern,
+}
+
+#[derive(Serialize)]
+pub struct RelativePattern {
+    base_uri: WorkspaceFolder,
+    pattern: String,
+}
+
+#[derive(Serialize)]
+pub struct NotebookSelectorCell {
+    language: String,
+}
+
+#[derive(Serialize)]
+pub struct CompletionOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    trigger_characters: Option<Vec<String>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    all_commit_characters: Option<Vec<String>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    resolve_provider: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    completion_item: Option<CompletionOptionsCompletionItemCapability>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_done_progress: Option<bool>,
+}
+
+#[derive(Serialize)]
+pub struct CompletionOptionsCompletionItemCapability {
+    label_details_support: Option<bool>,
+}
+
+#[derive(Serialize)]
+pub struct HoverOptions {
+    work_done_progress: Option<bool>,
+}
+
+#[derive(Serialize)]
+pub struct SignatureHelpOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    trigger_characters: Option<Vec<String>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    retrigger_characters: Option<Vec<String>>,
+}
+
+#[derive(Serialize)]
+pub struct DeclarationOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_done_progress: Option<bool>,
+}
+
+#[derive(Serialize)]
+pub struct DeclarationRegistrationOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_done_progress: Option<bool>,
+
+    document_selector: Option<DocumentSelector>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct DocumentFilter {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    language: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    scheme: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pattern: Option<GlobPattern>,
+}
+
+#[derive(Serialize)]
+pub struct DefinitionOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_done_progress: Option<bool>,
+}
+
+#[derive(Serialize)]
+pub struct TypeDefinitionOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_done_progress: Option<bool>,
+}
+
+#[derive(Serialize)]
+pub struct TypeDefinitionRegistrationOptions {
+    document_selector: Option<DocumentSelector>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_done_progress: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct ImplementationOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_done_progress: Option<bool>,
+}
+
+#[derive(Serialize)]
+pub struct ImplementationRegistrationOptions {
+    document_selector: Option<DocumentSelector>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_done_progress: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct ReferenceOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_done_progress: Option<bool>,
+}
+
+#[derive(Serialize)]
+pub struct DocumentHighlightOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_done_progress: Option<bool>,
+}
+
+#[derive(Serialize)]
+pub struct DocumentSymbolOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    label: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_done_progress: Option<bool>,
+}
+
+#[derive(Serialize)]
+pub struct CodeActionOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    code_action_kinds: Option<Vec<CodeActionKind>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    documentation: Option<Vec<CodeActionKindDocumentation>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    resolve_provider: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_done_progress: Option<bool>,
+}
+
+#[derive(Serialize)]
+pub struct CodeActionKindDocumentation {
+    kind: CodeActionKind,
+    command: Command,
+}
+
+#[derive(Serialize)]
+pub struct Command {
+    title: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tooltip: Option<String>,
+    command: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    arguments: Option<Vec<Value>>,
+}
+
+#[derive(Serialize)]
+pub struct CodeLensOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    resolve_provider: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_done_progress: Option<bool>,
+}
+
+#[derive(Serialize)]
+pub struct DocumentLinkOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    resolve_provider: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_done_progress: Option<bool>,
+}
+
+#[derive(Serialize)]
+pub struct DocumentColorOptions {
+    work_done_progress: Option<bool>,
+}
+
+#[derive(Serialize)]
+pub struct DocumentColorRegistrationOptions {
+    document_selector: Option<DocumentSelector>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_done_progress: Option<bool>,
+}
+
+#[derive(Serialize)]
+pub struct DocumentFormattingOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_done_progress: Option<bool>,
+}
+
+#[derive(Serialize)]
+pub struct DocumentRangeFormattingOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ranges_support: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_done_progress: Option<bool>,
+}
+
+#[derive(Serialize)]
+pub struct DocumentOnTypeFormattingOptions {
+    first_trigger_character: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    more_trigger_character: Option<Vec<String>>,
+}
+
+#[derive(Serialize)]
+pub struct RenameOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    prepare_provider: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_done_progress: Option<bool>,
+}
+
+#[derive(Serialize)]
+pub struct FoldingRangeOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_done_progress: Option<bool>,
+}
+
+#[derive(Serialize)]
+pub struct FoldingRangeRegistrationOptions {
+    document_selector: Option<DocumentSelector>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_done_progress: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct ExecuteCommandOptions {
+    commands: Vec<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_done_progress: Option<bool>,
+}
+
+#[derive(Serialize)]
+pub struct SelectionRangeOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_done_progress: Option<bool>,
+}
+
+#[derive(Serialize)]
+pub struct SelectionRangeRegistrationOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_done_progress: Option<bool>,
+
+    document_selector: Option<DocumentSelector>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct LinkedEditingRangeOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_done_progress: Option<bool>,
+}
+
+#[derive(Serialize)]
+pub struct LinkedEditingRangeRegistrationOptions {
+    document_selector: Option<DocumentSelector>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_done_progress: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct CallHierarchyOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_done_progress: Option<bool>,
+}
+
+#[derive(Serialize)]
+pub struct CallHierarchyRegistrationOptions {
+    document_selector: Option<DocumentSelector>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_done_progress: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct SemanticTokensOptions {
+    legend: SemanticTokensLegend,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    range: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    full: Option<SemanticTokensFullDocumentCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_done_progress: Option<bool>,
+}
+
+#[derive(Serialize)]
+pub struct SemanticTokensLegend {
+    token_types: Vec<String>,
+    token_modifiers: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub struct SemanticTokensRegistrationOptions {
+    document_selector: Option<DocumentSelector>,
+    legend: SemanticTokensLegend,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    range: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    full: Option<SemanticTokensFullDocumentCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_done_progress: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct MonikerOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_done_progress: Option<bool>,
+}
+
+#[derive(Serialize)]
+pub struct MonikerRegistrationOptions {
+    document_selector: Option<DocumentSelector>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_done_progress: Option<bool>,
+}
+
+#[derive(Serialize)]
+pub struct TypeHierarchyOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_done_progress: Option<bool>,
+}
+
+#[derive(Serialize)]
+pub struct TypeHierarchyRegistrationOptions {
+    document_selector: Option<DocumentSelector>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_done_progress: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct InlineValueOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_done_progress: Option<bool>,
+}
+
+#[derive(Serialize)]
+pub struct InlineValueRegistrationOptions {
+    document_selector: Option<DocumentSelector>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_done_progress: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct InlayHintOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    resolve_provider: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_done_progress: Option<bool>,
+}
+
+#[derive(Serialize)]
+pub struct InlayHintRegistrationOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    resolve_provider: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_done_progress: Option<bool>,
+    document_selector: Option<DocumentSelector>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct DiagnosticOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    identifier: Option<String>,
+    inter_file_dependencies: bool,
+    workspace_diagnostics: bool,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_done_progress: Option<bool>,
+}
+
+#[derive(Serialize)]
+pub struct DiagnosticRegistrationOptions {
+    document_selector: Option<DocumentSelector>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    identifier: Option<String>,
+    inter_file_dependencies: bool,
+    workspace_diagnostics: bool,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_done_progress: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct WorkspaceSymbolOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    resolve_provider: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_done_progress: Option<bool>,
+}
+
+#[derive(Serialize)]
+pub struct InlineCompletionOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_done_progress: Option<bool>,
+}
+
+#[derive(Serialize)]
+pub struct TextDocumentServerCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    diagnostic: Option<TextDocumentDiagnosticServerCapabilities>,
+}
+
+#[derive(Serialize)]
+pub struct TextDocumentDiagnosticServerCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    markup_message_support: Option<bool>,
+}
+
+#[derive(Serialize)]
+pub struct WorkspaceServerCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workspace_folders: Option<WorkspaceFoldersServerCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    file_operations: Option<WorkspaceFileOperations>,
+}
+
+#[derive(Serialize)]
+pub struct WorkspaceFoldersServerCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    supported: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    change_notifications: Option<ChangeNotifications>,
+}
+
+#[derive(Serialize)]
+pub struct WorkspaceFileOperations {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    did_create: Option<FileOperationRegistrationOptions>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    will_create: Option<FileOperationRegistrationOptions>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    did_rename: Option<FileOperationRegistrationOptions>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    will_rename: Option<FileOperationRegistrationOptions>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    did_delete: Option<FileOperationRegistrationOptions>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    will_delete: Option<FileOperationRegistrationOptions>,
+}
+
+#[derive(Serialize)]
+pub struct FileOperationRegistrationOptions {
+    filters: Vec<FileOperationFilter>,
+}
+
+#[derive(Serialize)]
+pub struct FileOperationFilter {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    scheme: Option<String>,
+
+    pattern: FileOperationPattern,
+}
+
+#[derive(Serialize)]
+pub struct FileOperationPattern {
+    glob: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    matches: Option<FileOperationPatternKind>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    options: Option<FileOperationPatternOptions>,
+}
+
+#[derive(Serialize)]
+pub struct FileOperationPatternOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ignore_case: Option<bool>,
+}
+
+#[derive(Serialize)]
 pub struct InitializeResult {
     capabilities: ServerCapabilities,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     server_info: Option<ServerInfo>,
 }
 
@@ -910,410 +2157,124 @@ pub struct InitializeError {
     retry: bool,
 }
 
-pub struct ServerCapabilities {
-    position_encoding: Option<PositionEncodingKind>,
-    text_document_sync: Option<TextDocumentSyncServerCapabilities>,
-    notebook_document_sync: Option<NotebookDocumentSyncServerCapabilities>,
-    completion_provider: Option<CompletionOptions>,
-    hover_provider: Option<HoverProvider>,
-    signature_help_provider: Option<SignatureHelpOptions>,
-    declaration_provider: Option<DeclarationProvider>,
-    definition_provider: Option<DefinitionOptions>,
-    type_definition_provider: Option<TypeDefinitionProvider>,
-    implementation_provider: Option<ImplementationProvider>,
-    references_provider: Option<ReferencesProvider>,
-    document_highlight_provider: Option<DocumentHighlightProvider>,
-    document_symbol_provider: Option<DocumentSymbolProvider>,
-    code_action_provider: Option<CodeActionOptions>,
-    code_lens_provider: Option<CodeLensOptions>,
-    document_link_provider: Option<DocumentLinkOptions>,
-    color_provider: Option<ColorProvider>,
-    document_formatting_provider: Option<DocumentFormattingOptions>,
-    document_range_formatting_provider: Option<DocumentRangeFormattingProvider>,
-    document_on_type_formatting_provider: Option<DocumentOnTypeFormattingOptions>,
-    rename_provider: Option<RenameProvider>,
-    folding_range_provider: Option<FoldingRangeProvider>,
-    execute_command_provider: Option<ExecuteCommandOptions>,
-    selection_range_provider: Option<SelectionRangeProvider>,
-    linked_editing_range_provider: Option<LinkedEditingRangeProvider>,
-    call_hierarchy_provider: Option<CallHierarchyProvider>,
-    semantic_tokens_provider: Option<SemanticTokensProvider>,
-    moniker_provider: Option<MonikerProvider>,
-    type_hierarchy_provider: Option<TypeHierarchyProvider>,
-    inline_value_provider: Option<InlineValueProvider>,
-    inlay_hint_provider: Option<InlayHintProvider>,
-    diagnostic_provider: Option<DiagnosticProvider>,
-    workspace_symbol_provider: Option<WorkspaceSymbolProvider>,
-    inline_completion_provider: Option<InlineCompletionProvider>,
-    text_document: Option<TextDocumentServerCapabilities>,
-    workspace: Option<WorkspaceServerCapabilities>,
-    experimental: Option<Value>,
-}
-
+#[derive(Serialize)]
 pub struct ServerInfo {
     name: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     version: Option<String>,
 }
 
-pub struct TextDocumentSyncOptions {
-    open_close: Option<bool>,
-    change: Option<TextDocumentSyncKind>,
-}
-
-pub struct NotebookDocumentSyncOptions {
-    notebook_selector: Vec<NotebookSelector>,
-    save: Option<bool>,
-}
-
-pub struct NotebookDocumentSyncRegistrationOptions {
-    notebook_selector: Vec<NotebookSelector>,
-    save: Option<bool>,
-    id: Option<String>,
-}
-
-pub struct NotebookSelectorByNotebook {
-    notebook: NotebookSelectorNotebook,
-    cells: Option<Vec<NotebookSelectorCell>>,
-}
-
-pub struct NotebookSelectorByCell {
-    notebook: Option<NotebookSelectorNotebook>,
-    cells: Vec<NotebookSelectorCell>,
-}
-
-pub struct NotebookDocumentFilterByType {
-    notebook_type: String,
-    scheme: Option<String>,
-    pattern: Option<GlobPattern>,
-}
-
-pub struct NotebookDocumentFilterByScheme {
-    notebook_type: Option<String>,
-    scheme: String,
-    pattern: Option<GlobPattern>,
-}
-
-pub struct NotebookDocumentFilterByPattern {
-    notebook_type: Option<String>,
-    scheme: Option<String>,
-    pattern: GlobPattern,
-}
-
-pub struct RelativePattern {
-    base_uri: WorkspaceFolder,
-    pattern: String,
-}
-
-pub struct NotebookSelectorCell {
-    language: String,
-}
-
-pub struct CompletionOptions {
-    trigger_characters: Option<Vec<String>>,
-    all_commit_characters: Option<Vec<String>>,
-    resolve_provider: Option<bool>,
-    completion_item: Option<CompletionOptionsCompletionItemCapability>,
-    work_done_progress: Option<bool>,
-}
-
-pub struct CompletionOptionsCompletionItemCapability {
-    label_details_support: Option<bool>,
-}
-
-pub struct HoverOptions {
-    work_done_progress: Option<bool>,
-}
-
-pub struct SignatureHelpOptions {
-    trigger_characters: Vec<String>,
-    retrigger_characters: Vec<String>,
-}
-
-pub struct DeclarationOptions {
-    work_done_progress: Option<bool>,
-}
-
-pub struct DeclarationRegistrationOptions {
-    work_done_progress: Option<bool>,
-    document_selector: Option<DocumentSelector>,
-    id: Option<String>,
-}
-
-pub struct DocumentFilter {
-    language: Option<String>,
-    scheme: Option<String>,
-    pattern: Option<GlobPattern>,
-}
-
-pub struct DefinitionOptions {
-    work_done_progress: Option<bool>,
-}
-
-pub struct TypeDefinitionOptions {
-    work_done_progress: Option<bool>,
-}
-
-pub struct TypeDefinitionRegistrationOptions {
-    document_selector: Option<DocumentSelector>,
-    work_done_progress: Option<bool>,
-    id: Option<String>,
-}
-
-pub struct ImplementationOptions {
-    work_done_progress: Option<bool>,
-}
-
-pub struct ImplementationRegistrationOptions {
-    document_selector: Option<DocumentSelector>,
-    work_done_progress: Option<bool>,
-    id: Option<String>,
-}
-
-pub struct ReferenceOptions {
-    work_done_progress: Option<bool>,
-}
-
-pub struct DocumentHighlightOptions {
-    work_done_progress: Option<bool>,
-}
-
-pub struct DocumentSymbolOptions {
-    label: Option<String>,
-    work_done_progress: Option<bool>,
-}
-
-pub struct CodeActionOptions {
-    code_action_kinds: Option<Vec<CodeActionKind>>,
-    documentation: Option<Vec<CodeActionKindDocumentation>>,
-    resolve_provider: Option<bool>,
-    work_done_progress: Option<bool>,
-}
-
-pub struct CodeActionKindDocumentation {
-    kind: CodeActionKind,
-    command: Command,
-}
-
-pub struct Command {
-    title: String,
-    tooltip: Option<String>,
-    command: String,
-    arguments: Option<Vec<Value>>,
-}
-
-pub struct CodeLensOptions {
-    resolve_provider: Option<bool>,
-    work_done_progress: Option<bool>,
-}
-
-pub struct DocumentLinkOptions {
-    resolve_provider: Option<bool>,
-    work_done_progress: Option<bool>,
-}
-
-pub struct DocumentColorOptions {
-    work_done_progress: Option<bool>,
-}
-
-pub struct DocumentColorRegistrationOptions {
-    document_selector: Option<DocumentSelector>,
-    id: Option<String>,
-    work_done_progress: Option<bool>,
-}
-
-pub struct DocumentFormattingOptions {
-    work_done_progress: Option<bool>,
-}
-
-pub struct DocumentRangeFormattingOptions {
-    ranges_support: Option<bool>,
-    work_done_progress: Option<bool>,
-}
-
-pub struct DocumentOnTypeFormattingOptions {
-    first_trigger_character: String,
-    more_trigger_character: Option<Vec<String>>,
-}
-
-pub struct RenameOptions {
-    prepare_provider: Option<bool>,
-    work_done_progress: Option<bool>,
-}
-
-pub struct FoldingRangeOptions {
-    work_done_progress: Option<bool>,
-}
-
-pub struct FoldingRangeRegistrationOptions {
-    document_selector: Option<DocumentSelector>,
-    work_done_progress: Option<bool>,
-    id: Option<String>,
-}
-
-pub struct ExecuteCommandOptions {
-    commands: Vec<String>,
-    work_done_progress: Option<bool>,
-}
-
-pub struct SelectionRangeOptions {
-    work_done_progress: Option<bool>,
-}
-
-pub struct SelectionRangeRegistrationOptions {
-    work_done_progress: Option<bool>,
-    document_selector: Option<DocumentSelector>,
-    id: Option<String>,
-}
-
-pub struct LinkedEditingRangeOptions {
-    work_done_progress: Option<bool>,
-}
-
-pub struct LinkedEditingRangeRegistrationOptions {
-    document_selector: Option<DocumentSelector>,
-    work_done_progress: Option<bool>,
-    id: Option<String>,
-}
-
-pub struct CallHierarchyOptions {
-    work_done_progress: Option<bool>,
-}
-
-pub struct CallHierarchyRegistrationOptions {
-    document_selector: Option<DocumentSelector>,
-    work_done_progress: Option<bool>,
-    id: Option<String>,
-}
-
-pub struct SemanticTokensOptions {
-    legend: SemanticTokensLegend,
-    range: Option<bool>,
-    full: Option<SemanticTokensFullDocumentCapabilities>,
-    work_done_progress: Option<bool>,
-}
-
-pub struct SemanticTokensLegend {
-    token_types: Vec<String>,
-    token_modifiers: Vec<String>,
-}
-
-pub struct SemanticTokensRegistrationOptions {
-    document_selector: Option<DocumentSelector>,
-    legend: SemanticTokensLegend,
-    range: Option<bool>,
-    full: Option<SemanticTokensFullDocumentCapabilities>,
-    work_done_progress: Option<bool>,
-    id: Option<String>,
-}
-
-pub struct MonikerOptions {
-    work_done_progress: Option<bool>,
-}
-
-pub struct MonikerRegistrationOptions {
-    document_selector: Option<DocumentSelector>,
-    work_done_progress: Option<bool>,
-}
-
-pub struct TypeHierarchyOptions {
-    work_done_progress: Option<bool>,
-}
-
-pub struct TypeHierarchyRegistrationOptions {
-    document_selector: Option<DocumentSelector>,
-    work_done_progress: Option<bool>,
-    id: Option<String>,
-}
-
-pub struct InlineValueOptions {
-    work_done_progress: Option<bool>,
-}
-
-pub struct InlineValueRegistrationOptions {
-    document_selector: Option<DocumentSelector>,
-    work_done_progress: Option<bool>,
-    id: Option<String>,
-}
-
-pub struct InlayHintOptions {
-    resolve_provider: Option<bool>,
-    work_done_progress: Option<bool>,
-}
-
-pub struct InlayHintRegistrationOptions {
-    resolve_provider: Option<bool>,
-    work_done_progress: Option<bool>,
-    document_selector: Option<DocumentSelector>,
-    id: Option<String>,
-}
-
-pub struct DiagnosticOptions {
-    identifier: Option<String>,
-    inter_file_dependencies: bool,
-    workspace_diagnostics: bool,
-    work_done_progress: Option<bool>,
-}
-
-pub struct DiagnosticRegistrationOptions {
-    document_selector: Option<DocumentSelector>,
-    identifier: Option<String>,
-    inter_file_dependencies: bool,
-    workspace_diagnostics: bool,
-    work_done_progress: Option<bool>,
-    id: Option<String>,
-}
-
-pub struct WorkspaceSymbolOptions {
-    resolve_provider: Option<bool>,
-    work_done_progress: Option<bool>,
-}
-
-pub struct InlineCompletionOptions {
-    work_done_progress: Option<bool>,
-}
-
-pub struct TextDocumentServerCapabilities {
-    diagnostic: Option<TextDocumentDiagnosticServerCapabilities>,
-}
-
-pub struct TextDocumentDiagnosticServerCapabilities {
-    markup_message_support: Option<bool>,
-}
-
-pub struct WorkspaceServerCapabilities {
-    workspace_folders: Option<WorkspaceFoldersServerCapabilities>,
-}
-
-pub struct WorkspaceFoldersServerCapabilities {
-    supported: Option<bool>,
-    change_notifications: Option<ChangeNotifications>,
-    file_operations: Option<WorkspaceFileOperations>,
-}
-
-pub struct WorkspaceFileOperations {
-    did_create: Option<FileOperationRegistrationOptions>,
-    will_create: Option<FileOperationRegistrationOptions>,
-    did_rename: Option<FileOperationRegistrationOptions>,
-    will_rename: Option<FileOperationRegistrationOptions>,
-    did_delete: Option<FileOperationRegistrationOptions>,
-    will_delete: Option<FileOperationRegistrationOptions>,
-}
-
-pub struct FileOperationRegistrationOptions {
-    filters: Vec<FileOperationFilter>,
-}
-
-pub struct FileOperationFilter {
-    scheme: Option<String>,
-    pattern: FileOperationPattern,
-}
-
-pub struct FileOperationPattern {
-    glob: String,
-    matches: Option<FileOperationPatternKind>,
-    options: Option<FileOperationPatternOptions>,
-}
-
-pub struct FileOperationPatternOptions {
-    ignore_case: Option<bool>,
+#[derive(Serialize)]
+pub struct ServerCapabilities {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    position_encoding: Option<PositionEncodingKind>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    text_document_sync: Option<TextDocumentSyncServerCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    notebook_document_sync: Option<NotebookDocumentSyncServerCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    completion_provider: Option<CompletionOptions>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hover_provider: Option<HoverProvider>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    signature_help_provider: Option<SignatureHelpOptions>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    declaration_provider: Option<DeclarationProvider>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    definition_provider: Option<DefinitionProvider>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    type_definition_provider: Option<TypeDefinitionProvider>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    implementation_provider: Option<ImplementationProvider>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    references_provider: Option<ReferencesProvider>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    document_highlight_provider: Option<DocumentHighlightProvider>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    document_symbol_provider: Option<DocumentSymbolProvider>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    code_action_provider: Option<CodeActionProvider>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    code_lens_provider: Option<CodeLensOptions>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    document_link_provider: Option<DocumentLinkOptions>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    color_provider: Option<ColorProvider>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    document_formatting_provider: Option<DocumentFormattingProvider>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    document_range_formatting_provider: Option<DocumentRangeFormattingProvider>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    document_on_type_formatting_provider: Option<DocumentOnTypeFormattingOptions>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rename_provider: Option<RenameProvider>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    folding_range_provider: Option<FoldingRangeProvider>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    execute_command_provider: Option<ExecuteCommandOptions>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    selection_range_provider: Option<SelectionRangeProvider>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    linked_editing_range_provider: Option<LinkedEditingRangeProvider>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    call_hierarchy_provider: Option<CallHierarchyProvider>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    semantic_tokens_provider: Option<SemanticTokensProvider>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    moniker_provider: Option<MonikerProvider>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    type_hierarchy_provider: Option<TypeHierarchyProvider>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    inline_value_provider: Option<InlineValueProvider>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    inlay_hint_provider: Option<InlayHintProvider>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    diagnostic_provider: Option<DiagnosticProvider>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workspace_symbol_provider: Option<WorkspaceSymbolProvider>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    inline_completion_provider: Option<InlineCompletionProvider>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    text_document: Option<TextDocumentServerCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workspace: Option<WorkspaceServerCapabilities>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    experimental: Option<Value>,
 }
