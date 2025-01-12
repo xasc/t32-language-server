@@ -8,11 +8,6 @@ use t32_language_server;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    if args.len() > 2 {
-        println!("Usage: {} [script]", args[0]);
-        process::exit(64);
-    }
-
     let streams = t32_language_server::Stdio {
         reader: io::stdin().lock(),
         writer: &mut io::stdout(),

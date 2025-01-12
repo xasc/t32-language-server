@@ -2,7 +2,10 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use std::fmt;
+use std::{
+    fmt,
+    num::{NonZero, NonZeroUsize},
+};
 
 use crate::{
     lsp::{Token, TokenType},
@@ -17,17 +20,21 @@ struct ScanState<'a> {
 #[derive(Debug, PartialEq)]
 enum HeaderValue {
     ContentType,
-    ContentLength(usize),
+    ContentLength(NonZeroUsize),
 }
 
 #[derive(Debug, PartialEq)]
 pub struct ScanError(pub usize);
 
+const CONTENT_LENGTH_NAME: &str = "Content-Length";
+const CONTENT_TYPE_NAME: &str = "Content-Type";
+const CONTENT_TYPE_VALUE: &str = "application/vscode-jsonrpc; charset=utf-8";
+
 impl fmt::Display for HeaderValue {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            HeaderValue::ContentType => write!(f, "Content-Type"),
-            HeaderValue::ContentLength(_) => write!(f, "Content-Length"),
+            HeaderValue::ContentType => write!(f, "{}", CONTENT_TYPE_NAME),
+            HeaderValue::ContentLength(_) => write!(f, "{}", CONTENT_LENGTH_NAME),
         }
     }
 }
@@ -87,8 +94,8 @@ pub fn assemble_sequence(prior: &mut Vec<Token>, post: &mut Vec<Token>) {
 ///   content_length →  "Content-Length" number "\r\n"
 ///   content_type   →  "Content-Type" "application/vscode-jsonrpc; charset=utf-8" "\r\n"
 ///
-pub fn validate_headers(tokens: &mut Vec<Token>) -> Result<usize, ResponseError> {
-    let mut content_len: usize = 0;
+pub fn validate_headers(tokens: &mut Vec<Token>) -> Result<NonZeroUsize, ResponseError> {
+    let mut content_len: NonZeroUsize = NonZero::new(usize::MAX).unwrap();
     match header_field(tokens) {
         Ok(HeaderValue::ContentLength(len)) => content_len = len,
         Err(err) => {
@@ -99,14 +106,14 @@ pub fn validate_headers(tokens: &mut Vec<Token>) -> Result<usize, ResponseError>
     }
 
     let mut offset = 3;
-    if content_len <= 0 {
+    if content_len >= NonZero::new(usize::MAX).unwrap() {
         content_len = match header_field(&tokens[3..]) {
             Ok(HeaderValue::ContentLength(len)) => len,
             Ok(HeaderValue::ContentType) => {
                 try_recover(tokens, 4);
                 return Err(error_wrong_header_type(
                     HeaderValue::ContentType,
-                    HeaderValue::ContentLength(0),
+                    HeaderValue::ContentLength(content_len),
                 ));
             }
             Err(err) => {
@@ -129,9 +136,15 @@ pub fn validate_headers(tokens: &mut Vec<Token>) -> Result<usize, ResponseError>
             TokenType::EndOfHeaders,
         ))
     } else {
-        debug_assert_ne!(content_len, 0);
         Ok(content_len)
     }
+}
+
+pub fn make_header(content_len: NonZeroUsize) -> String {
+    format!(
+        "{}: {}\r\n{}: {}\r\n\r\n",
+        CONTENT_TYPE_NAME, CONTENT_TYPE_VALUE, CONTENT_LENGTH_NAME, content_len
+    )
 }
 
 fn scan_token(state: &mut ScanState) -> Result<Option<Token>, ScanError> {
@@ -210,10 +223,6 @@ fn peek(state: &mut ScanState) -> Option<char> {
 
 fn is_at_end(state: &ScanState) -> bool {
     state.next >= state.source.len()
-}
-
-fn error(state: &ScanState) -> ScanError {
-    ScanError(state.next)
 }
 
 /// Header field names are case-insensitive. ASCII visual characters are permitted
@@ -300,7 +309,6 @@ fn is_name(ch: char) -> bool {
 fn header_field(tokens: &[Token]) -> Result<HeaderValue, ResponseError> {
     const CONTENT_LENGTH: &str = "content-length";
     const CONTENT_TYPE: &str = "content-type";
-    const CONTENT_TYPE_VALUE: &str = "application/vscode-jsonrpc; charset=utf-8";
 
     if tokens.len() <= 0 {
         return Err(error_missing_header_token(TokenType::HeaderFieldName));
@@ -348,11 +356,11 @@ fn header_field(tokens: &[Token]) -> Result<HeaderValue, ResponseError> {
             }
         }
         CONTENT_LENGTH => {
-            let number = value.parse::<usize>();
+            let number = value.parse::<NonZeroUsize>();
             if let Err(_) = number {
                 return Err(error_wrong_header_type_value(&value, "Content-Length"));
             }
-            HeaderValue::ContentLength(number.expect("Cannot fail."))
+            HeaderValue::ContentLength(number.unwrap())
         }
         _ => {
             return Err(error_wrong_header_type_name(&value, &name));
@@ -597,7 +605,7 @@ mod tests {
         ];
         let len = validate_headers(&mut header).expect("Should not fail.");
 
-        assert_eq!(len, 100);
+        assert_eq!(len, NonZeroUsize::new(100).unwrap());
     }
 
     #[test]
@@ -634,7 +642,7 @@ mod tests {
         ];
         let len = validate_headers(&mut header).expect("Should not fail.");
 
-        assert_eq!(len, 10);
+        assert_eq!(len, NonZeroUsize::new(10).unwrap());
     }
 
     #[test]

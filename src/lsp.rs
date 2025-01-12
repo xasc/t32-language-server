@@ -12,12 +12,19 @@
 //! The whitespace after the colon delimter between HTTP header field name and
 //! value is normally optional. The LSP protocol makes it mandatory.
 
-use std::fmt;
+use std::{fmt, num::NonZeroUsize};
 
-use crate::{protocol::ResponseError, request::Request};
+use serde::Deserialize;
+use serde_json::Value;
 
-mod content;
+use crate::{
+    protocol::{InitializeResult, NumberOrString, ResponseError, ServerCapabilities, ServerInfo},
+    request::Request,
+    response::ResponseResult,
+};
+
 mod header;
+mod jsonrpc;
 
 use header::ScanError;
 
@@ -33,7 +40,7 @@ pub enum TokenType {
 pub enum ParseState {
     Syncing,
     InHeader,
-    InContent(usize),
+    InContent(NonZeroUsize),
 }
 
 #[derive(Clone, Debug)]
@@ -43,6 +50,19 @@ pub struct Token {
     pub start: usize,
     pub end: usize,
     pub fusible: bool,
+}
+
+/// Line format of `RequestMessage` or `NotificationMessage` requests from
+/// client to server.
+#[derive(Deserialize)]
+struct RequestMessage {
+    pub jsonrpc: String,
+    pub method: String,
+    pub params: Option<Value>,
+
+    // Only for `RequestMessage`
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<NumberOrString>,
 }
 
 impl fmt::Display for Token {
@@ -85,8 +105,8 @@ pub fn parse(
 
     if *state == ParseState::InHeader {
         let content_len = parse_header(buf, tokens)?;
-        if content_len > 0 {
-            *state = ParseState::InContent(content_len);
+        if let Some(len) = content_len {
+            *state = ParseState::InContent(len);
             tokens.clear();
         } else {
             debug_assert!(buf.len() <= 0);
@@ -95,13 +115,13 @@ pub fn parse(
     }
 
     if let ParseState::InContent(len) = *state {
-        debug_assert!(len > 0);
-        if buf.len() < len {
+        if buf.len() < len.into() {
             Ok(None)
         } else {
-            let msg = parse_content(&buf[..len]);
+            let msg = parse_content(&buf[..len.into()]);
 
-            buf.drain(..len);
+            let end: usize = len.into();
+            buf.drain(..end);
             *state = ParseState::Syncing;
 
             match msg {
@@ -114,7 +134,28 @@ pub fn parse(
     }
 }
 
-fn parse_header(buf: &mut Vec<u8>, hist: &mut Vec<Token>) -> Result<usize, ResponseError> {
+pub fn make_error_response(id: Option<NumberOrString>, error: ResponseError) -> Vec<u8> {
+    let content = jsonrpc::make_error_response(id, error);
+    let header = header::make_header(
+        NonZeroUsize::new(content.len()).expect("Error response must have content section."),
+    );
+
+    format!("{}{}", header, content).as_bytes().to_vec()
+}
+
+pub fn make_response(id: NumberOrString, result: ResponseResult) -> Vec<u8> {
+    let content = jsonrpc::make_response(id, Some(result));
+    let header = header::make_header(
+        NonZeroUsize::new(content.len()).expect("Response messages must have content section."),
+    );
+
+    format!("{}{}", header, content).as_bytes().to_vec()
+}
+
+fn parse_header(
+    buf: &mut Vec<u8>,
+    hist: &mut Vec<Token>,
+) -> Result<Option<NonZeroUsize>, ResponseError> {
     // Next token might end the header section
     if hist.len() > 0 && hist[hist.len() - 1].kind == TokenType::HeaderFieldTerm {
         match header::scan(buf, true) {
@@ -171,17 +212,17 @@ fn parse_header(buf: &mut Vec<u8>, hist: &mut Vec<Token>) -> Result<usize, Respo
     }
 
     if hist.len() <= 0 || !header_section_ends(hist) {
-        Ok(0)
+        Ok(None)
     } else {
         // Try to recover from errors by parsing the remaining
         // tokens until they all are used up. Should we detect
         // all valid header structure we will accept it.
         match header::validate_headers(hist) {
-            Ok(len) => Ok(len),
+            Ok(len) => Ok(Some(len)),
             Err(err) => {
                 while hist.len() > 0 {
                     if let Ok(len) = header::validate_headers(hist) {
-                        return Ok(len);
+                        return Ok(Some(len));
                     }
                 }
                 Err(err)
@@ -191,8 +232,8 @@ fn parse_header(buf: &mut Vec<u8>, hist: &mut Vec<Token>) -> Result<usize, Respo
 }
 
 fn parse_content(buf: &[u8]) -> Result<Request, ResponseError> {
-    let msg = content::parse_message(buf)?;
-    Ok(content::make_request(msg)?)
+    let msg = jsonrpc::parse_message(buf)?;
+    Ok(jsonrpc::make_request(msg)?)
 }
 
 /// Guess the start of the next message by looking for the start of the next
@@ -223,7 +264,10 @@ mod tests {
             .expect("Should not fail.");
 
         assert!(rc.is_none());
-        assert_eq!(state, ParseState::InContent(100));
+        assert_eq!(
+            state,
+            ParseState::InContent(NonZeroUsize::new(100).unwrap())
+        );
     }
 
     #[test]
@@ -237,7 +281,7 @@ mod tests {
             .expect("Should not fail.");
 
         assert!(rc.is_none());
-        assert_eq!(state, ParseState::InContent(99));
+        assert_eq!(state, ParseState::InContent(NonZeroUsize::new(99).unwrap()));
     }
 
     #[test]
@@ -251,14 +295,14 @@ mod tests {
             .expect("Should not fail.");
 
         assert!(rc.is_none());
-        assert_eq!(state, ParseState::InContent(1));
+        assert_eq!(state, ParseState::InContent(NonZeroUsize::new(1).unwrap()));
     }
 
     #[test]
     fn parses_msg_content() {
         let content = r#"{ "jsonrpc": "2.0", "id": 1, "method": "shutdown" }"#;
 
-        let mut state = ParseState::InContent(content.len());
+        let mut state = ParseState::InContent(NonZeroUsize::new(content.len()).unwrap());
         let mut tokens = Vec::<Token>::new();
 
         let rc = parse(&mut state, &mut content.as_bytes().to_vec(), &mut tokens)
@@ -272,7 +316,7 @@ mod tests {
     fn waits_for_content_len() {
         let content = r#"{ "jsonrpc": "2.0", "id": 1, "method": "shutdown" }"#;
 
-        let mut state = ParseState::InContent(content.len());
+        let mut state = ParseState::InContent(NonZeroUsize::new(content.len()).unwrap());
         let mut tokens = Vec::<Token>::new();
 
         let rc = parse(
@@ -283,7 +327,10 @@ mod tests {
         .expect("Should not fail.");
 
         assert!(rc.is_none());
-        assert_eq!(state, ParseState::InContent(content.len()));
+        assert_eq!(
+            state,
+            ParseState::InContent(NonZeroUsize::new(content.len()).unwrap())
+        );
     }
 
     #[test]

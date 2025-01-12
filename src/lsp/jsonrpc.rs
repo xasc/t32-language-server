@@ -2,13 +2,64 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use serde::de::DeserializeOwned;
+use serde::{
+    de::DeserializeOwned,
+    ser::{Serialize, SerializeStruct, Serializer},
+};
 use serde_json::{error::Category, Error, Value};
 
 use crate::{
-    protocol::{ErrorCodes, InitializeParams, RequestMessage, ResponseError},
+    lsp::RequestMessage,
+    protocol::{ErrorCodes, InitializeParams, NumberOrString, ResponseError},
     request::{ExitNotification, InitializeRequest, Request, ShutdownRequest},
+    response::ResponseResult,
 };
+
+/// Line format of `ResponseMessage` responses from
+/// server to client.
+struct ResponseMessage {
+    pub jsonrpc: String,
+    pub id: Option<NumberOrString>,
+    pub result: Option<ResponseResult>,
+    pub error: Option<ResponseError>,
+}
+
+impl Serialize for ResponseMessage {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        debug_assert!(
+            (self.error.is_none() && self.result.is_some())
+                || (self.error.is_some() && self.result.is_none())
+                || self.result.is_none()
+        );
+
+        let num_fields = match self.id {
+            Some(_) => 3,
+            None => 2,
+        };
+        let mut msg = serializer.serialize_struct("ResponseMessage", num_fields)?;
+
+        msg.serialize_field("jsonrpc", &self.jsonrpc)?;
+
+        if let Some(id) = &self.id {
+            msg.serialize_field("id", id)?;
+        }
+
+        // `ResponseMessage` may only have either the `result` or `error` field, not both.
+        // If a request was successful but there is no result to return, the response should
+        // return `null` as the result.
+        if let Some(err) = &self.error {
+            msg.serialize_field("error", err)?;
+        } else if let Some(res) = &self.result {
+            msg.serialize_field("result", res)?;
+        } else {
+            msg.serialize_field("result", &Value::Null)?;
+        }
+        msg.end()
+    }
+}
 
 pub fn parse_message(buf: &[u8]) -> Result<RequestMessage, ResponseError> {
     match serde_json::from_slice(buf) {
@@ -45,6 +96,26 @@ pub fn make_request(msg: RequestMessage) -> Result<Request, ResponseError> {
         })),
         _ => unreachable!(),
     }
+}
+
+pub fn make_response(id: NumberOrString, result: Option<ResponseResult>) -> String {
+    let resp = ResponseMessage {
+        jsonrpc: "2.0".to_string(),
+        id: Some(id),
+        error: None,
+        result,
+    };
+    serde_json::ser::to_string(&resp).expect("Response serialization must not fail.")
+}
+
+pub fn make_error_response(id: Option<NumberOrString>, error: ResponseError) -> String {
+    let msg = ResponseMessage {
+        jsonrpc: "2.0".to_string(),
+        id,
+        error: Some(error),
+        result: None,
+    };
+    serde_json::ser::to_string(&msg).expect("Response error serialization must not fail.")
 }
 
 fn error_syntax(err: Error, buf: Option<&[u8]>) -> ResponseError {
@@ -212,5 +283,37 @@ mod tests {
         let r = make_request(msg).expect("Should not fail.");
 
         assert!(matches!(r, Request::ShutdownRequest(_)));
+    }
+
+    #[test]
+    fn can_create_error_response() {
+        let error = r#"{"code":-32700,"message":"Error"}"#;
+        let expected = format!(r#"{{"jsonrpc":"2.0","id":1,"error":{}}}"#, error);
+
+        let error: ResponseError = serde_json::from_str(error).expect("Should not fail.");
+        let msg = make_error_response(Some(NumberOrString::Number(1)), error);
+
+        assert_eq!(msg, expected);
+    }
+
+    #[test]
+    fn can_create_response() {
+        let result = r#"{"capabilities":{}}"#;
+        let expected = format!(r#"{{"jsonrpc":"2.0","id":1,"result":{}}}"#, result);
+
+        let res: ResponseResult = serde_json::from_str(result).expect("Should not fail.");
+        let msg = make_response(NumberOrString::Number(1), Some(res));
+
+        assert_eq!(msg, expected);
+    }
+
+    #[test]
+    fn can_create_null_response() {
+        let result = "null";
+        let expected = format!(r#"{{"jsonrpc":"2.0","id":1,"result":{}}}"#, result);
+
+        let msg = make_response(NumberOrString::Number(1), None);
+
+        assert_eq!(msg, expected);
     }
 }

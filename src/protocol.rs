@@ -223,13 +223,13 @@ pub enum TokenFormat {
 
 #[derive(Deserialize, Serialize)]
 pub enum PositionEncodingKind {
-    #[serde(rename(deserialize = "utf-8"))]
+    #[serde(rename = "utf-8")]
     Utf8,
 
-    #[serde(rename(deserialize = "utf-16"))]
+    #[serde(rename = "utf-16")]
     Utf16,
 
-    #[serde(rename(deserialize = "utf-32"))]
+    #[serde(rename = "utf-32")]
     Utf32,
 }
 
@@ -253,28 +253,28 @@ pub enum NumberOrString {
     String(String),
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum TextDocumentSyncServerCapabilities {
     TextDocumentSyncOptions,
     TextDocumentSyncKind,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum NotebookDocumentSyncServerCapabilities {
     NotebookDocumentSyncOptions(NotebookDocumentSyncOptions),
     NotebookDocumentSyncRegistrationOptions(NotebookDocumentSyncRegistrationOptions),
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum NotebookSelector {
     NotebookSelectorByNotebook(NotebookSelectorByNotebook),
     NotebookSelectorByCell(NotebookSelectorByCell),
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum NotebookSelectorNotebook {
     String(String),
@@ -289,21 +289,21 @@ pub enum NotebookDocumentFilter {
     NotebookDocumentFilterByPattern(NotebookDocumentFilterByPattern),
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum GlobPattern {
     String(String),
     RelativePattern(RelativePattern),
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum HoverProvider {
     Bool(bool),
     HoverOptions(HoverOptions),
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum DeclarationProvider {
     Bool(bool),
@@ -311,14 +311,14 @@ pub enum DeclarationProvider {
     DeclarationRegistrationOptions(DeclarationRegistrationOptions),
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum DefinitionProvider {
     Bool(bool),
     DefinitionOptions(DefinitionOptions),
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum TypeDefinitionProvider {
     Bool(bool),
@@ -326,7 +326,7 @@ pub enum TypeDefinitionProvider {
     TypeDefinitionRegistrationOptions(TypeDefinitionRegistrationOptions),
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum ImplementationProvider {
     Bool(bool),
@@ -334,35 +334,35 @@ pub enum ImplementationProvider {
     ImplementationRegistrationOptions(ImplementationRegistrationOptions),
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum ReferencesProvider {
     Bool(bool),
     ReferenceOptions(ReferenceOptions),
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum DocumentHighlightProvider {
     Bool(bool),
     DocumentHighlightOptions(DocumentHighlightOptions),
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum DocumentSymbolProvider {
     Bool(bool),
     DocumentSymbolOptions(DocumentSymbolOptions),
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum CodeActionProvider {
     Bool(bool),
     CodeActionOptions(CodeActionOptions),
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum ColorProvider {
     Bool(bool),
@@ -370,28 +370,28 @@ pub enum ColorProvider {
     DocumentColorRegistrationOptions(DocumentColorRegistrationOptions),
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum DocumentFormattingProvider {
     Bool(bool),
     DocumentFormattingOptions(DocumentFormattingOptions),
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum DocumentRangeFormattingProvider {
     Bool(bool),
     DocumentRangeFormattingOptions(DocumentRangeFormattingOptions),
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum RenameProvider {
     Bool(bool),
     RenameOptions(RenameOptions),
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum FoldingRangeProvider {
     Bool(bool),
@@ -399,7 +399,7 @@ pub enum FoldingRangeProvider {
     FoldingRangeRegistrationOptions(FoldingRangeRegistrationOptions),
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum SelectionRangeProvider {
     Bool(bool),
@@ -407,7 +407,7 @@ pub enum SelectionRangeProvider {
     SelectionRangeRegistrationOptions(SelectionRangeRegistrationOptions),
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum LinkedEditingRangeProvider {
     Bool(bool),
@@ -415,7 +415,7 @@ pub enum LinkedEditingRangeProvider {
     LinkedEditingRangeRegistrationOptions(LinkedEditingRangeRegistrationOptions),
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum CallHierarchyProvider {
     Bool(bool),
@@ -423,14 +423,14 @@ pub enum CallHierarchyProvider {
     CallHierarchyRegistrationOptions(CallHierarchyRegistrationOptions),
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum SemanticTokensProvider {
     SemanticTokensOptions(SemanticTokensOptions),
     SemanticTokensRegistrationOptions(SemanticTokensRegistrationOptions),
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum SemanticTokensFullDocumentCapabilities {
     Bool(bool),
@@ -440,7 +440,7 @@ pub enum SemanticTokensFullDocumentCapabilities {
     },
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum MonikerProvider {
     Bool(bool),
@@ -448,7 +448,7 @@ pub enum MonikerProvider {
     MonikerRegistrationOptions(MonikerRegistrationOptions),
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum TypeHierarchyProvider {
     Bool(bool),
@@ -456,7 +456,7 @@ pub enum TypeHierarchyProvider {
     TypeHierarchyRegistrationOptions(TypeHierarchyRegistrationOptions),
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum InlineValueProvider {
     Bool(bool),
@@ -464,7 +464,7 @@ pub enum InlineValueProvider {
     InlineValueRegistrationOptions(InlineValueRegistrationOptions),
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum InlayHintProvider {
     Bool(bool),
@@ -472,67 +472,42 @@ pub enum InlayHintProvider {
     InlayHintRegistrationOptions(InlayHintRegistrationOptions),
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum DiagnosticProvider {
     DiagnosticOptions(DiagnosticOptions),
     DiagnosticRegistrationOptions(DiagnosticRegistrationOptions),
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum WorkspaceSymbolProvider {
     Bool(bool),
     WorkspaceSymbolOptions(WorkspaceSymbolOptions),
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum InlineCompletionProvider {
     Bool(bool),
     InlineCompletionOptions(InlineCompletionOptions),
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum ChangeNotifications {
     String(String),
     Bool(bool),
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum FileOperationPatternKind {
     File,
     Folder,
 }
 
-/// Line format of `RequestMessage` or `NotificationMessage` requests from
-/// client to server.
-#[derive(Deserialize)]
-pub struct RequestMessage {
-    pub jsonrpc: String,
-    pub method: String,
-    pub params: Option<Value>,
-
-    // Only for `RequestMessage`
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub id: Option<NumberOrString>,
-}
-
-#[derive(Serialize)]
-pub struct ResponseMessage {
-    pub jsonrpc: String,
-    pub id: Option<NumberOrString>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub result: Option<Value>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<ResponseError>,
-}
-
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ResponseError {
     pub code: i64,
     pub message: String,
@@ -1534,7 +1509,7 @@ pub struct TextDocumentSyncOptions {
     change: Option<TextDocumentSyncKind>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct NotebookDocumentSyncOptions {
     notebook_selector: Vec<NotebookSelector>,
 
@@ -1542,7 +1517,7 @@ pub struct NotebookDocumentSyncOptions {
     save: Option<bool>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct NotebookDocumentSyncRegistrationOptions {
     notebook_selector: Vec<NotebookSelector>,
 
@@ -1553,7 +1528,7 @@ pub struct NotebookDocumentSyncRegistrationOptions {
     id: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct NotebookSelectorByNotebook {
     notebook: NotebookSelectorNotebook,
 
@@ -1561,7 +1536,7 @@ pub struct NotebookSelectorByNotebook {
     cells: Option<Vec<NotebookSelectorCell>>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct NotebookSelectorByCell {
     #[serde(skip_serializing_if = "Option::is_none")]
     notebook: Option<NotebookSelectorNotebook>,
@@ -1601,18 +1576,18 @@ pub struct NotebookDocumentFilterByPattern {
     pattern: GlobPattern,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct RelativePattern {
     base_uri: WorkspaceFolder,
     pattern: String,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct NotebookSelectorCell {
     language: String,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct CompletionOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     trigger_characters: Option<Vec<String>>,
@@ -1630,17 +1605,17 @@ pub struct CompletionOptions {
     work_done_progress: Option<bool>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct CompletionOptionsCompletionItemCapability {
     label_details_support: Option<bool>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct HoverOptions {
     work_done_progress: Option<bool>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct SignatureHelpOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     trigger_characters: Option<Vec<String>>,
@@ -1649,13 +1624,13 @@ pub struct SignatureHelpOptions {
     retrigger_characters: Option<Vec<String>>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct DeclarationOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     work_done_progress: Option<bool>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct DeclarationRegistrationOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     work_done_progress: Option<bool>,
@@ -1666,7 +1641,7 @@ pub struct DeclarationRegistrationOptions {
     id: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct DocumentFilter {
     #[serde(skip_serializing_if = "Option::is_none")]
     language: Option<String>,
@@ -1678,19 +1653,19 @@ pub struct DocumentFilter {
     pattern: Option<GlobPattern>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct DefinitionOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     work_done_progress: Option<bool>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct TypeDefinitionOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     work_done_progress: Option<bool>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct TypeDefinitionRegistrationOptions {
     document_selector: Option<DocumentSelector>,
 
@@ -1701,13 +1676,13 @@ pub struct TypeDefinitionRegistrationOptions {
     id: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct ImplementationOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     work_done_progress: Option<bool>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct ImplementationRegistrationOptions {
     document_selector: Option<DocumentSelector>,
 
@@ -1718,19 +1693,19 @@ pub struct ImplementationRegistrationOptions {
     id: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct ReferenceOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     work_done_progress: Option<bool>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct DocumentHighlightOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     work_done_progress: Option<bool>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct DocumentSymbolOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     label: Option<String>,
@@ -1739,7 +1714,7 @@ pub struct DocumentSymbolOptions {
     work_done_progress: Option<bool>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct CodeActionOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     code_action_kinds: Option<Vec<CodeActionKind>>,
@@ -1754,13 +1729,13 @@ pub struct CodeActionOptions {
     work_done_progress: Option<bool>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct CodeActionKindDocumentation {
     kind: CodeActionKind,
     command: Command,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct Command {
     title: String,
 
@@ -1772,7 +1747,7 @@ pub struct Command {
     arguments: Option<Vec<Value>>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct CodeLensOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     resolve_provider: Option<bool>,
@@ -1781,7 +1756,7 @@ pub struct CodeLensOptions {
     work_done_progress: Option<bool>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct DocumentLinkOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     resolve_provider: Option<bool>,
@@ -1790,12 +1765,12 @@ pub struct DocumentLinkOptions {
     work_done_progress: Option<bool>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct DocumentColorOptions {
     work_done_progress: Option<bool>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct DocumentColorRegistrationOptions {
     document_selector: Option<DocumentSelector>,
 
@@ -1806,13 +1781,13 @@ pub struct DocumentColorRegistrationOptions {
     work_done_progress: Option<bool>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct DocumentFormattingOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     work_done_progress: Option<bool>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct DocumentRangeFormattingOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     ranges_support: Option<bool>,
@@ -1821,7 +1796,7 @@ pub struct DocumentRangeFormattingOptions {
     work_done_progress: Option<bool>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct DocumentOnTypeFormattingOptions {
     first_trigger_character: String,
 
@@ -1829,7 +1804,7 @@ pub struct DocumentOnTypeFormattingOptions {
     more_trigger_character: Option<Vec<String>>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct RenameOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     prepare_provider: Option<bool>,
@@ -1838,13 +1813,13 @@ pub struct RenameOptions {
     work_done_progress: Option<bool>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct FoldingRangeOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     work_done_progress: Option<bool>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct FoldingRangeRegistrationOptions {
     document_selector: Option<DocumentSelector>,
 
@@ -1855,7 +1830,7 @@ pub struct FoldingRangeRegistrationOptions {
     id: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct ExecuteCommandOptions {
     commands: Vec<String>,
 
@@ -1863,13 +1838,13 @@ pub struct ExecuteCommandOptions {
     work_done_progress: Option<bool>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct SelectionRangeOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     work_done_progress: Option<bool>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct SelectionRangeRegistrationOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     work_done_progress: Option<bool>,
@@ -1880,13 +1855,13 @@ pub struct SelectionRangeRegistrationOptions {
     id: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct LinkedEditingRangeOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     work_done_progress: Option<bool>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct LinkedEditingRangeRegistrationOptions {
     document_selector: Option<DocumentSelector>,
 
@@ -1897,13 +1872,13 @@ pub struct LinkedEditingRangeRegistrationOptions {
     id: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct CallHierarchyOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     work_done_progress: Option<bool>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct CallHierarchyRegistrationOptions {
     document_selector: Option<DocumentSelector>,
 
@@ -1914,7 +1889,7 @@ pub struct CallHierarchyRegistrationOptions {
     id: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct SemanticTokensOptions {
     legend: SemanticTokensLegend,
 
@@ -1928,13 +1903,13 @@ pub struct SemanticTokensOptions {
     work_done_progress: Option<bool>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct SemanticTokensLegend {
     token_types: Vec<String>,
     token_modifiers: Vec<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct SemanticTokensRegistrationOptions {
     document_selector: Option<DocumentSelector>,
     legend: SemanticTokensLegend,
@@ -1952,13 +1927,13 @@ pub struct SemanticTokensRegistrationOptions {
     id: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct MonikerOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     work_done_progress: Option<bool>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct MonikerRegistrationOptions {
     document_selector: Option<DocumentSelector>,
 
@@ -1966,13 +1941,13 @@ pub struct MonikerRegistrationOptions {
     work_done_progress: Option<bool>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct TypeHierarchyOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     work_done_progress: Option<bool>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct TypeHierarchyRegistrationOptions {
     document_selector: Option<DocumentSelector>,
 
@@ -1983,13 +1958,13 @@ pub struct TypeHierarchyRegistrationOptions {
     id: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct InlineValueOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     work_done_progress: Option<bool>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct InlineValueRegistrationOptions {
     document_selector: Option<DocumentSelector>,
 
@@ -2000,7 +1975,7 @@ pub struct InlineValueRegistrationOptions {
     id: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct InlayHintOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     resolve_provider: Option<bool>,
@@ -2009,7 +1984,7 @@ pub struct InlayHintOptions {
     work_done_progress: Option<bool>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct InlayHintRegistrationOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     resolve_provider: Option<bool>,
@@ -2022,7 +1997,7 @@ pub struct InlayHintRegistrationOptions {
     id: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct DiagnosticOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     identifier: Option<String>,
@@ -2033,7 +2008,7 @@ pub struct DiagnosticOptions {
     work_done_progress: Option<bool>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct DiagnosticRegistrationOptions {
     document_selector: Option<DocumentSelector>,
 
@@ -2049,7 +2024,7 @@ pub struct DiagnosticRegistrationOptions {
     id: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct WorkspaceSymbolOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     resolve_provider: Option<bool>,
@@ -2058,25 +2033,25 @@ pub struct WorkspaceSymbolOptions {
     work_done_progress: Option<bool>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct InlineCompletionOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     work_done_progress: Option<bool>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct TextDocumentServerCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     diagnostic: Option<TextDocumentDiagnosticServerCapabilities>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct TextDocumentDiagnosticServerCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     markup_message_support: Option<bool>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct WorkspaceServerCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     workspace_folders: Option<WorkspaceFoldersServerCapabilities>,
@@ -2085,7 +2060,7 @@ pub struct WorkspaceServerCapabilities {
     file_operations: Option<WorkspaceFileOperations>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct WorkspaceFoldersServerCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     supported: Option<bool>,
@@ -2094,7 +2069,7 @@ pub struct WorkspaceFoldersServerCapabilities {
     change_notifications: Option<ChangeNotifications>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct WorkspaceFileOperations {
     #[serde(skip_serializing_if = "Option::is_none")]
     did_create: Option<FileOperationRegistrationOptions>,
@@ -2115,12 +2090,12 @@ pub struct WorkspaceFileOperations {
     will_delete: Option<FileOperationRegistrationOptions>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct FileOperationRegistrationOptions {
     filters: Vec<FileOperationFilter>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct FileOperationFilter {
     #[serde(skip_serializing_if = "Option::is_none")]
     scheme: Option<String>,
@@ -2128,7 +2103,7 @@ pub struct FileOperationFilter {
     pattern: FileOperationPattern,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct FileOperationPattern {
     glob: String,
 
@@ -2139,142 +2114,142 @@ pub struct FileOperationPattern {
     options: Option<FileOperationPatternOptions>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct FileOperationPatternOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     ignore_case: Option<bool>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct InitializeResult {
-    capabilities: ServerCapabilities,
+    pub capabilities: ServerCapabilities,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    server_info: Option<ServerInfo>,
+    pub server_info: Option<ServerInfo>,
 }
 
 pub struct InitializeError {
     retry: bool,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct ServerInfo {
-    name: String,
+    pub name: String,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    version: Option<String>,
+    pub version: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct ServerCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
-    position_encoding: Option<PositionEncodingKind>,
+    pub position_encoding: Option<PositionEncodingKind>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    text_document_sync: Option<TextDocumentSyncServerCapabilities>,
+    pub text_document_sync: Option<TextDocumentSyncServerCapabilities>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    notebook_document_sync: Option<NotebookDocumentSyncServerCapabilities>,
+    pub notebook_document_sync: Option<NotebookDocumentSyncServerCapabilities>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    completion_provider: Option<CompletionOptions>,
+    pub completion_provider: Option<CompletionOptions>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    hover_provider: Option<HoverProvider>,
+    pub hover_provider: Option<HoverProvider>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    signature_help_provider: Option<SignatureHelpOptions>,
+    pub signature_help_provider: Option<SignatureHelpOptions>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    declaration_provider: Option<DeclarationProvider>,
+    pub declaration_provider: Option<DeclarationProvider>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    definition_provider: Option<DefinitionProvider>,
+    pub definition_provider: Option<DefinitionProvider>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    type_definition_provider: Option<TypeDefinitionProvider>,
+    pub type_definition_provider: Option<TypeDefinitionProvider>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    implementation_provider: Option<ImplementationProvider>,
+    pub implementation_provider: Option<ImplementationProvider>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    references_provider: Option<ReferencesProvider>,
+    pub references_provider: Option<ReferencesProvider>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    document_highlight_provider: Option<DocumentHighlightProvider>,
+    pub document_highlight_provider: Option<DocumentHighlightProvider>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    document_symbol_provider: Option<DocumentSymbolProvider>,
+    pub document_symbol_provider: Option<DocumentSymbolProvider>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    code_action_provider: Option<CodeActionProvider>,
+    pub code_action_provider: Option<CodeActionProvider>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    code_lens_provider: Option<CodeLensOptions>,
+    pub code_lens_provider: Option<CodeLensOptions>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    document_link_provider: Option<DocumentLinkOptions>,
+    pub document_link_provider: Option<DocumentLinkOptions>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    color_provider: Option<ColorProvider>,
+    pub color_provider: Option<ColorProvider>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    document_formatting_provider: Option<DocumentFormattingProvider>,
+    pub document_formatting_provider: Option<DocumentFormattingProvider>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    document_range_formatting_provider: Option<DocumentRangeFormattingProvider>,
+    pub document_range_formatting_provider: Option<DocumentRangeFormattingProvider>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    document_on_type_formatting_provider: Option<DocumentOnTypeFormattingOptions>,
+    pub document_on_type_formatting_provider: Option<DocumentOnTypeFormattingOptions>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    rename_provider: Option<RenameProvider>,
+    pub rename_provider: Option<RenameProvider>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    folding_range_provider: Option<FoldingRangeProvider>,
+    pub folding_range_provider: Option<FoldingRangeProvider>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    execute_command_provider: Option<ExecuteCommandOptions>,
+    pub execute_command_provider: Option<ExecuteCommandOptions>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    selection_range_provider: Option<SelectionRangeProvider>,
+    pub selection_range_provider: Option<SelectionRangeProvider>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    linked_editing_range_provider: Option<LinkedEditingRangeProvider>,
+    pub linked_editing_range_provider: Option<LinkedEditingRangeProvider>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    call_hierarchy_provider: Option<CallHierarchyProvider>,
+    pub call_hierarchy_provider: Option<CallHierarchyProvider>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    semantic_tokens_provider: Option<SemanticTokensProvider>,
+    pub semantic_tokens_provider: Option<SemanticTokensProvider>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    moniker_provider: Option<MonikerProvider>,
+    pub moniker_provider: Option<MonikerProvider>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    type_hierarchy_provider: Option<TypeHierarchyProvider>,
+    pub type_hierarchy_provider: Option<TypeHierarchyProvider>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    inline_value_provider: Option<InlineValueProvider>,
+    pub inline_value_provider: Option<InlineValueProvider>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    inlay_hint_provider: Option<InlayHintProvider>,
+    pub inlay_hint_provider: Option<InlayHintProvider>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    diagnostic_provider: Option<DiagnosticProvider>,
+    pub diagnostic_provider: Option<DiagnosticProvider>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    workspace_symbol_provider: Option<WorkspaceSymbolProvider>,
+    pub workspace_symbol_provider: Option<WorkspaceSymbolProvider>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    inline_completion_provider: Option<InlineCompletionProvider>,
+    pub inline_completion_provider: Option<InlineCompletionProvider>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    text_document: Option<TextDocumentServerCapabilities>,
+    pub text_document: Option<TextDocumentServerCapabilities>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    workspace: Option<WorkspaceServerCapabilities>,
+    pub workspace: Option<WorkspaceServerCapabilities>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    experimental: Option<Value>,
+    pub experimental: Option<Value>,
 }

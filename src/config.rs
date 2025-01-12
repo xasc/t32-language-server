@@ -2,8 +2,12 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::ReturnCode;
-use std::io::{BufRead, Write};
+use std::io::Write;
+
+use crate::{
+    protocol::{PositionEncodingKind, TraceValue},
+    ReturnCode,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ChannelKind {
@@ -12,34 +16,34 @@ pub enum ChannelKind {
     Stdio,
 }
 
-pub struct Config<'a, R: BufRead, W: Write, E: Write> {
-    pub parent_pid: usize,
+pub struct Config {
+    pub parent_pid: i64,
     pub channel: ChannelKind,
-    pub stdin: R,
-    pub stdout: &'a mut W,
-    pub stderr: &'a mut E,
+    pub workspace_root: Option<String>,
+    pub workspace_folders: Vec<String>,
+    pub trace_level: TraceValue,
+    pub position_encoding: PositionEncodingKind,
 }
 
-impl<'a, R: BufRead, W: Write, E: Write> Config<'a, R, W, E> {
-    pub fn build(
+impl Config {
+    pub fn build<'a, W: Write, E: Write>(
         args: &[String],
-        ins: R,
         outs: &'a mut W,
         errs: &'a mut E,
     ) -> Result<Self, ReturnCode> {
-        let mut ppid: Option<usize> = None;
+        let mut ppid: Option<i64> = None;
         let mut show_help: bool = false;
 
         debug_assert!(args.len() > 0);
         let len = args[1..].len();
         for (ii, arg) in args[1..].iter().enumerate() {
-            match Self::parse_flag_value::<usize>(
+            match Self::parse_flag_value::<i64>(
                 errs,
                 "--clientProcessId=",
                 "-c",
                 arg,
                 if ii < len - 1 {
-                    Some(&args[ii + 1])
+                    Some(&args[1..][ii + 1])
                 } else {
                     None
                 },
@@ -68,9 +72,10 @@ impl<'a, R: BufRead, W: Write, E: Write> Config<'a, R, W, E> {
         Ok(Config {
             parent_pid: ppid.unwrap(),
             channel: ChannelKind::Stdio,
-            stdin: ins,
-            stdout: outs,
-            stderr: errs,
+            workspace_root: None,
+            workspace_folders: Vec::new(),
+            trace_level: TraceValue::Off,
+            position_encoding: PositionEncodingKind::Utf16,
         })
     }
 
@@ -87,9 +92,9 @@ impl<'a, R: BufRead, W: Write, E: Write> Config<'a, R, W, E> {
                 return Err(ReturnCode::UsageErr);
             }
 
-            match next.unwrap().parse::<T>() {
+            match next.expect("The flag must have a value.").parse::<T>() {
                 Ok(v) => return Ok(Some(v)),
-                Err(_) => {
+                Err(err) => {
                     error_format(errs, long);
                     return Err(ReturnCode::UsageErr);
                 }
@@ -106,12 +111,12 @@ impl<'a, R: BufRead, W: Write, E: Write> Config<'a, R, W, E> {
             .filter(|s| !s.is_empty())
             .collect();
 
-        if val.len() != 2 {
+        if val.len() != 1 {
             error_format(errs, long);
             return Err(ReturnCode::UsageErr);
         }
 
-        match val[1].parse::<T>() {
+        match val[0].parse::<T>() {
             Ok(v) => Ok(Some(v)),
             Err(_) => {
                 error_format(errs, long);

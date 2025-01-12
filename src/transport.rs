@@ -2,13 +2,18 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use std::io::{BufRead, Write};
+use std::{
+    cmp::min,
+    io::{BufRead, Write},
+};
 
 use crate::{
     config::{ChannelKind, Config},
     lsp::{self, ParseState, Token},
-    protocol::{ErrorCodes, NumberOrString, ResponseError, ResponseMessage},
+    protocol::{ErrorCodes, NumberOrString, ResponseError},
     request::Request,
+    response::ResponseResult,
+    Stdio,
 };
 
 pub enum Channel<'a, R: BufRead, W: Write, E: Write> {
@@ -20,50 +25,55 @@ pub enum Channel<'a, R: BufRead, W: Write, E: Write> {
     },
 }
 
-struct Decoder {
+pub struct Decoder {
     state: ParseState,
     rest: Vec<u8>,
     tokens: Vec<Token>,
 }
 
+impl Decoder {
+    const CAPACITY: usize = 4096;
+}
+
 impl<'a, R: BufRead, W: Write, E: Write> Channel<'a, R, W, E> {
     pub fn read_msg(&mut self) -> Result<Option<Request>, ResponseError> {
-        let len = self.read_all()?;
+        let len = self.read_stream()?;
         if len <= 0 {
             return Ok(None);
         }
         Ok(self.decode_stream()?)
     }
 
-    pub fn write_response_msg(&mut self) {}
-
-    pub fn write_response_error(&mut self, id: Option<NumberOrString>, error: ResponseError) {
-        let msg = ResponseMessage {
-            jsonrpc: "2.0".to_string(),
-            id,
-            error: Some(error),
-            result: None,
-        };
-
-        self.write_all(
-            serde_json::ser::to_string(&msg)
-                .expect("Error serialization must not fail.")
-                .as_bytes(),
-        );
+    pub fn write_response(&mut self, id: NumberOrString, result: ResponseResult) {
+        let msg = lsp::make_response(id, result);
+        self.write_all(&msg);
     }
 
-    fn read_all(&mut self) -> Result<usize, ResponseError> {
+    pub fn write_response_error(&mut self, id: Option<NumberOrString>, error: ResponseError) {
+        let msg = lsp::make_error_response(id, error);
+        self.write_all(&msg);
+    }
+
+    fn read_stream(&mut self) -> Result<usize, ResponseError> {
         match self {
-            Channel::StdioChannel { cin, decoder, .. } => {
-                match cin.read_to_end(&mut decoder.rest) {
-                    Ok(len) => Ok(len),
-                    Err(err) => Err(ResponseError {
-                        code: ErrorCodes::ParseError as i64,
-                        message: err.to_string(),
-                        data: None,
-                    }),
+            Channel::StdioChannel { cin, decoder, .. } => match cin.fill_buf() {
+                Ok(buf) => {
+                    if buf.len() <= 0 {
+                        return Ok(0);
+                    }
+                    let len = min(Decoder::CAPACITY - decoder.rest.len(), buf.len());
+                    decoder.rest.extend(&buf[..len]);
+                    cin.consume(len);
+
+                    debug_assert!(decoder.rest.len() <= Decoder::CAPACITY);
+                    Ok(len)
                 }
-            }
+                Err(err) => Err(ResponseError {
+                    code: ErrorCodes::ParseError as i64,
+                    message: err.to_string(),
+                    data: None,
+                }),
+            },
         }
     }
 
@@ -78,10 +88,17 @@ impl<'a, R: BufRead, W: Write, E: Write> Channel<'a, R, W, E> {
         match self {
             Channel::StdioChannel { cout, cerr, .. } => {
                 match cout.write_all(buf) {
-                    Ok(_) => (),
+                    Ok(_) => {
+                        if let Err(err) = cout.flush() {
+                            // Stop trying if error reporting to fallback channel fails.
+                            let _ = cerr.write_all(err.to_string().as_bytes());
+                            let _ = cerr.flush();
+                        }
+                    }
                     Err(err) => {
                         // Stop trying if error reporting to fallback channel fails.
                         let _ = cerr.write_all(err.to_string().as_bytes());
+                        let _ = cerr.flush();
                     }
                 }
             }
@@ -89,7 +106,7 @@ impl<'a, R: BufRead, W: Write, E: Write> Channel<'a, R, W, E> {
     }
 }
 
-pub fn build_channel<'a, R, W, E>(cfg: Config<'a, R, W, E>) -> Channel<'a, R, W, E>
+pub fn build_channel<'a, R, W, E>(cfg: Config, stdio: Stdio<'a, R, W, E>) -> Channel<'a, R, W, E>
 where
     R: BufRead,
     W: Write,
@@ -97,12 +114,12 @@ where
 {
     if cfg.channel == ChannelKind::Stdio {
         Channel::StdioChannel {
-            cin: cfg.stdin,
-            cout: cfg.stdout,
-            cerr: cfg.stderr,
+            cin: stdio.reader,
+            cout: stdio.writer,
+            cerr: stdio.error,
             decoder: Decoder {
                 state: ParseState::Syncing,
-                rest: Vec::new(),
+                rest: Vec::with_capacity(Decoder::CAPACITY),
                 tokens: Vec::new(),
             },
         }
