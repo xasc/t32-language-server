@@ -2,13 +2,11 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use std::io::{BufRead, Write};
-
 use crate::{
     protocol::{ErrorCodes, InitializeResult, ResponseError, ServerCapabilities},
     request::Request,
     response::ResponseResult,
-    transport::Channel,
+    transport::StdioChannel,
     ReturnCode,
 };
 
@@ -17,14 +15,14 @@ struct InitializationStatus {
     shutdown_request_recv: bool,
 }
 
-pub fn serve<R: BufRead, W: Write, E: Write>(mut channel: Channel<R, W, E>) -> ReturnCode {
+pub fn serve(mut channel: StdioChannel) -> ReturnCode {
     let status = wait_for_initialization(&mut channel);
     match status.req {
         Request::InitializeRequest(req) => {
             let result = ResponseResult::InitializeResult(InitializeResult::build(
                 ServerCapabilities::build(),
             ));
-            channel.write_response(req.id, result);
+            channel.send_response(req.id, result);
         }
         // No shutdown request was received before
         Request::ExitNotification(_) => return shutdown(status.shutdown_request_recv),
@@ -32,6 +30,8 @@ pub fn serve<R: BufRead, W: Write, E: Write>(mut channel: Channel<R, W, E>) -> R
     }
 
     // let _ = eval(buf);
+
+    drop(channel);
     ReturnCode::OkExit
 }
 
@@ -41,23 +41,18 @@ pub fn serve<R: BufRead, W: Write, E: Write>(mut channel: Channel<R, W, E>) -> R
 /// Exit notifications without prior shutdown request result should trigger an
 /// error exit code. However, sending a shutdown request without prior
 /// initialization will return an error response.
-fn wait_for_initialization<R: BufRead, W: Write, E: Write>(
-    channel: &mut Channel<R, W, E>,
-) -> InitializationStatus
-where
-    R: BufRead,
-    W: Write,
-    E: Write,
-{
+fn wait_for_initialization(
+    channel: &mut StdioChannel
+) -> InitializationStatus {
     let mut shutdown_request_recv = false;
     loop {
-        let req = match channel.read_msg() {
+        let req = match channel.recv_msg() {
             Ok(Some(r)) => r,
             Ok(None) => continue,
             Err(err) => {
                 // The message could not be parsed, so we have no request ID to
                 // work with.
-                channel.write_response_error(None, err);
+                channel.send_response_error(None, err);
                 continue;
             }
         };
@@ -73,7 +68,7 @@ where
                 if let Request::ShutdownRequest(_) = r {
                     shutdown_request_recv = true;
                 }
-                channel.write_response_error(Some(req.get_id()), error_not_initialized());
+                channel.send_response_error(Some(req.get_id()), error_not_initialized());
             }
             _ => (),
         }

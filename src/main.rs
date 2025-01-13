@@ -2,18 +2,13 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use std::{env, io, process};
+use std::{env, process};
 
 use t32_language_server;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    let streams = t32_language_server::Stdio {
-        reader: io::stdin().lock(),
-        writer: &mut io::stdout(),
-        error: &mut io::stderr(),
-    };
 
-    let rc = t32_language_server::run(args, streams);
+    let rc = t32_language_server::run(args);
     process::exit(rc as i32)
 }

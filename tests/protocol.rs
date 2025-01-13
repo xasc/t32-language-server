@@ -20,8 +20,6 @@ fn build_msg(content: &str) -> String {
 
 #[test]
 fn lifecycle_initialize_req() {
-    println!("pid: {}", process::id());
-
     let pid = process::id();
 
     let mut ls = Command::new("cargo")

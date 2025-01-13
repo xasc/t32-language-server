@@ -23,23 +23,12 @@ pub enum ReturnCode {
     UsageErr = 65,
 }
 
-pub struct Stdio<'a, R: BufRead, W: Write, E: Write> {
-    pub reader: R,
-    pub writer: &'a mut W,
-    pub error: &'a mut E,
-}
-
-pub fn run<R, W, E>(args: Vec<String>, stdio: Stdio<R, W, E>) -> ReturnCode
-where
-    R: BufRead,
-    W: Write,
-    E: Write,
-{
-    let cfg = match config::Config::build(&args, stdio.writer, stdio.error) {
+pub fn run(args: Vec<String>) -> ReturnCode {
+    let cfg = match config::Config::build(&args) {
         Ok(conf) => conf,
         Err(rc) => return rc,
     };
-    let channel = transport::build_channel(cfg, stdio);
+    let channel = transport::build_channel(cfg);
 
     ls::serve(channel)
 }

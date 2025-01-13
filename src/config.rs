@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use std::io::Write;
+use std::io::{self, Write};
 
 use crate::{
     protocol::{PositionEncodingKind, TraceValue},
@@ -26,10 +26,8 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn build<'a, W: Write, E: Write>(
+    pub fn build(
         args: &[String],
-        outs: &'a mut W,
-        errs: &'a mut E,
     ) -> Result<Self, ReturnCode> {
         let mut ppid: Option<i64> = None;
         let mut show_help: bool = false;
@@ -38,7 +36,6 @@ impl Config {
         let len = args[1..].len();
         for (ii, arg) in args[1..].iter().enumerate() {
             match Self::parse_flag_value::<i64>(
-                errs,
                 "--clientProcessId=",
                 "-c",
                 arg,
@@ -62,10 +59,10 @@ impl Config {
         }
 
         if show_help {
-            usage(outs);
+            usage(&mut io::stdout());
             return Err(ReturnCode::OkExit);
         } else if ppid.is_none() {
-            error_missing(errs, "--clientProcessId=PID");
+            error_missing(&mut io::stdout(), "--clientProcessId=PID");
             return Err(ReturnCode::UsageErr);
         }
 
@@ -80,7 +77,6 @@ impl Config {
     }
 
     fn parse_flag_value<T: std::str::FromStr>(
-        errs: &mut impl Write,
         long: &str,
         short: &str,
         arg: &str,
@@ -88,14 +84,14 @@ impl Config {
     ) -> Result<Option<T>, ReturnCode> {
         if arg == short {
             if let None = next {
-                error_format_value(errs, short);
+                error_format_value(&mut io::stderr(), short);
                 return Err(ReturnCode::UsageErr);
             }
 
             match next.expect("The flag must have a value.").parse::<T>() {
                 Ok(v) => return Ok(Some(v)),
-                Err(err) => {
-                    error_format(errs, long);
+                Err(_) => {
+                    error_format(&mut io::stderr(), long);
                     return Err(ReturnCode::UsageErr);
                 }
             }
@@ -112,14 +108,14 @@ impl Config {
             .collect();
 
         if val.len() != 1 {
-            error_format(errs, long);
+            error_format(&mut io::stderr(), long);
             return Err(ReturnCode::UsageErr);
         }
 
         match val[0].parse::<T>() {
             Ok(v) => Ok(Some(v)),
             Err(_) => {
-                error_format(errs, long);
+                error_format(&mut io::stderr(), long);
                 Err(ReturnCode::UsageErr)
             }
         }
