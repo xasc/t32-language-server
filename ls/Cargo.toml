@@ -3,9 +3,9 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
 [package]
-name = "t32-language-server-stdin"
-description = "Language server child process for non-blocking stdio read operations"
-version = "1.0.0"
+name = "t32-language-server"
+description = "Language server for Lauterbach TRACE32® script language"
+version = "0.1.0"
 authors = ["Christoph Sax <c_sax@mailbox.org>"]
 keywords = [
   "language-server",
@@ -18,3 +18,10 @@ repository = "https://codeberg.org/xasc/t32-language-server/"
 edition = "2021"
 
 [dependencies]
+t32-language-server-stdin = { path = "../ls-stdin",  version = "1.0.0" }
+libc = "0.2.169"
+serde = { version = ">=1.0.215", features = ["derive"] }
+serde_json = ">=1.0"
+serde_repr = "0.1.19"
+tree-sitter-t32 = ">=4.0.0"
+url = "2.5.4"
