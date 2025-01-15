@@ -14,13 +14,12 @@ mod transport;
 
 pub use config::Config;
 
-use std::io::{BufRead, Write};
-
 #[derive(Debug, PartialEq)]
 pub enum ReturnCode {
     OkExit = 0,
     ErrExit = 1,
     UsageErr = 65,
+    NoInputErr = 66,
 }
 
 pub fn run(args: Vec<String>) -> ReturnCode {
@@ -28,7 +27,10 @@ pub fn run(args: Vec<String>) -> ReturnCode {
         Ok(conf) => conf,
         Err(rc) => return rc,
     };
-    let channel = transport::build_channel(cfg);
 
+    let channel = match transport::build_channel(cfg) {
+        Ok(c) => c,
+        Err(rc) => return rc,
+    };
     ls::serve(channel)
 }

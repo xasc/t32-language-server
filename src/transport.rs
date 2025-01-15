@@ -2,13 +2,15 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use libc;
 use std::{
     cmp::min,
-    io::{self, BufRead, Write},
-    os::unix::io::AsRawFd,
+    env,
+    io::{self, Read, Write},
+    path::PathBuf,
+    process::{self, Command, Stdio},
     sync::mpsc,
-    thread,
-    time,
+    thread, time,
 };
 
 use crate::{
@@ -17,16 +19,19 @@ use crate::{
     protocol::{ErrorCodes, NumberOrString, ResponseError},
     request::Request,
     response::ResponseResult,
+    ReturnCode,
 };
 
 enum RecvMessage {
     Req(Request),
     Err(ResponseError),
+    Heartbeat,
 }
 
 pub struct StdioChannel {
     worker: Option<thread::JoinHandle<()>>,
     rx: Option<mpsc::Receiver<RecvMessage>>,
+    listener: Option<process::Child>,
 }
 
 pub struct Decoder {
@@ -48,68 +53,107 @@ impl Decoder {
 }
 
 impl StdioChannel {
-    pub fn build() -> Self {
+    pub fn build() -> Result<Self, ReturnCode> {
         let (tx, rx) = mpsc::channel::<RecvMessage>();
 
+        let dir = match env::current_exe() {
+            Ok(path) => path,
+            Err(err) => {
+                let _ = io::stderr().write_all(
+                    format!("Error: Cannot get directory of this executable: {}", err)
+                        .as_bytes(),
+                );
+                return Err(ReturnCode::NoInputErr);
+            }
+        };
+
+        let mut bin = PathBuf::from(dir.parent().expect("Executable must have one parent."));
+        bin.push("t32-language-server-stdin");
+
+        // All read operations on stdin are blocking by default. We can move
+        // them to a separate thread, but then it becomes impossible to clean
+        // it up at the end. It will remain blocked and cannot be aborted
+        // cleanly.
+        // As workaround we move all stdin read operations to a listener
+        // child process that inherits the stdin handle of the parent process. All
+        // stdin input is then simply piped back to the parent process. In
+        // contrast to a thread, a child process can be cleanly shut down.
+        //
+        let mut listener = Command::new(bin)
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+
+        let mut cin =  listener.stdout.take().unwrap();
+
         let worker = thread::spawn(move || {
-                Self::make_stdin_nonblock();
+            let mut buf: [u8; Decoder::CAPACITY] = [0; Decoder::CAPACITY];
+            let mut decoder = Decoder::build();
 
-                let mut cin = io::stdin().lock();
-                let mut decoder = Decoder::build();
+            let idle = time::Duration::from_millis(10);
 
-                let idle = time::Duration::from_millis(10);
-
-                loop {
-                    let num = match Self::read_stdin(&mut cin, &mut decoder) {
-                        Ok(num) => num,
-                        Err(err) => {
-                            if let Err(_) = tx.send(RecvMessage::Err(err)) {
-                                return;
-                            }
-                            continue;
+            loop {
+                match Self::read_stdin(&mut cin, &mut buf, &mut decoder) {
+                    Ok(0) => {
+                        if let Err(_) = tx.send(RecvMessage::Heartbeat) {
+                            return;
                         }
-                    };
-
-                    match lsp::parse(&mut decoder.state, &mut decoder.rest, &mut decoder.tokens) {
-                        Ok(None) => (),
-                        Ok(Some(req)) => {
-                            if let Err(_) = tx.send(RecvMessage::Req(req)) {
-                                return;
-                            }
+                        thread::sleep(idle);
+                        continue;
+                    }
+                    Ok(_) => (),
+                    Err(err) => {
+                        if let Err(_) = tx.send(RecvMessage::Err(err)) {
+                            return;
                         }
-                        Err(err) => {
-                            if let Err(_) = tx.send(RecvMessage::Err(err)) {
-                                return;
-                            }
+                        thread::sleep(idle);
+                        continue;
+                    }
+                };
+
+                match lsp::parse(&mut decoder.state, &mut decoder.rest, &mut decoder.tokens) {
+                    Ok(None) => {
+                        if let Err(_) = tx.send(RecvMessage::Heartbeat) {
+                            return;
                         }
                     }
-
-                    // Place check after send operations to check whether the receiver is
-                    // still alive.
-                    if num <=0 {
-                        thread::sleep(idle);
+                    Ok(Some(req)) => {
+                        if let Err(_) = tx.send(RecvMessage::Req(req)) {
+                            return;
+                        }
+                    }
+                    Err(err) => {
+                        if let Err(_) = tx.send(RecvMessage::Err(err)) {
+                            return;
+                        }
                     }
                 }
+            }
         });
 
-        StdioChannel {
+        Ok(StdioChannel {
             worker: Some(worker),
             rx: Some(rx),
-        }
+            listener: Some(listener),
+        })
     }
 
     pub fn recv_msg(&self) -> Result<Option<Request>, ResponseError> {
-        match self.rx.as_ref().expect("Must have been populated.").try_recv() {
-            Ok(msg) => {
-                match msg {
-                    RecvMessage::Req(req) => Ok(Some(req)),
-                    RecvMessage::Err(err) => Err(err),
-                }
-            }
+        match self
+            .rx
+            .as_ref()
+            .expect("Must have been populated.")
+            .try_recv()
+        {
+            Ok(msg) => match msg {
+                RecvMessage::Req(req) => Ok(Some(req)),
+                RecvMessage::Err(err) => Err(err),
+                RecvMessage::Heartbeat => Ok(None),
+            },
             Err(err) => {
                 match err {
                     mpsc::TryRecvError::Empty => Ok(None),
-                    // The channel's send half in the worker must not disconnect first.
+                    // The channel's send half in the worker thread must not disconnect first.
                     mpsc::TryRecvError::Disconnected => unreachable!(),
                 }
             }
@@ -126,38 +170,22 @@ impl StdioChannel {
         self.write_stdout(&msg);
     }
 
-    fn read_stdin(cin: &mut impl BufRead, decoder: &mut Decoder) -> Result<usize, ResponseError> {
-        match cin.fill_buf() {
-            Ok(buf) => {
-                if buf.len() <= 0 {
-                    return Ok(0);
-                }
-                let len = min(Decoder::CAPACITY - decoder.rest.len(), buf.len());
-                decoder.rest.extend(&buf[..len]);
-                cin.consume(len);
+    fn read_stdin(cin: &mut impl Read, buf: &mut [u8], decoder: &mut Decoder) -> Result<usize, ResponseError> {
+        let len = min(Decoder::CAPACITY - decoder.rest.len(), buf.len());
+
+        match cin.read(&mut buf[..len]) {
+            Ok(0) => Ok(0),
+            Ok(num) => {
+                decoder.rest.extend(&buf[..num]);
 
                 debug_assert!(decoder.rest.len() <= Decoder::CAPACITY);
-                Ok(len)
+                Ok(num)
             }
             Err(err) => Err(ResponseError {
                 code: ErrorCodes::ParseError as i64,
                 message: err.to_string(),
                 data: None,
             }),
-        }
-    }
-
-    // Switch Unix file descriptor of stdin to non-blocking mode.
-    // (see https://stackoverflow.com/questions/68173341/how-to-clear-or-remove-iostdin-buffer-in-rust/68174244#68174244)
-    fn make_stdin_nonblock() {
-        let fd = io::stdin().as_raw_fd();
-        unsafe {
-            let flags = libc::fcntl(fd, libc::F_GETFL);
-            libc::fcntl(
-                fd,
-                libc::F_SETFL,
-                flags | libc::O_NONBLOCK
-            );
         }
     }
 
@@ -185,15 +213,19 @@ impl Drop for StdioChannel {
         // will fail. The failure will abort the worker thread.
         drop(self.rx.take());
 
+        if let Some(mut p) = self.listener.take() {
+            p.kill().expect("Must be able to shut down child process.");
+        }
+
         if let Some(t) = self.worker.take() {
             t.join().expect("Joining the worker thread must not fail.");
         }
     }
 }
 
-pub fn build_channel(cfg: Config) -> StdioChannel {
+pub fn build_channel(cfg: Config) -> Result<StdioChannel, ReturnCode> {
     if cfg.channel == ChannelKind::Stdio {
-        StdioChannel::build()
+        Ok(StdioChannel::build())?
     } else if cfg.channel == ChannelKind::Pipe {
         unreachable!()
     } else {

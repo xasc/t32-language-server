@@ -179,7 +179,7 @@ fn scan_token(state: &mut ScanState) -> Result<Option<Token>, ScanError> {
             }
         }
         '\n' => {
-            return Err(ScanError(state.next));
+            return Err(ScanError(state.next - 1));
         }
         ' ' | '\t' => return Ok(None),
         ch => {
@@ -532,22 +532,22 @@ mod tests {
         let header = "abcCon{tent-Length: 100\r\n\r\n";
 
         let tokens = scan(header.as_bytes(), false);
-        assert_eq!(tokens.err(), Some(ScanError(6)));
+        assert_eq!(tokens.err(), Some(ScanError("abcCon{".len() - 1)));
 
         let header = "Content-Length:100\r\n\r\n";
 
         let tokens = scan(header.as_bytes(), false);
-        assert_eq!(tokens.err(), Some(ScanError(15)));
+        assert_eq!(tokens.err(), Some(ScanError("Content-Length:1".len() - 1)));
 
         let header = "Content-Length:  100\r\n\r\n";
 
         let tokens = scan(header.as_bytes(), false);
-        assert_eq!(tokens.err(), Some(ScanError(16)));
+        assert_eq!(tokens.err(), Some(ScanError("Content-Length:  ".len() - 1)));
 
         let header = "Content-\nLength:  100\r\n\r\n";
 
         let tokens = scan(header.as_bytes(), false);
-        assert_eq!(tokens.err(), Some(ScanError(9)));
+        assert_eq!(tokens.err(), Some(ScanError("Content-\n".len() - 1)));
     }
 
     #[test]

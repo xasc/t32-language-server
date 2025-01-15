@@ -4,12 +4,16 @@
 
 use std::process::{Command, Stdio};
 
-
 use t32_language_server;
 
 #[test]
 fn prints_help() {
-    let args = vec!["run".to_string(), "--quiet".to_string(), "--".to_string(), String::from("--help")];
+    let args = vec![
+        "run".to_string(),
+        "--quiet".to_string(),
+        "--".to_string(),
+        String::from("--help"),
+    ];
 
     let ls = Command::new("cargo")
         .args(args)
@@ -20,8 +24,13 @@ fn prints_help() {
 
     let output = ls.wait_with_output().expect("Failed to capture output");
 
-    assert_eq!(output.status.code(), Some(t32_language_server::ReturnCode::OkExit as i32));
-    assert!(std::str::from_utf8(&output.stdout).unwrap().starts_with("Usage: t32-language-server"));
+    assert_eq!(
+        output.status.code(),
+        Some(t32_language_server::ReturnCode::OkExit as i32)
+    );
+    assert!(std::str::from_utf8(&output.stdout)
+        .unwrap()
+        .starts_with("Usage: t32-language-server"));
 }
 
 #[test]
@@ -37,7 +46,10 @@ fn reports_missing_ppid() {
 
     let output = ls.wait_with_output().expect("Failed to capture output");
 
-    assert_eq!(output.status.code(), Some(t32_language_server::ReturnCode::UsageErr as i32));
+    assert_eq!(
+        output.status.code(),
+        Some(t32_language_server::ReturnCode::UsageErr as i32)
+    );
     assert_eq!(
         std::str::from_utf8(&output.stdout).unwrap(),
         "Error: Missing argument \"--clientProcessId=PID\"\n"

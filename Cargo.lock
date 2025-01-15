@@ -315,9 +315,14 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_repr",
+ "t32-language-server-stdin",
  "tree-sitter-t32",
  "url",
 ]
+
+[[package]]
+name = "t32-language-server-stdin"
+version = "0.1.0"
 
 [[package]]
 name = "tinystr"

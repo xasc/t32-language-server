@@ -41,9 +41,7 @@ pub fn serve(mut channel: StdioChannel) -> ReturnCode {
 /// Exit notifications without prior shutdown request result should trigger an
 /// error exit code. However, sending a shutdown request without prior
 /// initialization will return an error response.
-fn wait_for_initialization(
-    channel: &mut StdioChannel
-) -> InitializationStatus {
+fn wait_for_initialization(channel: &mut StdioChannel) -> InitializationStatus {
     let mut shutdown_request_recv = false;
     loop {
         let req = match channel.recv_msg() {

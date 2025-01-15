@@ -26,9 +26,7 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn build(
-        args: &[String],
-    ) -> Result<Self, ReturnCode> {
+    pub fn build(args: &[String]) -> Result<Self, ReturnCode> {
         let mut ppid: Option<i64> = None;
         let mut show_help: bool = false;
 
