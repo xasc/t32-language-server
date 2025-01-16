@@ -28,9 +28,9 @@ pub fn run(args: Vec<String>) -> ReturnCode {
         Err(rc) => return rc,
     };
 
-    let channel = match transport::build_channel(cfg) {
+    let channel = match transport::build_channel(&cfg) {
         Ok(c) => c,
         Err(rc) => return rc,
     };
-    ls::serve(channel)
+    ls::serve(channel, cfg)
 }

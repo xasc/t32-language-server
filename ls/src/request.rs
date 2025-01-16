@@ -11,7 +11,7 @@ pub enum Request {
 }
 
 pub struct ExitNotification {
-    pub id: NumberOrString,
+    pub id: Option<NumberOrString>,
 }
 
 pub struct InitializeRequest {
@@ -24,11 +24,11 @@ pub struct ShutdownRequest {
 }
 
 impl Request {
-    pub fn get_id(self) -> NumberOrString {
+    pub fn get_id(self) -> Option<NumberOrString> {
         match self {
-            Request::ExitNotification(ExitNotification { id, .. })
-            | Request::InitializeRequest(InitializeRequest { id, .. }) => id,
-            Request::ShutdownRequest(ShutdownRequest { id }) => id,
+            Request::ExitNotification(ExitNotification { id, .. }) => id,
+            Request::InitializeRequest(InitializeRequest { id, .. }) => Some(id),
+            Request::ShutdownRequest(ShutdownRequest { id }) => Some(id),
         }
     }
 

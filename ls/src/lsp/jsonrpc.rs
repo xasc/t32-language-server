@@ -82,7 +82,7 @@ pub fn make_request(msg: RequestMessage) -> Result<Request, ResponseError> {
 
     match msg.method.as_str() {
         EXIT => Ok(Request::ExitNotification(ExitNotification {
-            id: msg.id.expect("Exit notification must have \"id\" field."),
+            id: Some(msg.id.expect("Exit notification must have \"id\" field.")),
         })),
         INITIALIZE => Ok(Request::InitializeRequest(InitializeRequest {
             id: msg.id.expect("Initialize request must have \"id\" field."),

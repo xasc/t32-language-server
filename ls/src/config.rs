@@ -17,7 +17,7 @@ pub enum ChannelKind {
 }
 
 pub struct Config {
-    pub parent_pid: i64,
+    pub parent_pid: Option<u32>,
     pub channel: ChannelKind,
     pub workspace_root: Option<String>,
     pub workspace_folders: Vec<String>,
@@ -27,13 +27,13 @@ pub struct Config {
 
 impl Config {
     pub fn build(args: &[String]) -> Result<Self, ReturnCode> {
-        let mut ppid: Option<i64> = None;
+        let mut ppid: Option<u32> = None;
         let mut show_help: bool = false;
 
         debug_assert!(args.len() > 0);
         let len = args[1..].len();
         for (ii, arg) in args[1..].iter().enumerate() {
-            match Self::parse_flag_value::<i64>(
+            match Self::parse_flag_value::<u32>(
                 "--clientProcessId=",
                 "-c",
                 arg,
@@ -65,7 +65,7 @@ impl Config {
         }
 
         Ok(Config {
-            parent_pid: ppid.unwrap(),
+            parent_pid: Some(ppid.unwrap()),
             channel: ChannelKind::Stdio,
             workspace_root: None,
             workspace_folders: Vec::new(),

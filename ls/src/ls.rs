@@ -3,8 +3,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use crate::{
+    config::Config,
+    proc::{proc_alive, ProcState},
     protocol::{ErrorCodes, InitializeResult, ResponseError, ServerCapabilities},
-    request::Request,
+    request::{ExitNotification, Request},
     response::ResponseResult,
     transport::StdioChannel,
     ReturnCode,
@@ -15,8 +17,8 @@ struct InitializationStatus {
     shutdown_request_recv: bool,
 }
 
-pub fn serve(mut channel: StdioChannel) -> ReturnCode {
-    let status = wait_for_initialization(&mut channel);
+pub fn serve(mut channel: StdioChannel, cfg: Config) -> ReturnCode {
+    let status = wait_for_initialization(&mut channel, cfg.parent_pid);
     match status.req {
         Request::InitializeRequest(req) => {
             let result = ResponseResult::InitializeResult(InitializeResult::build(
@@ -41,12 +43,29 @@ pub fn serve(mut channel: StdioChannel) -> ReturnCode {
 /// Exit notifications without prior shutdown request result should trigger an
 /// error exit code. However, sending a shutdown request without prior
 /// initialization will return an error response.
-fn wait_for_initialization(channel: &mut StdioChannel) -> InitializationStatus {
+fn wait_for_initialization(
+    channel: &mut StdioChannel,
+    parent_pid: Option<u32>,
+) -> InitializationStatus {
     let mut shutdown_request_recv = false;
     loop {
         let req = match channel.recv_msg() {
             Ok(Some(r)) => r,
-            Ok(None) => continue,
+            Ok(None) => {
+                // The server should shut down, if it detects that its parent
+                // process is not alive anymore. No actual shutdown request was
+                // received, so we exit with an error code. We only check if we
+                // did not receive any message from the client.
+                if let Some(pid) = parent_pid {
+                    if ProcState::Alive != proc_alive(pid) {
+                        return InitializationStatus {
+                            req: Request::ExitNotification(ExitNotification { id: None }),
+                            shutdown_request_recv: false,
+                        };
+                    }
+                }
+                continue;
+            }
             Err(err) => {
                 // The message could not be parsed, so we have no request ID to
                 // work with.
@@ -66,7 +85,10 @@ fn wait_for_initialization(channel: &mut StdioChannel) -> InitializationStatus {
                 if let Request::ShutdownRequest(_) = r {
                     shutdown_request_recv = true;
                 }
-                channel.send_response_error(Some(req.get_id()), error_not_initialized());
+                channel.send_response_error(
+                    Some(req.get_id().expect("Must be request.")),
+                    error_not_initialized(),
+                );
             }
             _ => (),
         }

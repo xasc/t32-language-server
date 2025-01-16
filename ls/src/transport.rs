@@ -60,8 +60,7 @@ impl StdioChannel {
             Ok(path) => path,
             Err(err) => {
                 let _ = io::stderr().write_all(
-                    format!("Error: Cannot get directory of this executable: {}", err)
-                        .as_bytes(),
+                    format!("Error: Cannot get directory of this executable: {}", err).as_bytes(),
                 );
                 return Err(ReturnCode::NoInputErr);
             }
@@ -79,12 +78,9 @@ impl StdioChannel {
         // stdin input is then simply piped back to the parent process. In
         // contrast to a thread, a child process can be cleanly shut down.
         //
-        let mut listener = Command::new(bin)
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap();
+        let mut listener = Command::new(bin).stdout(Stdio::piped()).spawn().unwrap();
 
-        let mut cin =  listener.stdout.take().unwrap();
+        let mut cin = listener.stdout.take().unwrap();
 
         let worker = thread::spawn(move || {
             let mut buf: [u8; Decoder::CAPACITY] = [0; Decoder::CAPACITY];
@@ -170,7 +166,11 @@ impl StdioChannel {
         self.write_stdout(&msg);
     }
 
-    fn read_stdin(cin: &mut impl Read, buf: &mut [u8], decoder: &mut Decoder) -> Result<usize, ResponseError> {
+    fn read_stdin(
+        cin: &mut impl Read,
+        buf: &mut [u8],
+        decoder: &mut Decoder,
+    ) -> Result<usize, ResponseError> {
         let len = min(Decoder::CAPACITY - decoder.rest.len(), buf.len());
 
         match cin.read(&mut buf[..len]) {
@@ -223,7 +223,7 @@ impl Drop for StdioChannel {
     }
 }
 
-pub fn build_channel(cfg: Config) -> Result<StdioChannel, ReturnCode> {
+pub fn build_channel(cfg: &Config) -> Result<StdioChannel, ReturnCode> {
     if cfg.channel == ChannelKind::Stdio {
         Ok(StdioChannel::build())?
     } else if cfg.channel == ChannelKind::Pipe {
