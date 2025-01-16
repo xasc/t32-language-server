@@ -2,10 +2,7 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use std::{
-    io::Write,
-    process,
-};
+use std::{io::Write, process};
 
 use serde_json::json;
 
@@ -80,4 +77,57 @@ fn exits_on_missing_parent_process() {
     let output = ls.wait_with_output().expect("Cannot capture output");
 
     assert_eq!(output.status.code(), Some(1));
+}
+
+#[test]
+fn exits_on_wrong_parent_pid() {
+    let pid = process::id();
+
+    let mut ls = utils::start_ls(&[&format!("--clientProcessId={}", pid)]);
+
+    let init = make_initialize_request(1, 2);
+
+    let mut stdin = ls.stdin.take().unwrap();
+    stdin.write_all(init.as_bytes()).unwrap();
+
+    let output = ls.wait_with_output().expect("Cannot capture output");
+
+    assert_eq!(
+        output.status.code(),
+        Some(t32_language_server::ReturnCode::ProtcolError as i32)
+    );
+
+    assert!(std::str::from_utf8(&output.stdout)
+        .unwrap()
+        .contains("Error: Process ID of the parent process 2 is different"));
+
+    let mut ls = utils::start_ls(&[&format!("--clientProcessId={}", pid)]);
+
+    let content = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "processId": isize::MAX,
+            "capabilities": {}
+        }
+    });
+    let init = build_msg(&content.to_string());
+
+    let mut stdin = ls.stdin.take().unwrap();
+    stdin.write_all(init.as_bytes()).unwrap();
+
+    let output = ls.wait_with_output().expect("Cannot capture output");
+
+    assert_eq!(
+        output.status.code(),
+        Some(t32_language_server::ReturnCode::ProtcolError as i32)
+    );
+
+    assert!(std::str::from_utf8(&output.stdout)
+        .unwrap()
+        .contains("Error: Process ID of the parent process"));
+    assert!(std::str::from_utf8(&output.stdout)
+        .unwrap()
+        .contains("invalid"));
 }

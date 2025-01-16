@@ -5,7 +5,7 @@
 use crate::{
     config::Config,
     proc::{proc_alive, ProcState},
-    protocol::{ErrorCodes, InitializeResult, ResponseError, ServerCapabilities},
+    protocol::{ErrorCodes, InitializeParams, InitializeResult, ResponseError, ServerCapabilities},
     request::{ExitNotification, Request},
     response::ResponseResult,
     transport::StdioChannel,
@@ -17,14 +17,19 @@ struct InitializationStatus {
     shutdown_request_recv: bool,
 }
 
-pub fn serve(mut channel: StdioChannel, cfg: Config) -> ReturnCode {
+pub fn serve(mut channel: StdioChannel, mut cfg: Config) -> ReturnCode {
     let status = wait_for_initialization(&mut channel, cfg.parent_pid);
     match status.req {
         Request::InitializeRequest(req) => {
-            let result = ResponseResult::InitializeResult(InitializeResult::build(
-                ServerCapabilities::build(),
-            ));
-            channel.send_response(req.id, result);
+            if let Err(err) = process_initialize_params(&req.params, &mut cfg) {
+                channel.send_response_error(Some(req.id), err);
+                return ReturnCode::ProtcolError;
+            } else {
+                let result = ResponseResult::InitializeResult(InitializeResult::build(
+                    ServerCapabilities::build(),
+                ));
+                channel.send_response(req.id, result);
+            }
         }
         // No shutdown request was received before
         Request::ExitNotification(_) => return shutdown(status.shutdown_request_recv),
@@ -93,6 +98,44 @@ fn wait_for_initialization(
             _ => (),
         }
     }
+}
+
+fn process_initialize_params(
+    params: &InitializeParams,
+    cfg: &mut Config,
+) -> Result<(), ResponseError> {
+    if let Some(pid) = params.process_id {
+        let parent_pid = match u32::try_from(pid) {
+            Ok(num) => num,
+            Err(_) => {
+                return Err(ResponseError {
+                    code: ErrorCodes::InvalidParams as i64,
+                    message: format!(
+                        "Error: Process ID of the parent process {} is invalid.",
+                        pid
+                    ),
+                    data: None,
+                })
+            }
+        };
+
+        match cfg.parent_pid {
+            Some(ppid) if ppid == parent_pid => (),
+            Some(ppid) => return Err(ResponseError {
+                code: ErrorCodes::InvalidParams as i64,
+                message: format!(
+                    "Error: Process ID of the parent process {} is different from the process ID specified by \"--clientProcessId=\" {}.",
+                    parent_pid, ppid
+                ),
+                data: None,
+            }),
+            None => {
+                cfg.parent_pid = Some(parent_pid);
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn error_not_initialized() -> ResponseError {

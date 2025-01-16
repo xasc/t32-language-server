@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use t32_language_server;
 use std::process::{Child, Command, Stdio};
+use t32_language_server;
 
 pub fn start_ls(args: &[&str]) -> Child {
     let mut params = vec!["run", "--quiet", "--"];
