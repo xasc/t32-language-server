@@ -4,11 +4,12 @@
 
 use std::{
     io::Write,
-    process::{self, Child, Command, Stdio},
+    process,
 };
 
 use serde_json::json;
-use t32_language_server;
+
+mod utils;
 
 fn build_msg(content: &str) -> String {
     format!(
@@ -40,23 +41,11 @@ fn make_exit_notification(id: isize) -> String {
     build_msg(&content.to_string())
 }
 
-fn start_ls(args: &[&str]) -> Child {
-    let mut params = vec!["run", "--quiet", "--"];
-    params.extend_from_slice(&args);
-
-    Command::new("cargo")
-        .args(params)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()
-        .expect("Must be able to start language server.")
-}
-
 #[test]
 fn supports_lifecycle_initialize_req() {
     let pid = process::id();
 
-    let mut ls = start_ls(&[&format!("--clientProcessId={}", pid.to_string())]);
+    let mut ls = utils::start_ls(&[&format!("--clientProcessId={}", pid.to_string())]);
 
     let init = make_initialize_request(1, pid);
     let exit = make_exit_notification(2);
@@ -72,7 +61,7 @@ fn supports_lifecycle_initialize_req() {
 
 #[test]
 fn supports_lifecycle_exit_notification() {
-    let mut ls = start_ls(&[&format!("--clientProcessId={}", process::id().to_string())]);
+    let mut ls = utils::start_ls(&[&format!("--clientProcessId={}", process::id().to_string())]);
 
     let exit = make_exit_notification(1);
 
@@ -86,7 +75,7 @@ fn supports_lifecycle_exit_notification() {
 
 #[test]
 fn exits_on_missing_parent_process() {
-    let ls = start_ls(&[&format!("--clientProcessId={}", 1)]);
+    let ls = utils::start_ls(&[&format!("--clientProcessId={}", 1)]);
 
     let output = ls.wait_with_output().expect("Cannot capture output");
 

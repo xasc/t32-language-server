@@ -59,9 +59,6 @@ impl Config {
         if show_help {
             usage(&mut io::stdout());
             return Err(ReturnCode::OkExit);
-        } else if ppid.is_none() {
-            error_missing(&mut io::stdout(), "--clientProcessId=PID");
-            return Err(ReturnCode::UsageErr);
         }
 
         Ok(Config {
