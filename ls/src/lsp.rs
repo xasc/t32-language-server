@@ -18,7 +18,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::{
-    protocol::{InitializeResult, NumberOrString, ResponseError, ServerCapabilities, ServerInfo},
+    protocol::{NumberOrString, ResponseError},
     request::Request,
     response::ResponseResult,
 };

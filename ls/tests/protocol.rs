@@ -76,7 +76,7 @@ fn exits_on_missing_parent_process() {
 
     let output = ls.wait_with_output().expect("Cannot capture output");
 
-    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(output.status.code(), Some(69));
 }
 
 #[test]
@@ -94,7 +94,7 @@ fn exits_on_wrong_parent_pid() {
 
     assert_eq!(
         output.status.code(),
-        Some(t32_language_server::ReturnCode::ProtcolError as i32)
+        Some(t32_language_server::ReturnCode::ProtcolErr as i32)
     );
 
     assert!(std::str::from_utf8(&output.stdout)
@@ -121,7 +121,7 @@ fn exits_on_wrong_parent_pid() {
 
     assert_eq!(
         output.status.code(),
-        Some(t32_language_server::ReturnCode::ProtcolError as i32)
+        Some(t32_language_server::ReturnCode::ProtcolErr as i32)
     );
 
     assert!(std::str::from_utf8(&output.stdout)

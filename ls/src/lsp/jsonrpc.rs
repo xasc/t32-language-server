@@ -10,8 +10,10 @@ use serde_json::{error::Category, Error, Value};
 
 use crate::{
     lsp::RequestMessage,
-    protocol::{ErrorCodes, InitializeParams, NumberOrString, ResponseError},
-    request::{ExitNotification, InitializeRequest, Request, ShutdownRequest},
+    protocol::{ErrorCodes, InitializeParams, InitializedParams, NumberOrString, ResponseError},
+    request::{
+        ExitNotification, InitializeRequest, InitializedNotification, Request, ShutdownRequest,
+    },
     response::ResponseResult,
 };
 
@@ -78,11 +80,16 @@ pub fn parse_message(buf: &[u8]) -> Result<RequestMessage, ResponseError> {
 pub fn make_request(msg: RequestMessage) -> Result<Request, ResponseError> {
     const EXIT: &'static str = "exit";
     const INITIALIZE: &'static str = "initialize";
+    const INITIALIZED: &'static str = "initialized";
     const SHUTDOWN: &'static str = "shutdown";
 
     match msg.method.as_str() {
-        EXIT => Ok(Request::ExitNotification(ExitNotification {
-            id: Some(msg.id.expect("Exit notification must have \"id\" field.")),
+        EXIT => Ok(Request::ExitNotification(ExitNotification {})),
+        INITIALIZED => Ok(Request::InitializedNotification(InitializedNotification {
+            params: request_params::<InitializedParams>(
+                msg.params
+                    .expect("Initialized notification must have \"params\" field."),
+            )?,
         })),
         INITIALIZE => Ok(Request::InitializeRequest(InitializeRequest {
             id: msg.id.expect("Initialize request must have \"id\" field."),
@@ -241,7 +248,7 @@ mod tests {
     fn can_create_exit_notification() {
         let msg = RequestMessage {
             jsonrpc: "2.0".to_string(),
-            id: Some(protocol::NumberOrString::Number(1)),
+            id: None,
             method: "exit".to_string(),
             params: None,
         };
@@ -249,6 +256,20 @@ mod tests {
         let r = make_request(msg).expect("Should not fail.");
 
         assert!(matches!(r, Request::ExitNotification(_)));
+    }
+
+    #[test]
+    fn can_create_initialized_notification() {
+        let msg = RequestMessage {
+            jsonrpc: "2.0".to_string(),
+            id: None,
+            method: "initialized".to_string(),
+            params: Some(json!({})),
+        };
+
+        let r = make_request(msg).expect("Should not fail.");
+
+        assert!(matches!(r, Request::InitializedNotification(_)));
     }
 
     #[test]

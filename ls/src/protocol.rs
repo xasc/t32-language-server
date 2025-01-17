@@ -246,7 +246,7 @@ pub enum ProgressTokenKind {
     String(String),
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Clone)]
 #[serde(untagged)]
 pub enum NumberOrString {
     Number(i64),
@@ -515,6 +515,9 @@ pub struct ResponseError {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<Value>,
 }
+
+#[derive(Deserialize)]
+pub struct InitializedParams {}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]

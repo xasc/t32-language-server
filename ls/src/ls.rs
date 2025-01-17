@@ -14,16 +14,16 @@ use crate::{
 
 struct InitializationStatus {
     req: Request,
-    shutdown_request_recv: bool,
+    rc: ReturnCode,
 }
 
 pub fn serve(mut channel: StdioChannel, mut cfg: Config) -> ReturnCode {
-    let status = wait_for_initialization(&mut channel, cfg.parent_pid);
+    let status = wait_for_initialize_req(&mut channel, cfg.parent_pid);
     match status.req {
         Request::InitializeRequest(req) => {
             if let Err(err) = process_initialize_params(&req.params, &mut cfg) {
                 channel.send_response_error(Some(req.id), err);
-                return ReturnCode::ProtcolError;
+                return ReturnCode::ProtcolErr;
             } else {
                 let result = ResponseResult::InitializeResult(InitializeResult::build(
                     ServerCapabilities::build(),
@@ -32,11 +32,14 @@ pub fn serve(mut channel: StdioChannel, mut cfg: Config) -> ReturnCode {
             }
         }
         // No shutdown request was received before
-        Request::ExitNotification(_) => return shutdown(status.shutdown_request_recv),
+        Request::ExitNotification(_) => return shutdown(channel, status.rc),
         _ => unreachable!(),
     }
 
-    // let _ = eval(buf);
+    match wait_for_initialized_notif(&mut channel, cfg.parent_pid) {
+        Ok(_) => (),
+        Err(rc) => return shutdown(channel, rc),
+    }
 
     drop(channel);
     ReturnCode::OkExit
@@ -48,7 +51,7 @@ pub fn serve(mut channel: StdioChannel, mut cfg: Config) -> ReturnCode {
 /// Exit notifications without prior shutdown request result should trigger an
 /// error exit code. However, sending a shutdown request without prior
 /// initialization will return an error response.
-fn wait_for_initialization(
+fn wait_for_initialize_req(
     channel: &mut StdioChannel,
     parent_pid: Option<u32>,
 ) -> InitializationStatus {
@@ -64,8 +67,8 @@ fn wait_for_initialization(
                 if let Some(pid) = parent_pid {
                     if ProcState::Alive != proc_alive(pid) {
                         return InitializationStatus {
-                            req: Request::ExitNotification(ExitNotification { id: None }),
-                            shutdown_request_recv: false,
+                            req: Request::ExitNotification(ExitNotification {}),
+                            rc: ReturnCode::UnavailableErr,
                         };
                     }
                 }
@@ -83,7 +86,11 @@ fn wait_for_initialization(
             Request::InitializeRequest(_) | Request::ExitNotification(_) => {
                 return InitializationStatus {
                     req,
-                    shutdown_request_recv,
+                    rc: if shutdown_request_recv {
+                        ReturnCode::OkExit
+                    } else {
+                        ReturnCode::ErrExit
+                    },
                 }
             }
             r if r.is_request() => {
@@ -91,7 +98,7 @@ fn wait_for_initialization(
                     shutdown_request_recv = true;
                 }
                 channel.send_response_error(
-                    Some(req.get_id().expect("Must be request.")),
+                    Some(req.get_id().expect("Requests must have a ID.")),
                     error_not_initialized(),
                 );
             }
@@ -146,10 +153,66 @@ fn error_not_initialized() -> ResponseError {
     }
 }
 
-fn shutdown(initialized: bool) -> ReturnCode {
-    if initialized {
-        ReturnCode::OkExit
-    } else {
-        ReturnCode::ErrExit
+/// We ignore the specification here when it states that the exit code 1 should
+/// be returned if no shutdown request has been received. Instead, we try to return
+/// a meaningful error code.
+fn shutdown(channel: StdioChannel, rc: ReturnCode) -> ReturnCode {
+    drop(channel);
+    rc
+}
+
+fn wait_for_initialized_notif(
+    channel: &mut StdioChannel,
+    parent_pid: Option<u32>,
+) -> Result<(), ReturnCode> {
+    let mut shutdown_request_recv = false;
+    loop {
+        let req = match channel.recv_msg() {
+            Ok(Some(r)) => r,
+            Ok(None) => {
+                // The server should shut down, if it detects that its parent
+                // process is not alive anymore. No actual shutdown request was
+                // received, so we exit with an error code. We only check if we
+                // did not receive any message from the client.
+                if let Some(pid) = parent_pid {
+                    if ProcState::Alive != proc_alive(pid) {
+                        return Err(ReturnCode::UnavailableErr);
+                    }
+                }
+                continue;
+            }
+            Err(err) => {
+                // The message could not be parsed, so we have no request ID to
+                // work with.
+                channel.send_response_error(None, err);
+                continue;
+            }
+        };
+
+        match &req {
+            Request::InitializedNotification(_) => return Ok(()),
+            Request::ExitNotification(_) => {
+                return Err(if shutdown_request_recv {
+                    ReturnCode::OkExit
+                } else {
+                    ReturnCode::ErrExit
+                })
+            }
+            r => {
+                if let Request::ShutdownRequest(_) = r {
+                    shutdown_request_recv = true;
+                }
+                channel.send_response_error(req.get_id(), error_no_initialize_conf());
+            }
+        }
+    }
+}
+
+fn error_no_initialize_conf() -> ResponseError {
+    ResponseError {
+        code: ErrorCodes::InvalidRequest as i64,
+        message: "Error: Server still waiting for initialized notification. Cannot handle request."
+            .to_string(),
+        data: None,
     }
 }
