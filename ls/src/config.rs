@@ -2,7 +2,10 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use std::io::{self, Write};
+use std::{
+    io::{self, Write},
+    time::Duration,
+};
 
 use crate::{
     protocol::{PositionEncodingKind, TraceValue},
@@ -18,6 +21,7 @@ pub enum ChannelKind {
 
 pub struct Config {
     pub parent_pid: Option<u32>,
+    pub pid_check_interval: Duration,
     pub channel: ChannelKind,
     pub workspace_root: Option<String>,
     pub workspace_folders: Vec<String>,
@@ -63,6 +67,7 @@ impl Config {
 
         Ok(Config {
             parent_pid: Some(ppid.unwrap()),
+            pid_check_interval: Duration::from_secs(5),
             channel: ChannelKind::Stdio,
             workspace_root: None,
             workspace_folders: Vec::new(),

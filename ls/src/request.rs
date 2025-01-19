@@ -4,6 +4,7 @@
 
 use crate::protocol::{InitializeParams, InitializedParams, NumberOrString};
 
+#[derive(Debug)]
 pub enum Request {
     ExitNotification(ExitNotification),
     InitializedNotification(InitializedNotification),
@@ -11,17 +12,22 @@ pub enum Request {
     ShutdownRequest(ShutdownRequest),
 }
 
+#[derive(Debug)]
 pub struct ExitNotification {}
 
+#[derive(Debug)]
 pub struct InitializedNotification {
+    #[allow(dead_code)]
     pub params: InitializedParams,
 }
 
+#[derive(Debug)]
 pub struct InitializeRequest {
     pub id: NumberOrString,
     pub params: InitializeParams,
 }
 
+#[derive(Debug)]
 pub struct ShutdownRequest {
     pub id: NumberOrString,
 }

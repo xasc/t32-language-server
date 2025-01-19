@@ -2,10 +2,14 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use std::time::{Duration, Instant};
+
+use serde_json::Value;
+
 use crate::{
     config::Config,
     proc::{proc_alive, ProcState},
-    protocol::{ErrorCodes, InitializeParams, InitializeResult, ResponseError, ServerCapabilities},
+    protocol::{ErrorCodes, InitializeError, InitializeParams, InitializeResult, ResponseError, ServerCapabilities},
     request::{ExitNotification, Request},
     response::ResponseResult,
     transport::StdioChannel,
@@ -17,8 +21,35 @@ struct InitializationStatus {
     rc: ReturnCode,
 }
 
+struct ProcHeartbeat {
+    pid: Option<u32>,
+    interval: Duration,
+    last_beat: Instant,
+}
+
+impl ProcHeartbeat {
+    fn build(cfg: &Config) -> Self {
+        ProcHeartbeat {
+            pid: cfg.parent_pid,
+            interval: cfg.pid_check_interval,
+            last_beat: Instant::now() - cfg.pid_check_interval,
+        }
+    }
+
+    fn elapsed(&self, now: &Instant) -> bool {
+        *now - self.last_beat >= self.interval
+    }
+
+    fn check(&mut self, now: &Instant) -> bool {
+        self.last_beat = *now;
+        ProcState::Alive == proc_alive(self.pid.expect("PID must be specified."))
+    }
+}
+
 pub fn serve(mut channel: StdioChannel, mut cfg: Config) -> ReturnCode {
-    let status = wait_for_initialize_req(&mut channel, cfg.parent_pid);
+    let heartbeat = ProcHeartbeat::build(&cfg);
+
+    let status = wait_for_initialize_req(&mut channel, heartbeat);
     match status.req {
         Request::InitializeRequest(req) => {
             if let Err(err) = process_initialize_params(&req.params, &mut cfg) {
@@ -36,7 +67,8 @@ pub fn serve(mut channel: StdioChannel, mut cfg: Config) -> ReturnCode {
         _ => unreachable!(),
     }
 
-    match wait_for_initialized_notif(&mut channel, cfg.parent_pid) {
+    let heartbeat = ProcHeartbeat::build(&cfg);
+    match handle_requests(&mut channel, heartbeat) {
         Ok(_) => (),
         Err(rc) => return shutdown(channel, rc),
     }
@@ -53,32 +85,18 @@ pub fn serve(mut channel: StdioChannel, mut cfg: Config) -> ReturnCode {
 /// initialization will return an error response.
 fn wait_for_initialize_req(
     channel: &mut StdioChannel,
-    parent_pid: Option<u32>,
+    mut heartbeat: ProcHeartbeat,
 ) -> InitializationStatus {
     let mut shutdown_request_recv = false;
     loop {
-        let req = match channel.recv_msg() {
+        let req = match read_msg(channel, &mut heartbeat) {
             Ok(Some(r)) => r,
-            Ok(None) => {
-                // The server should shut down, if it detects that its parent
-                // process is not alive anymore. No actual shutdown request was
-                // received, so we exit with an error code. We only check if we
-                // did not receive any message from the client.
-                if let Some(pid) = parent_pid {
-                    if ProcState::Alive != proc_alive(pid) {
-                        return InitializationStatus {
-                            req: Request::ExitNotification(ExitNotification {}),
-                            rc: ReturnCode::UnavailableErr,
-                        };
-                    }
+            Ok(None) => continue,
+            Err(rc) => {
+                return InitializationStatus {
+                    req: Request::ExitNotification(ExitNotification {}),
+                    rc,
                 }
-                continue;
-            }
-            Err(err) => {
-                // The message could not be parsed, so we have no request ID to
-                // work with.
-                channel.send_response_error(None, err);
-                continue;
             }
         };
 
@@ -101,6 +119,33 @@ fn wait_for_initialize_req(
                     Some(req.get_id().expect("Requests must have a ID.")),
                     error_not_initialized(),
                 );
+            }
+            _ => (),
+        }
+    }
+}
+
+fn handle_requests(channel: &mut StdioChannel, mut heartbeat: ProcHeartbeat) -> Result<(), ReturnCode> {
+    let mut shutdown_request_recv = false;
+    loop {
+        let req = match read_msg(channel, &mut heartbeat) {
+            Ok(Some(r)) => r,
+            Ok(None) => continue,
+            Err(rc) => return Err(rc),
+        };
+
+        match &req {
+            Request::ExitNotification(_) => {
+                return Err(if shutdown_request_recv {
+                    ReturnCode::OkExit
+                } else {
+                    ReturnCode::ErrExit
+                })
+            }
+            r if r.is_request() => {
+                if let Request::ShutdownRequest(_) = r {
+                    shutdown_request_recv = true;
+                }
             }
             _ => (),
         }
@@ -134,7 +179,7 @@ fn process_initialize_params(
                     "Error: Process ID of the parent process {} is different from the process ID specified by \"--clientProcessId=\" {}.",
                     parent_pid, ppid
                 ),
-                data: None,
+                data: Some(serde_json::to_value(InitializeError { retry: true }).expect("Must convert to value.")),
             }),
             None => {
                 cfg.parent_pid = Some(parent_pid);
@@ -143,6 +188,34 @@ fn process_initialize_params(
     }
 
     Ok(())
+}
+
+fn read_msg(
+    channel: &mut StdioChannel,
+    heartbeat: &mut ProcHeartbeat,
+) -> Result<Option<Request>, ReturnCode> {
+    match channel.recv_msg() {
+        Ok(Some(r)) => Ok(Some(r)),
+        Ok(None) => {
+            // The server should shut down, if it detects that its parent
+            // process is not alive anymore. No actual shutdown request was
+            // received, so we exit with an error code. We only check if we
+            // did not receive any new message from the client.
+            if let Some(_) = heartbeat.pid {
+                let now = Instant::now();
+                if heartbeat.elapsed(&now) && !heartbeat.check(&now) {
+                    return Err(ReturnCode::UnavailableErr);
+                }
+            }
+            Ok(None)
+        }
+        Err(err) => {
+            // The message could not be parsed, so we have no request ID to
+            // work with.
+            channel.send_response_error(None, err);
+            Ok(None)
+        }
+    }
 }
 
 fn error_not_initialized() -> ResponseError {
@@ -159,53 +232,6 @@ fn error_not_initialized() -> ResponseError {
 fn shutdown(channel: StdioChannel, rc: ReturnCode) -> ReturnCode {
     drop(channel);
     rc
-}
-
-fn wait_for_initialized_notif(
-    channel: &mut StdioChannel,
-    parent_pid: Option<u32>,
-) -> Result<(), ReturnCode> {
-    let mut shutdown_request_recv = false;
-    loop {
-        let req = match channel.recv_msg() {
-            Ok(Some(r)) => r,
-            Ok(None) => {
-                // The server should shut down, if it detects that its parent
-                // process is not alive anymore. No actual shutdown request was
-                // received, so we exit with an error code. We only check if we
-                // did not receive any message from the client.
-                if let Some(pid) = parent_pid {
-                    if ProcState::Alive != proc_alive(pid) {
-                        return Err(ReturnCode::UnavailableErr);
-                    }
-                }
-                continue;
-            }
-            Err(err) => {
-                // The message could not be parsed, so we have no request ID to
-                // work with.
-                channel.send_response_error(None, err);
-                continue;
-            }
-        };
-
-        match &req {
-            Request::InitializedNotification(_) => return Ok(()),
-            Request::ExitNotification(_) => {
-                return Err(if shutdown_request_recv {
-                    ReturnCode::OkExit
-                } else {
-                    ReturnCode::ErrExit
-                })
-            }
-            r => {
-                if let Request::ShutdownRequest(_) = r {
-                    shutdown_request_recv = true;
-                }
-                channel.send_response_error(req.get_id(), error_no_initialize_conf());
-            }
-        }
-    }
 }
 
 fn error_no_initialize_conf() -> ResponseError {

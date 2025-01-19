@@ -2,20 +2,13 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::protocol::{
-    InitializeResult, NumberOrString, PositionEncodingKind, ServerCapabilities, ServerInfo,
-};
+use crate::protocol::{InitializeResult, PositionEncodingKind, ServerCapabilities, ServerInfo};
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum ResponseResult {
     InitializeResult(InitializeResult),
-}
-
-pub struct InitializeResponse {
-    id: NumberOrString,
-    result: InitializeResult,
 }
 
 impl ServerCapabilities {

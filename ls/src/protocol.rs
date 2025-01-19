@@ -24,7 +24,7 @@ pub enum ErrorCodes {
     RequestCancelled = -32800,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ResourceOperationKind {
     Create,
@@ -32,7 +32,7 @@ pub enum ResourceOperationKind {
     Delete,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum FailureHandlingKind {
     Abort,
@@ -41,7 +41,7 @@ pub enum FailureHandlingKind {
     TextOnlyTransactional,
 }
 
-#[derive(Deserialize_repr)]
+#[derive(Debug, Deserialize_repr)]
 #[repr(u8)]
 pub enum SymbolKind {
     File = 1,
@@ -72,26 +72,26 @@ pub enum SymbolKind {
     TypeParameter = 26,
 }
 
-#[derive(Deserialize_repr)]
+#[derive(Debug, Deserialize_repr)]
 #[repr(u8)]
 pub enum SymbolTag {
     Deprecated = 1,
 }
 
-#[derive(Deserialize_repr)]
+#[derive(Debug, Deserialize_repr)]
 #[repr(u8)]
 pub enum CompletionItemTag {
     Deprecated = 1,
 }
 
-#[derive(Deserialize_repr)]
+#[derive(Debug, Deserialize_repr)]
 #[repr(u8)]
 pub enum InsertTextMode {
     AsIs = 1,
     AdjustIndentation = 2,
 }
 
-#[derive(Deserialize_repr)]
+#[derive(Debug, Deserialize_repr)]
 #[repr(u8)]
 pub enum CompletionItemKind {
     Text = 1,
@@ -121,19 +121,19 @@ pub enum CompletionItemKind {
     TypeParameter = 25,
 }
 
-#[derive(Deserialize_repr)]
+#[derive(Debug, Deserialize_repr)]
 #[repr(u8)]
 pub enum CodeActionTag {
     LlmGenerated = 1,
 }
 
-#[derive(Deserialize_repr)]
+#[derive(Debug, Deserialize_repr)]
 #[repr(u8)]
 pub enum PrepareSupportDefaultBehavior {
     Identifier = 1,
 }
 
-#[derive(Deserialize_repr)]
+#[derive(Debug, Deserialize_repr)]
 #[repr(u8)]
 pub enum DiagnosticTag {
     Unnecessary = 1,
@@ -154,14 +154,14 @@ pub enum TextDocumentSyncKind {
     Incremental = 2,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MarkupKind {
     PlainText,
     Markdown,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub enum CodeActionKind {
     #[serde(rename(deserialize = ""))]
     Empty,
@@ -197,7 +197,7 @@ pub enum CodeActionKind {
     Notebook,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum FoldingRangeKind {
     Comment,
@@ -205,7 +205,7 @@ pub enum FoldingRangeKind {
     Region,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", untagged)]
 pub enum SemanticTokenFullRequestsCapabilities {
     Bool(bool),
@@ -215,13 +215,13 @@ pub enum SemanticTokenFullRequestsCapabilities {
     },
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TokenFormat {
     Relative,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub enum PositionEncodingKind {
     #[serde(rename = "utf-8")]
     Utf8,
@@ -233,7 +233,7 @@ pub enum PositionEncodingKind {
     Utf32,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "lowercase", untagged)]
 pub enum TraceValue {
     Off,
@@ -246,7 +246,7 @@ pub enum ProgressTokenKind {
     String(String),
 }
 
-#[derive(Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(untagged)]
 pub enum NumberOrString {
     Number(i64),
@@ -516,10 +516,10 @@ pub struct ResponseError {
     pub data: Option<Value>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct InitializedParams {}
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InitializeParams {
     pub process_id: Option<i64>,
@@ -548,7 +548,7 @@ pub struct InitializeParams {
     pub work_done_token: Option<WorkDoneProgressParams>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct ClientInfo {
     name: String,
 
@@ -556,7 +556,7 @@ pub struct ClientInfo {
     version: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -578,7 +578,7 @@ pub struct ClientCapabilities {
     pub experimental: Option<Value>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -624,7 +624,7 @@ pub struct WorkspaceClientCapabilities {
     diagnostics: Option<DiagnosticWorkspaceClientCapabilities>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceEditClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -649,21 +649,21 @@ pub struct WorkspaceEditClientCapabilities {
     snippet_edit_support: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChangeAnnotation {
     #[serde(skip_serializing_if = "Option::is_none")]
     groups_on_label: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DidChangeConfigurationClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DidChangeWatchedFilesClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -673,7 +673,7 @@ pub struct DidChangeWatchedFilesClientCapabilities {
     relative_pattern_support: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceSymbolClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -689,45 +689,45 @@ pub struct WorkspaceSymbolClientCapabilities {
     resolve_support: Option<ResolveSupportWorkspaceSymbolClientCapabilities>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SymbolKindCapabilities {
     value_set: Option<Vec<SymbolKind>>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SymbolTagSupportCapabilities {
     value_set: Vec<SymbolTag>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct ResolveSupportWorkspaceSymbolClientCapabilities {
     properties: Vec<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExecuteCommandClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SemanticTokensWorkspaceClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     refresh_support: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodeLensWorkspaceClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     refresh_support: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileOperationsWorkspaceClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -752,28 +752,28 @@ pub struct FileOperationsWorkspaceClientCapabilities {
     will_delete: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InlineValueWorkspaceClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     refresh_support: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InlayHintWorkspaceClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     refresh_support: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DiagnosticWorkspaceClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     refresh_support: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TextDocumentClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -873,7 +873,7 @@ pub struct TextDocumentClientCapabilities {
     inline_completion: Option<InlineCompletionClientCapabilities>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TextDocumentSyncClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -889,14 +889,14 @@ pub struct TextDocumentSyncClientCapabilities {
     did_save: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TextDocumentFilterClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     relative_pattern_support: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CompletionClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -918,7 +918,7 @@ pub struct CompletionClientCapabilities {
     completion_list: Option<CompletionListCompletionClientCapabilities>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CompletionItemCompletionClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -953,30 +953,30 @@ pub struct CompletionItemCompletionClientCapabilities {
     label_details_support: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TagSupportCompletionItemCompletionClientCapabilities {
     value_set: Vec<CompletionItemTag>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct ResolveSupportCompletionItemCompletionClientCapabilities {
     properties: Vec<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InsertTextModeSupportCompletionItemCompletionClientCapabilities {
     value_set: Vec<InsertTextMode>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CompletionItemKindCompletionClientCapabilities {
     value_set: Vec<CompletionItemKind>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CompletionListCompletionClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -986,7 +986,7 @@ pub struct CompletionListCompletionClientCapabilities {
     apply_kind_support: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HoverClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -996,7 +996,7 @@ pub struct HoverClientCapabilities {
     content_format: Option<MarkupKind>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SignatureHelpClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1009,7 +1009,7 @@ pub struct SignatureHelpClientCapabilities {
     context_support: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SignatureInformationCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1025,14 +1025,14 @@ pub struct SignatureInformationCapabilities {
     no_active_parameter_support: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ParameterInformationCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     label_offset_support: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeclarationClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1042,7 +1042,7 @@ pub struct DeclarationClientCapabilities {
     link_support: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DefinitionClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1052,7 +1052,7 @@ pub struct DefinitionClientCapabilities {
     link_support: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TypeDefinitionClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1062,7 +1062,7 @@ pub struct TypeDefinitionClientCapabilities {
     link_support: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImplementationClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1072,21 +1072,21 @@ pub struct ImplementationClientCapabilities {
     link_support: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReferenceClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentHighlightClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentSymbolClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1105,7 +1105,7 @@ pub struct DocumentSymbolClientCapabilities {
     label_support: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodeActionClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1136,31 +1136,31 @@ pub struct CodeActionClientCapabilities {
     tag_support: Option<CodeActionTagSupportCapabilities>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodeActionLiteralSupportCapabilities {
     code_action_kind: CodeActionKindCapabilities,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodeActionKindCapabilities {
     value_set: Vec<CodeActionKind>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResolveSupportCapabilities {
     properties: Vec<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodeActionTagSupportCapabilities {
     value_set: Vec<CodeActionTag>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodeLensClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1170,13 +1170,13 @@ pub struct CodeLensClientCapabilities {
     resolve_support: Option<ClientCodeLensResolveOptions>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClientCodeLensResolveOptions {
     properties: Vec<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentLinkClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1186,21 +1186,21 @@ pub struct DocumentLinkClientCapabilities {
     tooltip_support: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentColorClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentFormattingClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentRangeFormattingClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1210,14 +1210,14 @@ pub struct DocumentRangeFormattingClientCapabilities {
     ranges_support: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentOnTypeFormattingClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RenameClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1233,7 +1233,7 @@ pub struct RenameClientCapabilities {
     honors_change_annotations: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PublishDiagnosticsClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1252,13 +1252,13 @@ pub struct PublishDiagnosticsClientCapabilities {
     data_support: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DiagnosticTagSupportCapability {
     value_set: Vec<DiagnosticTag>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FoldingRangeClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1277,42 +1277,42 @@ pub struct FoldingRangeClientCapabilities {
     folding_range: Option<FoldingRangeCapabilities>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FoldingRangeKindCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     value_set: Vec<FoldingRangeKind>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FoldingRangeCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     collapsed_text: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SelectionRangeClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LinkedEditingRangeClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CallHierarchyClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SemanticTokensClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1335,35 +1335,35 @@ pub struct SemanticTokensClientCapabilities {
     augments_syntax_tokens: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SemanticTokenRequestsCapabilities {
     range: Option<bool>,
     full: Option<SemanticTokenFullRequestsCapabilities>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MonikerClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TypeHierarchyClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InlineValueClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InlayHintClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1373,7 +1373,7 @@ pub struct InlayHintClientCapabilities {
     resolve_support: Option<ResolveSupportCapabilities>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DiagnosticClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1386,20 +1386,20 @@ pub struct DiagnosticClientCapabilities {
     markup_message_support: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InlineCompletionClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NotebookDocumentClientCapabilities {
     synchronization: NotebookDocumentSyncClientCapabilities,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NotebookDocumentSyncClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1409,7 +1409,7 @@ pub struct NotebookDocumentSyncClientCapabilities {
     execution_summary_support: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WindowClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1422,27 +1422,27 @@ pub struct WindowClientCapabilities {
     show_document: Option<ShowDocumentClientCapabilities>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ShowMessageRequestClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     message_action_item: Option<MessageActionItemClientCapabilities>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MessageActionItemClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     additional_properties_support: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ShowDocumentClientCapabilities {
     support: bool,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GeneralClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1458,14 +1458,14 @@ pub struct GeneralClientCapabilities {
     position_encodings: Option<Vec<PositionEncodingKind>>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StaleRequestSupportClientCapabilities {
     cancel: bool,
     retry_on_content_modified: Vec<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RegularExpressionsClientCapabilities {
     engine: String,
@@ -1474,7 +1474,7 @@ pub struct RegularExpressionsClientCapabilities {
     version: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MarkdownClientCapabilities {
     parser: String,
@@ -1486,13 +1486,13 @@ pub struct MarkdownClientCapabilities {
     allowed_tags: Option<Vec<String>>,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct WorkspaceFolder {
     uri: Uri,
     name: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkDoneProgressParams {
     work_done_token: Option<ProgressToken>,
@@ -2131,8 +2131,9 @@ pub struct InitializeResult {
     pub server_info: Option<ServerInfo>,
 }
 
+#[derive(Serialize)]
 pub struct InitializeError {
-    retry: bool,
+    pub retry: bool,
 }
 
 #[derive(Deserialize, Serialize)]

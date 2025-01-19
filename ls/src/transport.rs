@@ -2,7 +2,6 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use libc;
 use std::{
     cmp::min,
     env,
@@ -107,20 +106,24 @@ impl StdioChannel {
                     }
                 };
 
-                match lsp::parse(&mut decoder.state, &mut decoder.rest, &mut decoder.tokens) {
-                    Ok(None) => {
-                        if let Err(_) = tx.send(RecvMessage::Heartbeat) {
-                            return;
+                loop {
+                    match lsp::parse(&mut decoder.state, &mut decoder.rest, &mut decoder.tokens) {
+                        Ok(None) => {
+                            if let Err(_) = tx.send(RecvMessage::Heartbeat) {
+                                return;
+                            }
+                            break;
                         }
-                    }
-                    Ok(Some(req)) => {
-                        if let Err(_) = tx.send(RecvMessage::Req(req)) {
-                            return;
+                        Ok(Some(req)) => {
+                            if let Err(_) = tx.send(RecvMessage::Req(req)) {
+                                return;
+                            }
                         }
-                    }
-                    Err(err) => {
-                        if let Err(_) = tx.send(RecvMessage::Err(err)) {
-                            return;
+                        Err(err) => {
+                            if let Err(_) = tx.send(RecvMessage::Err(err)) {
+                                return;
+                            }
+                            break;
                         }
                     }
                 }
