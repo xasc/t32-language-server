@@ -4,8 +4,6 @@
 
 use std::time::{Duration, Instant};
 
-use serde_json::Value;
-
 use crate::{
     config::Config,
     proc::{proc_alive, ProcState},
@@ -73,7 +71,7 @@ pub fn serve(mut channel: StdioChannel, mut cfg: Config) -> ReturnCode {
         Err(rc) => return shutdown(channel, rc),
     }
 
-    drop(channel);
+    shutdown(channel, ReturnCode::OkExit);
     ReturnCode::OkExit
 }
 

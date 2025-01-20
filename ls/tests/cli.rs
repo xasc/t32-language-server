@@ -8,7 +8,7 @@ mod utils;
 
 #[test]
 fn prints_help() {
-    let ls = utils::start_ls(&["--help"]);
+    let ls = utils::start_ls(&["--help"], false);
 
     let output = ls.wait_with_output().expect("Failed to capture output");
 

@@ -4,23 +4,34 @@
 
 use std::{
     io::Write,
-    process::{Child, ChildStdin, Command, Stdio},
-    thread::sleep,
+    process::{self, Child, ChildStdin, Command, Stdio},
     time::{Duration, Instant},
 };
 
 use serde_json::json;
 
-pub fn start_ls(args: &[&str]) -> Child {
+pub fn start_ls(args: &[&str], try_initialize: bool) -> Child {
     let mut params = vec!["run", "--quiet", "--"];
     params.extend_from_slice(&args);
 
-    Command::new("cargo")
+    let ls = Command::new("cargo")
         .args(params)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
-        .expect("Must be able to start language server.")
+        .expect("Must be able to start language server.");
+
+    if try_initialize {
+        if let Some(mut cin) = ls.stdin.as_ref() {
+            let pid = process::id();
+
+            let init = make_initialize_request(1, pid);
+
+            let _ = cin.write_all(init.as_bytes());
+            let _ = cin.flush();
+        }
+    }
+    ls
 }
 
 pub fn stop_ls(proc: &mut Child, stdin: Option<&mut ChildStdin>, try_shutdown: bool) {
@@ -45,7 +56,20 @@ pub fn stop_ls(proc: &mut Child, stdin: Option<&mut ChildStdin>, try_shutdown: b
     }
 }
 
-pub fn make_exit_notification(id: isize) -> String {
+pub fn make_initialize_request(id: isize, pid: u32) -> String {
+    let content = json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "method": "initialize",
+        "params": {
+            "processId": pid,
+            "capabilities": {}
+        }
+    });
+    build_msg(&content.to_string())
+}
+
+fn make_exit_notification(id: isize) -> String {
     let content = json!({
         "jsonrpc": "2.0",
         "id": id,
@@ -54,7 +78,7 @@ pub fn make_exit_notification(id: isize) -> String {
     build_msg(&content.to_string())
 }
 
-pub fn make_shutdown_notification(id: isize) -> String {
+fn make_shutdown_notification(id: isize) -> String {
     let content = json!({
         "jsonrpc": "2.0",
         "id": id,

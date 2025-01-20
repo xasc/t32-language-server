@@ -8,24 +8,11 @@ use serde_json::json;
 
 mod utils;
 
-fn make_initialize_request(id: isize, pid: u32) -> String {
-    let content = json!({
-        "jsonrpc": "2.0",
-        "id": id,
-        "method": "initialize",
-        "params": {
-            "processId": pid,
-            "capabilities": {}
-        }
-    });
-    utils::build_msg(&content.to_string())
-}
-
 #[test]
 fn supports_lifecycle_initialize_req() {
     let pid = process::id();
 
-    let mut ls = utils::start_ls(&[&format!("--clientProcessId={}", pid.to_string())]);
+    let mut ls = utils::start_ls(&[&format!("--clientProcessId={}", pid.to_string())], true);
     let mut stdin = ls.stdin.take().unwrap();
 
     utils::stop_ls(&mut ls, Some(&mut stdin), false);
@@ -33,18 +20,18 @@ fn supports_lifecycle_initialize_req() {
 
     assert_eq!(output.status.code(), Some(1));
 
-    let mut ls = utils::start_ls(&[&format!("--clientProcessId={}", pid.to_string())]);
+    let mut ls = utils::start_ls(&[&format!("--clientProcessId={}", pid.to_string())], true);
     let mut stdin = ls.stdin.take().unwrap();
 
     utils::stop_ls(&mut ls, Some(&mut stdin), true);
-
     let output = ls.wait_with_output().expect("Cannot capture output");
+
     assert_eq!(output.status.code(), Some(0));
 }
 
 #[test]
 fn supports_lifecycle_exit_notification() {
-    let mut ls = utils::start_ls(&[&format!("--clientProcessId={}", process::id().to_string())]);
+    let mut ls = utils::start_ls(&[&format!("--clientProcessId={}", process::id().to_string())], true);
     let mut stdin = ls.stdin.take().unwrap();
 
     utils::stop_ls(&mut ls, Some(&mut stdin), false);
@@ -55,7 +42,7 @@ fn supports_lifecycle_exit_notification() {
 
 #[test]
 fn exits_on_missing_parent_process() {
-    let mut ls = utils::start_ls(&[&format!("--clientProcessId={}", 1)]);
+    let mut ls = utils::start_ls(&[&format!("--clientProcessId={}", 1)], true);
 
     utils::stop_ls(&mut ls, None, false);
     let output = ls.wait_with_output().expect("Cannot capture output");
@@ -67,9 +54,9 @@ fn exits_on_missing_parent_process() {
 fn exits_on_wrong_parent_pid() {
     let pid = process::id();
 
-    let mut ls = utils::start_ls(&[&format!("--clientProcessId={}", pid)]);
+    let mut ls = utils::start_ls(&[&format!("--clientProcessId={}", pid)], false);
 
-    let init = make_initialize_request(1, 2);
+    let init = utils::make_initialize_request(1, 2);
 
     let mut stdin = ls.stdin.take().unwrap();
     stdin.write_all(init.as_bytes()).unwrap();
@@ -85,7 +72,7 @@ fn exits_on_wrong_parent_pid() {
         .unwrap()
         .contains("Error: Process ID of the parent process 2 is different"));
 
-    let mut ls = utils::start_ls(&[&format!("--clientProcessId={}", pid)]);
+    let mut ls = utils::start_ls(&[&format!("--clientProcessId={}", pid)], false);
 
     let content = json!({
         "jsonrpc": "2.0",
