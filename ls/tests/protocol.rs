@@ -31,7 +31,10 @@ fn supports_lifecycle_initialize_req() {
 
 #[test]
 fn supports_lifecycle_exit_notification() {
-    let mut ls = utils::start_ls(&[&format!("--clientProcessId={}", process::id().to_string())], true);
+    let mut ls = utils::start_ls(
+        &[&format!("--clientProcessId={}", process::id().to_string())],
+        true,
+    );
     let mut stdin = ls.stdin.take().unwrap();
 
     utils::stop_ls(&mut ls, Some(&mut stdin), false);

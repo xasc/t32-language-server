@@ -54,7 +54,7 @@ pub struct Token {
 
 /// Line format of `RequestMessage` or `NotificationMessage` requests from
 /// client to server.
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct RequestMessage {
     pub jsonrpc: String,
     pub method: String,

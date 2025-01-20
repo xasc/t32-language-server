@@ -10,9 +10,13 @@ use serde_json::{error::Category, Error, Value};
 
 use crate::{
     lsp::RequestMessage,
-    protocol::{ErrorCodes, InitializeParams, InitializedParams, NumberOrString, ResponseError},
+    protocol::{
+        ErrorCodes, InitializeParams, InitializedParams, NumberOrString, ResponseError,
+        SetTraceParams, TraceValue,
+    },
     request::{
-        ExitNotification, InitializeRequest, InitializedNotification, Request, ShutdownRequest,
+        ExitNotification, InitializeRequest, InitializedNotification, Request,
+        SetTraceNotification, ShutdownRequest,
     },
     response::ResponseResult,
 };
@@ -82,6 +86,7 @@ pub fn make_request(msg: RequestMessage) -> Result<Request, ResponseError> {
     const INITIALIZE: &'static str = "initialize";
     const INITIALIZED: &'static str = "initialized";
     const SHUTDOWN: &'static str = "shutdown";
+    const SET_TRACE: &'static str = "$/setTrace";
 
     match msg.method.as_str() {
         EXIT => Ok(Request::ExitNotification(ExitNotification {})),
@@ -96,6 +101,12 @@ pub fn make_request(msg: RequestMessage) -> Result<Request, ResponseError> {
             params: request_params::<InitializeParams>(
                 msg.params
                     .expect("Initialize request must have \"params\" field."),
+            )?,
+        })),
+        SET_TRACE => Ok(Request::SetTraceNotification(SetTraceNotification {
+            params: request_params::<SetTraceParams>(
+                msg.params
+                    .expect("SetTrace notification must have \"params\" field."),
             )?,
         })),
         SHUTDOWN => Ok(Request::ShutdownRequest(ShutdownRequest {
@@ -304,6 +315,22 @@ mod tests {
         let r = make_request(msg).expect("Should not fail.");
 
         assert!(matches!(r, Request::ShutdownRequest(_)));
+    }
+
+    #[test]
+    fn can_create_set_trace_notification() {
+        let msg = RequestMessage {
+            jsonrpc: "2.0".to_string(),
+            id: None,
+            method: "$/setTrace".to_string(),
+            params: Some(json!({
+                "value": "verbose",
+            })),
+        };
+
+        let r = make_request(msg).expect("Should not fail.");
+
+        assert!(matches!(r, Request::SetTraceNotification(_)));
     }
 
     #[test]

@@ -2,13 +2,14 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::protocol::{InitializeParams, InitializedParams, NumberOrString};
+use crate::protocol::{InitializeParams, InitializedParams, NumberOrString, SetTraceParams};
 
 #[derive(Debug)]
 pub enum Request {
     ExitNotification(ExitNotification),
     InitializedNotification(InitializedNotification),
     InitializeRequest(InitializeRequest),
+    SetTraceNotification(SetTraceNotification),
     ShutdownRequest(ShutdownRequest),
 }
 
@@ -28,6 +29,11 @@ pub struct InitializeRequest {
 }
 
 #[derive(Debug)]
+pub struct SetTraceNotification {
+    pub params: SetTraceParams,
+}
+
+#[derive(Debug)]
 pub struct ShutdownRequest {
     pub id: NumberOrString,
 }
@@ -35,7 +41,7 @@ pub struct ShutdownRequest {
 impl Request {
     pub fn get_id(self) -> Option<NumberOrString> {
         match self {
-            Request::ExitNotification(_) => None,
+            Request::ExitNotification(_) | Request::SetTraceNotification(_) => None,
             Request::InitializedNotification(_) => None,
             Request::InitializeRequest(InitializeRequest { id, .. }) => Some(id),
             Request::ShutdownRequest(ShutdownRequest { id }) => Some(id),

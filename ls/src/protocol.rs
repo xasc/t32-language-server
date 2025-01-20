@@ -233,8 +233,8 @@ pub enum PositionEncodingKind {
     Utf32,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "lowercase", untagged)]
+#[derive(Copy, Clone, Debug, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum TraceValue {
     Off,
     Messages,
@@ -2256,4 +2256,9 @@ pub struct ServerCapabilities {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub experimental: Option<Value>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SetTraceParams {
+    pub value: TraceValue,
 }

@@ -7,8 +7,11 @@ use std::time::{Duration, Instant};
 use crate::{
     config::Config,
     proc::{proc_alive, ProcState},
-    protocol::{ErrorCodes, InitializeError, InitializeParams, InitializeResult, ResponseError, ServerCapabilities},
-    request::{ExitNotification, Request},
+    protocol::{
+        ErrorCodes, InitializeError, InitializeParams, InitializeResult, ResponseError,
+        ServerCapabilities, SetTraceParams, TraceValue,
+    },
+    request::{ExitNotification, Request, SetTraceNotification},
     response::ResponseResult,
     transport::StdioChannel,
     ReturnCode,
@@ -66,7 +69,7 @@ pub fn serve(mut channel: StdioChannel, mut cfg: Config) -> ReturnCode {
     }
 
     let heartbeat = ProcHeartbeat::build(&cfg);
-    match handle_requests(&mut channel, heartbeat) {
+    match handle_requests(&mut channel, heartbeat, cfg.trace_level) {
         Ok(_) => (),
         Err(rc) => return shutdown(channel, rc),
     }
@@ -123,7 +126,11 @@ fn wait_for_initialize_req(
     }
 }
 
-fn handle_requests(channel: &mut StdioChannel, mut heartbeat: ProcHeartbeat) -> Result<(), ReturnCode> {
+fn handle_requests(
+    channel: &mut StdioChannel,
+    mut heartbeat: ProcHeartbeat,
+    mut trace_level: TraceValue,
+) -> Result<(), ReturnCode> {
     let mut shutdown_request_recv = false;
     loop {
         let req = match read_msg(channel, &mut heartbeat) {
@@ -139,6 +146,11 @@ fn handle_requests(channel: &mut StdioChannel, mut heartbeat: ProcHeartbeat) -> 
                 } else {
                     ReturnCode::ErrExit
                 })
+            }
+            Request::SetTraceNotification(SetTraceNotification {
+                params: SetTraceParams { value },
+            }) => {
+                trace_level = *value;
             }
             r if r.is_request() => {
                 if let Request::ShutdownRequest(_) = r {
@@ -185,6 +197,9 @@ fn process_initialize_params(
         }
     }
 
+    if let Some(level) = &params.trace {
+        cfg.trace_level = *level;
+    }
     Ok(())
 }
 
