@@ -14,16 +14,15 @@ use std::{
 
 use crate::{
     config::{ChannelKind, Config},
-    lsp::{self, ParseState, Token},
-    protocol::{ErrorCodes, NumberOrString, ResponseError},
-    request::Request,
-    response::ResponseResult,
+    lsp::{self, Message, ParseState, Token},
+    protocol::{ErrorCodes, ResponseError},
+    response::ErrorResponse,
     ReturnCode,
 };
 
 enum RecvMessage {
-    Req(Request),
-    Err(ResponseError),
+    Msg(Message),
+    Err(ErrorResponse),
     Heartbeat,
 }
 
@@ -115,7 +114,7 @@ impl StdioChannel {
                             break;
                         }
                         Ok(Some(req)) => {
-                            if let Err(_) = tx.send(RecvMessage::Req(req)) {
+                            if let Err(_) = tx.send(RecvMessage::Msg(req)) {
                                 return;
                             }
                         }
@@ -137,15 +136,15 @@ impl StdioChannel {
         })
     }
 
-    pub fn recv_msg(&self) -> Result<Option<Request>, ResponseError> {
+    pub fn recv_msg(&self) -> Result<Option<Message>, ErrorResponse> {
         match self
             .rx
             .as_ref()
             .expect("Must have been populated.")
             .try_recv()
         {
-            Ok(msg) => match msg {
-                RecvMessage::Req(req) => Ok(Some(req)),
+            Ok(recv) => match recv {
+                RecvMessage::Msg(msg) => Ok(Some(msg)),
                 RecvMessage::Err(err) => Err(err),
                 RecvMessage::Heartbeat => Ok(None),
             },
@@ -153,27 +152,22 @@ impl StdioChannel {
                 match err {
                     mpsc::TryRecvError::Empty => Ok(None),
                     // The channel's send half in the worker thread must not disconnect first.
-                    mpsc::TryRecvError::Disconnected => unreachable!(),
+                    mpsc::TryRecvError::Disconnected => panic!(),
                 }
             }
         }
     }
 
-    pub fn send_response(&mut self, id: NumberOrString, result: ResponseResult) {
-        let msg = lsp::make_response(id, result);
-        self.write_stdout(&msg);
-    }
-
-    pub fn send_response_error(&mut self, id: Option<NumberOrString>, error: ResponseError) {
-        let msg = lsp::make_error_response(id, error);
-        self.write_stdout(&msg);
+    pub fn send_msg(&mut self, msg: Message) {
+        let repr = lsp::make_response(msg);
+        self.write_stdout(&repr);
     }
 
     fn read_stdin(
         cin: &mut impl Read,
         buf: &mut [u8],
         decoder: &mut Decoder,
-    ) -> Result<usize, ResponseError> {
+    ) -> Result<usize, ErrorResponse> {
         let len = min(Decoder::CAPACITY - decoder.rest.len(), buf.len());
 
         match cin.read(&mut buf[..len]) {
@@ -184,11 +178,7 @@ impl StdioChannel {
                 debug_assert!(decoder.rest.len() <= Decoder::CAPACITY);
                 Ok(num)
             }
-            Err(err) => Err(ResponseError {
-                code: ErrorCodes::ParseError as i64,
-                message: err.to_string(),
-                data: None,
-            }),
+            Err(err) => Err(Self::error_read(&err.to_string())),
         }
     }
 
@@ -206,6 +196,17 @@ impl StdioChannel {
                 let _ = io::stderr().write_all(err.to_string().as_bytes());
                 let _ = io::stderr().flush();
             }
+        }
+    }
+
+    fn error_read(err: &str) -> ErrorResponse {
+        ErrorResponse {
+            id: None,
+            error: ResponseError {
+                code: ErrorCodes::ParseError as i64,
+                message: err.to_string(),
+                data: None,
+            },
         }
     }
 }

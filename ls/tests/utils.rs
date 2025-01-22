@@ -34,15 +34,16 @@ pub fn start_ls(args: &[&str], try_initialize: bool) -> Child {
     ls
 }
 
+#[allow(dead_code)]
 pub fn stop_ls(proc: &mut Child, stdin: Option<&mut ChildStdin>, try_shutdown: bool) {
     if let Some(cin) = stdin {
         if try_shutdown {
-            let shutdown = make_shutdown_notification(99);
+            let shutdown = make_shutdown_request(99);
 
             cin.write_all(shutdown.as_bytes()).unwrap();
             let _ = cin.flush();
         }
-        let exit = make_exit_notification(100);
+        let exit = make_exit_notification();
 
         cin.write_all(exit.as_bytes()).unwrap();
         let _ = cin.flush();
@@ -69,16 +70,15 @@ pub fn make_initialize_request(id: isize, pid: u32) -> String {
     build_msg(&content.to_string())
 }
 
-fn make_exit_notification(id: isize) -> String {
+fn make_exit_notification() -> String {
     let content = json!({
         "jsonrpc": "2.0",
-        "id": id,
         "method": "exit",
     });
     build_msg(&content.to_string())
 }
 
-fn make_shutdown_notification(id: isize) -> String {
+fn make_shutdown_request(id: isize) -> String {
     let content = json!({
         "jsonrpc": "2.0",
         "id": id,

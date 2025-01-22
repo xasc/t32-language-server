@@ -2,15 +2,23 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::protocol::{InitializeParams, InitializedParams, NumberOrString, SetTraceParams};
+use crate::protocol::{
+    InitializeParams, InitializedParams, LogTraceParams, NumberOrString, SetTraceParams,
+};
 
+// Requests from client to server.
 #[derive(Debug)]
 pub enum Request {
+    InitializeRequest(InitializeRequest),
+    ShutdownRequest(ShutdownRequest),
+}
+
+#[derive(Debug)]
+pub enum Notification {
     ExitNotification(ExitNotification),
     InitializedNotification(InitializedNotification),
-    InitializeRequest(InitializeRequest),
+    LogTraceNotification(LogTraceNotification),
     SetTraceNotification(SetTraceNotification),
-    ShutdownRequest(ShutdownRequest),
 }
 
 #[derive(Debug)]
@@ -29,6 +37,11 @@ pub struct InitializeRequest {
 }
 
 #[derive(Debug)]
+pub struct LogTraceNotification {
+    pub params: LogTraceParams,
+}
+
+#[derive(Debug)]
 pub struct SetTraceNotification {
     pub params: SetTraceParams,
 }
@@ -41,17 +54,8 @@ pub struct ShutdownRequest {
 impl Request {
     pub fn get_id(self) -> Option<NumberOrString> {
         match self {
-            Request::ExitNotification(_) | Request::SetTraceNotification(_) => None,
-            Request::InitializedNotification(_) => None,
             Request::InitializeRequest(InitializeRequest { id, .. }) => Some(id),
             Request::ShutdownRequest(ShutdownRequest { id }) => Some(id),
-        }
-    }
-
-    pub fn is_request(&self) -> bool {
-        match self {
-            Request::InitializeRequest(_) | Request::ShutdownRequest(_) => true,
-            _ => false,
         }
     }
 }

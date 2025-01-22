@@ -12,19 +12,15 @@
 //! The whitespace after the colon delimter between HTTP header field name and
 //! value is normally optional. The LSP protocol makes it mandatory.
 
-use std::{fmt, num::NonZeroUsize};
-
-use serde::Deserialize;
-use serde_json::Value;
-
-use crate::{
-    protocol::{NumberOrString, ResponseError},
-    request::Request,
-    response::ResponseResult,
-};
-
 mod header;
 mod jsonrpc;
+
+use std::{fmt, num::NonZeroUsize};
+
+use crate::{
+    request::{Notification, Request},
+    response::{ErrorResponse, Response},
+};
 
 use header::ScanError;
 
@@ -52,17 +48,11 @@ pub struct Token {
     pub fusible: bool,
 }
 
-/// Line format of `RequestMessage` or `NotificationMessage` requests from
-/// client to server.
-#[derive(Debug, Deserialize)]
-struct RequestMessage {
-    pub jsonrpc: String,
-    pub method: String,
-    pub params: Option<Value>,
-
-    // Only for `RequestMessage`
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub id: Option<NumberOrString>,
+#[derive(Debug)]
+pub enum Message {
+    Request(Request),
+    Notification(Notification),
+    Response(Response),
 }
 
 impl fmt::Display for Token {
@@ -80,6 +70,25 @@ impl fmt::Display for Token {
     }
 }
 
+impl Message {
+    pub fn is_request(&self) -> bool {
+        match self {
+            Message::Request(Request::InitializeRequest(_))
+            | Message::Request(Request::ShutdownRequest(_)) => true,
+            _ => false,
+        }
+    }
+
+    pub fn get_request(self) -> Request {
+        assert!(self.is_request());
+        if let Message::Request(req) = self {
+            req
+        } else {
+            panic!("Must only be called for Request.")
+        }
+    }
+}
+
 impl fmt::Display for TokenType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:?}", self)
@@ -90,7 +99,7 @@ pub fn parse(
     state: &mut ParseState,
     buf: &mut Vec<u8>,
     tokens: &mut Vec<Token>,
-) -> Result<Option<Request>, ResponseError> {
+) -> Result<Option<Message>, ErrorResponse> {
     if *state == ParseState::Syncing {
         assert_eq!(tokens.len(), 0);
 
@@ -134,17 +143,8 @@ pub fn parse(
     }
 }
 
-pub fn make_error_response(id: Option<NumberOrString>, error: ResponseError) -> Vec<u8> {
-    let content = jsonrpc::make_error_response(id, error);
-    let header = header::make_header(
-        NonZeroUsize::new(content.len()).expect("Error response must have content section."),
-    );
-
-    format!("{}{}", header, content).as_bytes().to_vec()
-}
-
-pub fn make_response(id: NumberOrString, result: ResponseResult) -> Vec<u8> {
-    let content = jsonrpc::make_response(id, Some(result));
+pub fn make_response(msg: Message) -> Vec<u8> {
+    let content = jsonrpc::serialize_msg(msg);
     let header = header::make_header(
         NonZeroUsize::new(content.len()).expect("Response messages must have content section."),
     );
@@ -155,7 +155,7 @@ pub fn make_response(id: NumberOrString, result: ResponseResult) -> Vec<u8> {
 fn parse_header(
     buf: &mut Vec<u8>,
     hist: &mut Vec<Token>,
-) -> Result<Option<NonZeroUsize>, ResponseError> {
+) -> Result<Option<NonZeroUsize>, ErrorResponse> {
     // Next token might end the header section
     if hist.len() > 0 && hist[hist.len() - 1].kind == TokenType::HeaderFieldTerm {
         match header::scan(buf, true) {
@@ -225,15 +225,18 @@ fn parse_header(
                         return Ok(Some(len));
                     }
                 }
-                Err(err)
+                Err(ErrorResponse {
+                    id: None,
+                    error: err,
+                })
             }
         }
     }
 }
 
-fn parse_content(buf: &[u8]) -> Result<Request, ResponseError> {
-    let msg = jsonrpc::parse_message(buf)?;
-    Ok(jsonrpc::make_request(msg)?)
+fn parse_content(buf: &[u8]) -> Result<Message, ErrorResponse> {
+    let msg = jsonrpc::parse_message(buf).map_err(|error| ErrorResponse { id: None, error })?;
+    Ok(jsonrpc::deserialize_msg(msg)?)
 }
 
 /// Guess the start of the next message by looking for the start of the next

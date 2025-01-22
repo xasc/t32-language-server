@@ -2,13 +2,35 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::protocol::{InitializeResult, PositionEncodingKind, ServerCapabilities, ServerInfo};
+use crate::protocol::{
+    InitializeResult, NumberOrString, PositionEncodingKind, ResponseError, ServerCapabilities,
+    ServerInfo,
+};
 use serde::{Deserialize, Serialize};
 
-#[derive(Deserialize, Serialize)]
-#[serde(untagged)]
-pub enum ResponseResult {
-    InitializeResult(InitializeResult),
+// Responses sent from server to client
+#[derive(Debug, Deserialize, Serialize)]
+pub enum Response {
+    ErrorResponse(ErrorResponse),
+    InitializeResponse(InitializeResponse),
+    NullResponse(NullResponse),
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ErrorResponse {
+    pub id: Option<NumberOrString>,
+    pub error: ResponseError,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct InitializeResponse {
+    pub id: NumberOrString,
+    pub result: InitializeResult,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct NullResponse {
+    pub id: NumberOrString,
 }
 
 impl ServerCapabilities {
@@ -66,13 +88,3 @@ impl InitializeResult {
         }
     }
 }
-
-// pub trait Response {
-//     fn serialize(self) -> ResponseMessage;
-// }
-//
-// impl Response for InitializeResponse {
-//     fn serialize(self) -> ResponseMessage {
-//         make_response_msg(self.id, self.result)
-//     }
-// }
