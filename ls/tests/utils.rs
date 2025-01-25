@@ -35,10 +35,10 @@ pub fn start_ls(args: &[&str], try_initialize: bool) -> Child {
 }
 
 #[allow(dead_code)]
-pub fn stop_ls(proc: &mut Child, stdin: Option<&mut ChildStdin>, try_shutdown: bool) {
+pub fn stop_ls(proc: &mut Child, stdin: Option<&mut ChildStdin>, try_shutdown: Option<isize>) {
     if let Some(cin) = stdin {
-        if try_shutdown {
-            let shutdown = make_shutdown_request(99);
+        if let Some(id) = try_shutdown {
+            let shutdown = make_shutdown_request(id);
 
             cin.write_all(shutdown.as_bytes()).unwrap();
             let _ = cin.flush();

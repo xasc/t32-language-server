@@ -21,7 +21,7 @@ use crate::{
         ExitNotification, InitializeRequest, InitializedNotification, LogTraceNotification,
         Notification, Request, SetTraceNotification, ShutdownRequest,
     },
-    response::{ErrorResponse, InitializeResponse, Response},
+    response::{ErrorResponse, InitializeResponse, NullResponse, Response},
 };
 
 /// Serialization formats of `RequestMessage`, `NotificationMessage`, and
@@ -382,7 +382,7 @@ fn serialize_response(msg: Response) -> LineMessage {
                 Some(serde_json::to_value(result).expect("Serialization must not fail.")),
                 None,
             ),
-            _ => unreachable!("Notification type must not be sent to client."),
+            Response::NullResponse(NullResponse { id }) => (Some(id), None, None),
         };
 
     LineMessage::ResponseMessage(ResponseMessage {
@@ -665,14 +665,7 @@ mod tests {
 
     #[test]
     fn can_create_log_trace_notification() {
-        let expected = json!({
-            "jsonrpc": "2.0",
-            "method": "$/logTrace",
-            "params": {
-                "message": "Log message",
-                "verbose": "Verbose log message",
-            },
-        });
+        let expected = r#"{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"Log message","verbose":"Verbose log message"}}"#;
 
         let msg = Message::Notification(Notification::LogTraceNotification(LogTraceNotification {
             params: LogTraceParams {
@@ -683,5 +676,17 @@ mod tests {
         let notif = serialize_msg(msg);
 
         assert_eq!(notif, expected.to_string());
+    }
+
+    #[test]
+    fn can_create_shutdown_response() {
+        let expected = r#"{"jsonrpc":"2.0","id":99,"result":null}"#;
+
+        let msg = Message::Response(Response::NullResponse(NullResponse {
+            id: NumberOrString::Number(99),
+        }));
+        let response = serialize_msg(msg);
+
+        assert_eq!(response, expected.to_string());
     }
 }

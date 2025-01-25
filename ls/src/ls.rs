@@ -13,7 +13,7 @@ use crate::{
         ServerCapabilities, SetTraceParams, TraceValue,
     },
     request::{ExitNotification, Notification, Request, SetTraceNotification},
-    response::{ErrorResponse, InitializeResponse, Response},
+    response::{ErrorResponse, InitializeResponse, NullResponse, Response},
     transport::StdioChannel,
     ReturnCode,
 };
@@ -123,7 +123,7 @@ fn wait_for_initialize_req(
                 }
                 let req = m.get_request();
                 channel.send_msg(Message::Response(Response::ErrorResponse(ErrorResponse {
-                    id: Some(req.get_id().expect("Requests must have an ID.")),
+                    id: Some(req.get_id().expect("Every request must have an ID.")),
                     error: error_not_initialized(),
                 })));
             }
@@ -146,6 +146,15 @@ fn handle_requests(
         };
 
         match msg {
+            // All new requests after a shutdown request was received should
+            // be trigger an `InvalidRequest` error.
+            m if shutdown_request_recv && m.is_request() => {
+                let req = m.get_request();
+                channel.send_msg(Message::Response(Response::ErrorResponse(ErrorResponse {
+                    id: Some(req.get_id().expect("Every request must have an ID.")),
+                    error: error_shutdown_seq(),
+                })))
+            }
             Message::Notification(Notification::ExitNotification(_)) => {
                 return Err(if shutdown_request_recv {
                     ReturnCode::OkExit
@@ -158,10 +167,12 @@ fn handle_requests(
             })) => {
                 trace_level = value;
             }
-            m if m.is_request() => {
-                if let Message::Request(Request::ShutdownRequest(_)) = m {
-                    shutdown_request_recv = true;
-                }
+            Message::Request(Request::ShutdownRequest(req)) => {
+                shutdown_request_recv = true;
+
+                channel.send_msg(Message::Response(Response::NullResponse(NullResponse {
+                    id: req.id,
+                })));
             }
             _ => (),
         }
@@ -227,6 +238,14 @@ fn error_not_initialized() -> ResponseError {
     ResponseError {
         code: ErrorCodes::ServerNotInitialized as i64,
         message: "Error: Server not initialized. Cannot handle request.".to_string(),
+        data: None,
+    }
+}
+
+fn error_shutdown_seq() -> ResponseError {
+    ResponseError {
+        code: ErrorCodes::InvalidRequest as i64,
+        message: "Error: Server has received shutdown request. Cannot handle request.".to_string(),
         data: None,
     }
 }

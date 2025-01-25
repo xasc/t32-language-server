@@ -15,7 +15,7 @@ fn supports_lifecycle_initialize_req() {
     let mut ls = utils::start_ls(&[&format!("--clientProcessId={}", pid.to_string())], true);
     let mut stdin = ls.stdin.take().unwrap();
 
-    utils::stop_ls(&mut ls, Some(&mut stdin), false);
+    utils::stop_ls(&mut ls, Some(&mut stdin), None);
     let output = ls.wait_with_output().expect("Cannot capture output");
 
     assert_eq!(output.status.code(), Some(1));
@@ -23,9 +23,26 @@ fn supports_lifecycle_initialize_req() {
     let mut ls = utils::start_ls(&[&format!("--clientProcessId={}", pid.to_string())], true);
     let mut stdin = ls.stdin.take().unwrap();
 
-    utils::stop_ls(&mut ls, Some(&mut stdin), true);
+    utils::stop_ls(&mut ls, Some(&mut stdin), Some(2));
     let output = ls.wait_with_output().expect("Cannot capture output");
 
+    assert_eq!(output.status.code(), Some(0));
+}
+
+#[test]
+fn supports_lifecycle_shutdown_req() {
+    let mut ls = utils::start_ls(
+        &[&format!("--clientProcessId={}", process::id().to_string())],
+        true,
+    );
+    let mut stdin = ls.stdin.take().unwrap();
+
+    utils::stop_ls(&mut ls, Some(&mut stdin), Some(2));
+    let output = ls.wait_with_output().expect("Cannot capture output");
+
+    assert!(std::str::from_utf8(&output.stdout)
+        .unwrap()
+        .contains(r#"{"jsonrpc":"2.0","id":2,"result":null}"#));
     assert_eq!(output.status.code(), Some(0));
 }
 
@@ -37,7 +54,7 @@ fn supports_lifecycle_exit_notification() {
     );
     let mut stdin = ls.stdin.take().unwrap();
 
-    utils::stop_ls(&mut ls, Some(&mut stdin), false);
+    utils::stop_ls(&mut ls, Some(&mut stdin), None);
     let output = ls.wait_with_output().expect("Cannot capture output");
 
     assert_eq!(output.status.code(), Some(1));
@@ -47,7 +64,7 @@ fn supports_lifecycle_exit_notification() {
 fn exits_on_missing_parent_process() {
     let mut ls = utils::start_ls(&[&format!("--clientProcessId={}", 1)], true);
 
-    utils::stop_ls(&mut ls, None, false);
+    utils::stop_ls(&mut ls, None, None);
     let output = ls.wait_with_output().expect("Cannot capture output");
 
     assert_eq!(output.status.code(), Some(69));
