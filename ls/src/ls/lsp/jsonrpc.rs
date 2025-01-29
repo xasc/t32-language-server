@@ -12,16 +12,17 @@ use serde::{
 use serde_json::{error::Category, Error, Value};
 
 use crate::{
-    lsp::Message,
+    ls::lsp::Message,
+    ls::request::{
+        DidOpenTextDocumentNotification, ExitNotification, InitializeRequest,
+        InitializedNotification, LogTraceNotification, Notification, Request, SetTraceNotification,
+        ShutdownRequest,
+    },
+    ls::response::{ErrorResponse, InitializeResponse, NullResponse, Response},
     protocol::{
-        ErrorCodes, InitializeParams, InitializedParams, NumberOrString, ResponseError,
-        SetTraceParams,
+        DidOpenTextDocumentParams, ErrorCodes, InitializeParams, InitializedParams, NumberOrString,
+        ResponseError, SetTraceParams,
     },
-    request::{
-        ExitNotification, InitializeRequest, InitializedNotification, LogTraceNotification,
-        Notification, Request, SetTraceNotification, ShutdownRequest,
-    },
-    response::{ErrorResponse, InitializeResponse, NullResponse, Response},
 };
 
 /// Serialization formats of `RequestMessage`, `NotificationMessage`, and
@@ -314,6 +315,7 @@ fn deserialize_request(msg: RequestMessage) -> Result<Message, ErrorResponse> {
 }
 
 fn deserialize_notif(msg: NotificationMessage) -> Result<Message, ErrorResponse> {
+    const TEXTDOC_DID_OPEN: &'static str = "textDocument/didOpen";
     const EXIT: &'static str = "exit";
     const INITIALIZED: &'static str = "initialized";
     const SET_TRACE: &'static str = "$/setTrace";
@@ -335,6 +337,17 @@ fn deserialize_notif(msg: NotificationMessage) -> Result<Message, ErrorResponse>
             Ok(params) => Ok(Message::Notification(Notification::SetTraceNotification(
                 SetTraceNotification { params },
             ))),
+            Err(err) => Err(ErrorResponse {
+                id: None,
+                error: err,
+            }),
+        },
+        TEXTDOC_DID_OPEN => match deserialize_msg_params::<DidOpenTextDocumentParams>(msg.params) {
+            Ok(params) => Ok(Message::Notification(
+                Notification::DidOpenTextDocumentNotification(DidOpenTextDocumentNotification {
+                    params,
+                }),
+            )),
             Err(err) => Err(ErrorResponse {
                 id: None,
                 error: err,
@@ -532,8 +545,8 @@ mod tests {
     use super::*;
 
     use crate::{
+        ls::response::{InitializeResponse, Response},
         protocol::{self, LogTraceParams},
-        response::{InitializeResponse, Response},
     };
     use serde_json::json;
 

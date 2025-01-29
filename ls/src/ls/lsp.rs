@@ -18,8 +18,8 @@ mod jsonrpc;
 use std::{fmt, num::NonZeroUsize};
 
 use crate::{
-    request::{Notification, Request},
-    response::{ErrorResponse, Response},
+    ls::request::{Notification, Request},
+    ls::response::{ErrorResponse, Response},
 };
 
 use header::ScanError;
@@ -79,7 +79,7 @@ impl Message {
         }
     }
 
-    pub fn get_request(self) -> Request {
+    pub fn get_request(&self) -> &Request {
         assert!(self.is_request());
         if let Message::Request(req) = self {
             req

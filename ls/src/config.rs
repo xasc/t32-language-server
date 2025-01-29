@@ -137,6 +137,7 @@ fn error_format_value(writer: &mut impl Write, param: &str) {
     );
 }
 
+#[allow(dead_code)]
 fn error_missing(writer: &mut impl Write, param: &str) {
     let _ = writeln!(writer, "Error: Missing argument \"{param}\"");
 }

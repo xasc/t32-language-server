@@ -8,7 +8,7 @@ use std::{
 };
 
 use crate::{
-    lsp::{Token, TokenType},
+    ls::lsp::{Token, TokenType},
     protocol::{ErrorCodes, ResponseError},
 };
 

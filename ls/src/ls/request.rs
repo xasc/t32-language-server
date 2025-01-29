@@ -3,7 +3,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use crate::protocol::{
-    InitializeParams, InitializedParams, LogTraceParams, NumberOrString, SetTraceParams,
+    DidOpenTextDocumentParams, InitializeParams, InitializedParams, LogTraceParams, NumberOrString,
+    SetTraceParams,
 };
 
 // Requests from client to server.
@@ -15,10 +16,16 @@ pub enum Request {
 
 #[derive(Debug)]
 pub enum Notification {
+    DidOpenTextDocumentNotification(DidOpenTextDocumentNotification),
     ExitNotification(ExitNotification),
     InitializedNotification(InitializedNotification),
     LogTraceNotification(LogTraceNotification),
     SetTraceNotification(SetTraceNotification),
+}
+
+#[derive(Debug)]
+pub struct DidOpenTextDocumentNotification {
+    pub params: DidOpenTextDocumentParams,
 }
 
 #[derive(Debug)]
@@ -52,7 +59,7 @@ pub struct ShutdownRequest {
 }
 
 impl Request {
-    pub fn get_id(self) -> Option<NumberOrString> {
+    pub fn get_id(&self) -> Option<&NumberOrString> {
         match self {
             Request::InitializeRequest(InitializeRequest { id, .. }) => Some(id),
             Request::ShutdownRequest(ShutdownRequest { id }) => Some(id),

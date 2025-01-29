@@ -5,12 +5,7 @@
 
 mod config;
 mod ls;
-mod lsp;
-mod proc;
 mod protocol;
-mod request;
-mod response;
-mod transport;
 
 pub use config::Config;
 
@@ -29,10 +24,5 @@ pub fn run(args: Vec<String>) -> ReturnCode {
         Ok(conf) => conf,
         Err(rc) => return rc,
     };
-
-    let channel = match transport::build_channel(&cfg) {
-        Ok(c) => c,
-        Err(rc) => return rc,
-    };
-    ls::serve(channel, cfg)
+    ls::serve(cfg)
 }

@@ -2,19 +2,32 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+mod lsp;
+mod proc;
+mod request;
+mod response;
+mod tasks;
+mod transport;
+
 use std::time::{Duration, Instant};
 
 use crate::{
     config::Config,
-    lsp::Message,
-    proc::{proc_alive, ProcState},
+    ls::lsp::Message,
+    ls::transport::StdioChannel,
+    ls::{
+        proc::{proc_alive, ProcState},
+        request::{
+            DidOpenTextDocumentNotification, ExitNotification, Notification, Request,
+            SetTraceNotification,
+        },
+        response::{ErrorResponse, InitializeResponse, NullResponse, Response},
+        tasks::TaskSystem,
+    },
     protocol::{
         ErrorCodes, InitializeError, InitializeParams, InitializeResult, ResponseError,
-        ServerCapabilities, SetTraceParams, TraceValue,
+        ServerCapabilities, SetTraceParams,
     },
-    request::{ExitNotification, Notification, Request, SetTraceNotification},
-    response::{ErrorResponse, InitializeResponse, NullResponse, Response},
-    transport::StdioChannel,
     ReturnCode,
 };
 
@@ -27,6 +40,12 @@ struct ProcHeartbeat {
     pid: Option<u32>,
     interval: Duration,
     last_beat: Instant,
+}
+
+struct State {
+    shutdown_request_recv: bool,
+    heartbeat: ProcHeartbeat,
+    tasks: TaskSystem,
 }
 
 impl ProcHeartbeat {
@@ -48,7 +67,11 @@ impl ProcHeartbeat {
     }
 }
 
-pub fn serve(mut channel: StdioChannel, mut cfg: Config) -> ReturnCode {
+pub fn serve(mut cfg: Config) -> ReturnCode {
+    let mut channel = match transport::build_channel(&cfg) {
+        Ok(c) => c,
+        Err(rc) => return rc,
+    };
     let heartbeat = ProcHeartbeat::build(&cfg);
 
     let InitializationStatus { msg, rc } = wait_for_initialize_req(&mut channel, heartbeat);
@@ -72,8 +95,7 @@ pub fn serve(mut channel: StdioChannel, mut cfg: Config) -> ReturnCode {
         _ => unreachable!(),
     }
 
-    let heartbeat = ProcHeartbeat::build(&cfg);
-    match handle_requests(&mut channel, heartbeat, cfg.trace_level) {
+    match handle_requests(&mut channel, cfg) {
         Ok(_) => (),
         Err(rc) => return shutdown(channel, rc),
     }
@@ -123,7 +145,11 @@ fn wait_for_initialize_req(
                 }
                 let req = m.get_request();
                 channel.send_msg(Message::Response(Response::ErrorResponse(ErrorResponse {
-                    id: Some(req.get_id().expect("Every request must have an ID.")),
+                    id: Some(
+                        req.get_id()
+                            .expect("Every request must have an ID.")
+                            .clone(),
+                    ),
                     error: error_not_initialized(),
                 })));
             }
@@ -132,51 +158,73 @@ fn wait_for_initialize_req(
     }
 }
 
-fn handle_requests(
-    channel: &mut StdioChannel,
-    mut heartbeat: ProcHeartbeat,
-    mut trace_level: TraceValue,
-) -> Result<(), ReturnCode> {
-    let mut shutdown_request_recv = false;
-    loop {
-        let msg = match read_msg(channel, &mut heartbeat) {
-            Ok(Some(r)) => r,
-            Ok(None) => continue,
-            Err(rc) => return Err(rc),
-        };
+fn handle_requests(channel: &mut StdioChannel, mut cfg: Config) -> Result<(), ReturnCode> {
+    let mut state = State {
+        shutdown_request_recv: false,
+        heartbeat: ProcHeartbeat::build(&cfg),
+        tasks: TaskSystem::build(),
+    };
 
+    let mut incoming: Vec<Message> = Vec::new();
+    let mut outgoing: Vec<Option<Message>> = Vec::new();
+    loop {
+        recv_incoming(channel, &mut state.heartbeat, &mut incoming)?;
+        schedule_tasks(&incoming, &mut state, &mut cfg, &mut outgoing)?;
+        send_outgoing(channel, &mut outgoing);
+
+        if incoming.len() > 0 && exit_requested(&incoming) {
+            return Err(if state.shutdown_request_recv {
+                ReturnCode::OkExit
+            } else {
+                ReturnCode::ErrExit
+            });
+        }
+        incoming.clear();
+        outgoing.clear();
+    }
+}
+
+fn schedule_tasks(
+    incoming: &[Message],
+    state: &mut State,
+    cfg: &mut Config,
+    outgoing: &mut Vec<Option<Message>>,
+) -> Result<(), ReturnCode> {
+    for msg in incoming {
         match msg {
             // All new requests after a shutdown request was received should
             // be trigger an `InvalidRequest` error.
-            m if shutdown_request_recv && m.is_request() => {
+            m if state.shutdown_request_recv && m.is_request() => {
                 let req = m.get_request();
-                channel.send_msg(Message::Response(Response::ErrorResponse(ErrorResponse {
-                    id: Some(req.get_id().expect("Every request must have an ID.")),
-                    error: error_shutdown_seq(),
-                })))
+                outgoing.push(Some(Message::Response(Response::ErrorResponse(
+                    ErrorResponse {
+                        id: Some(
+                            req.get_id()
+                                .expect("Every request must have an ID.")
+                                .clone(),
+                        ),
+                        error: error_shutdown_seq(),
+                    },
+                ))));
             }
-            Message::Notification(Notification::ExitNotification(_)) => {
-                return Err(if shutdown_request_recv {
-                    ReturnCode::OkExit
-                } else {
-                    ReturnCode::ErrExit
-                })
-            }
+            Message::Notification(Notification::DidOpenTextDocumentNotification(
+                DidOpenTextDocumentNotification { params },
+            )) => {}
             Message::Notification(Notification::SetTraceNotification(SetTraceNotification {
                 params: SetTraceParams { value },
             })) => {
-                trace_level = value;
+                cfg.trace_level = *value;
             }
             Message::Request(Request::ShutdownRequest(req)) => {
-                shutdown_request_recv = true;
-
-                channel.send_msg(Message::Response(Response::NullResponse(NullResponse {
-                    id: req.id,
-                })));
+                state.shutdown_request_recv = true;
+                outgoing.push(Some(Message::Response(Response::NullResponse(
+                    NullResponse { id: req.id.clone() },
+                ))));
             }
             _ => (),
         }
     }
+    Ok(())
 }
 
 fn process_initialize_params(
@@ -206,6 +254,30 @@ fn process_initialize_params(
     Ok(())
 }
 
+fn exit_requested(msgs: &[Message]) -> bool {
+    for msg in msgs {
+        if let Message::Notification(Notification::ExitNotification(_)) = msg {
+            return true;
+        }
+    }
+    false
+}
+
+fn recv_incoming(
+    channel: &mut StdioChannel,
+    heartbeat: &mut ProcHeartbeat,
+    incoming: &mut Vec<Message>,
+) -> Result<(), ReturnCode> {
+    loop {
+        match read_msg(channel, heartbeat) {
+            Ok(Some(r)) => incoming.push(r),
+            Ok(None) => break,
+            Err(rc) => return Err(rc),
+        };
+    }
+    Ok(())
+}
+
 fn read_msg(
     channel: &mut StdioChannel,
     heartbeat: &mut ProcHeartbeat,
@@ -231,6 +303,13 @@ fn read_msg(
             channel.send_msg(Message::Response(Response::ErrorResponse(err)));
             Ok(None)
         }
+    }
+}
+
+fn send_outgoing(channel: &mut StdioChannel, msgs: &mut Vec<Option<Message>>) {
+    for msg in msgs {
+        let msg = msg.take().expect("No empty slots allowed.");
+        channel.send_msg(msg);
     }
 }
 

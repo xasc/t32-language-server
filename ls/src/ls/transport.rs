@@ -14,9 +14,9 @@ use std::{
 
 use crate::{
     config::{ChannelKind, Config},
-    lsp::{self, Message, ParseState, Token},
+    ls::lsp::{self, Message, ParseState, Token},
+    ls::response::ErrorResponse,
     protocol::{ErrorCodes, ResponseError},
-    response::ErrorResponse,
     ReturnCode,
 };
 

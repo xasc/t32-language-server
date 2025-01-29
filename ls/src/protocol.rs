@@ -6,9 +6,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
-type Uri = String;
+type DocumentUri = String;
 type DocumentSelector = Vec<DocumentFilter>;
 type ProgressToken = NumberOrString;
+type Uri = String;
 
 pub enum ErrorCodes {
     ParseError = -32700,
@@ -2376,4 +2377,17 @@ pub struct LogTraceParams {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub verbose: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DidOpenTextDocumentParams {
+    pub text_document: TextDocumentItem,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TextDocumentItem {
+    pub uri: DocumentUri,
+    pub language_id: String,
+    pub version: i64,
+    pub text: String,
 }
