@@ -14,7 +14,7 @@ pub fn start_ls(args: &[&str], try_initialize: bool) -> Child {
     let mut params = vec!["run", "--quiet", "--"];
     params.extend_from_slice(&args);
 
-    let ls = Command::new("cargo")
+    let mut ls = Command::new("cargo")
         .args(params)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -22,13 +22,12 @@ pub fn start_ls(args: &[&str], try_initialize: bool) -> Child {
         .expect("Must be able to start language server.");
 
     if try_initialize {
-        if let Some(mut cin) = ls.stdin.as_ref() {
+        if let Some(cin) = &mut ls.stdin {
             let pid = process::id();
 
             let init = make_initialize_request(1, pid);
 
-            let _ = cin.write_all(init.as_bytes());
-            let _ = cin.flush();
+            to_stdin(cin, &init);
         }
     }
     ls
@@ -45,8 +44,7 @@ pub fn stop_ls(proc: &mut Child, stdin: Option<&mut ChildStdin>, try_shutdown: O
         }
         let exit = make_exit_notification();
 
-        cin.write_all(exit.as_bytes()).unwrap();
-        let _ = cin.flush();
+        to_stdin(cin, &exit);
     }
 
     let end = Instant::now() + Duration::from_secs(5);
@@ -87,10 +85,31 @@ fn make_shutdown_request(id: isize) -> String {
     build_msg(&content.to_string())
 }
 
+pub fn make_did_open_text_doc_notification() -> String {
+    let content = json!({
+        "jsonrpc": "2.0",
+        "method": "textDocument/didOpen",
+        "params": {
+            "textDocument": {
+                "uri": "file:///c:/project/test.cmm",
+                "languageId": "practice",
+                "version": 1,
+                "text": "This is a test.",
+            }
+        }
+    });
+    build_msg(&content.to_string())
+}
+
 pub fn build_msg(content: &str) -> String {
     format!(
         "Content-Type: application/vscode-jsonrpc; charset=utf-8\r\nContent-Length: {}\r\n\r\n{}",
         content.len(),
         content
     )
+}
+
+pub fn to_stdin(cin: &mut ChildStdin, msg: &str) {
+    let _ = cin.write_all(msg.as_bytes());
+    let _ = cin.flush();
 }

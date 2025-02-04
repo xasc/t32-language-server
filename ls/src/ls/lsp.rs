@@ -4,13 +4,14 @@
 
 //! # LSP Protocol Notes
 //!
-//! HTTP header fields are normally preceded by a CRLF sequence. However, the LSP
+//! - HTTP header fields are normally preceded by a CRLF sequence. However, the LSP
 //! base protocol does not specify how the first header field of a message shall
 //! be delimited from the previous one. Hence, we need to handle sequences like
 //! "`abcContent-Length: 100`" where one message passes directly into the first
 //! header field of the next one.
-//! The whitespace after the colon delimter between HTTP header field name and
+//! - The whitespace after the colon delimter between HTTP header field name and
 //! value is normally optional. The LSP protocol makes it mandatory.
+//! - The string representation is UTF-8
 
 mod header;
 mod jsonrpc;

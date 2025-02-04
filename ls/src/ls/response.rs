@@ -4,7 +4,7 @@
 
 use crate::protocol::{
     InitializeResult, NumberOrString, PositionEncodingKind, ResponseError, ServerCapabilities,
-    ServerInfo,
+    ServerInfo, TextDocumentSyncKind, TextDocumentSyncOptions, TextDocumentSyncServerCapabilities,
 };
 use serde::{Deserialize, Serialize};
 
@@ -37,7 +37,15 @@ impl ServerCapabilities {
     pub fn build() -> Self {
         ServerCapabilities {
             position_encoding: Some(PositionEncodingKind::Utf16),
-            text_document_sync: None,
+            text_document_sync: Some(TextDocumentSyncServerCapabilities::TextDocumentSyncOptions(
+                TextDocumentSyncOptions {
+                    open_close: Some(true),
+                    change: Some(TextDocumentSyncKind::Incremental),
+                    will_save: None,
+                    will_save_wait_until: None,
+                    save: None,
+                },
+            )),
             notebook_document_sync: None,
             completion_provider: None,
             hover_provider: None,

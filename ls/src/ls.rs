@@ -7,6 +7,7 @@ mod proc;
 mod request;
 mod response;
 mod tasks;
+mod textdoc;
 mod transport;
 
 use std::time::{Duration, Instant};
@@ -22,11 +23,12 @@ use crate::{
             SetTraceNotification,
         },
         response::{ErrorResponse, InitializeResponse, NullResponse, Response},
-        tasks::TaskSystem,
+        tasks::{Task, TaskDone, TaskSystem},
+        textdoc::{import_doc, TextDocStatus, TextDocs},
     },
     protocol::{
-        ErrorCodes, InitializeError, InitializeParams, InitializeResult, ResponseError,
-        ServerCapabilities, SetTraceParams,
+        DidOpenTextDocumentParams, ErrorCodes, InitializeError, InitializeParams, InitializeResult,
+        ResponseError, ServerCapabilities, SetTraceParams,
     },
     ReturnCode,
 };
@@ -44,8 +46,10 @@ struct ProcHeartbeat {
 
 struct State {
     shutdown_request_recv: bool,
+    exit_requested: bool,
     heartbeat: ProcHeartbeat,
     tasks: TaskSystem,
+    docs: TextDocs,
 }
 
 impl ProcHeartbeat {
@@ -161,18 +165,23 @@ fn wait_for_initialize_req(
 fn handle_requests(channel: &mut StdioChannel, mut cfg: Config) -> Result<(), ReturnCode> {
     let mut state = State {
         shutdown_request_recv: false,
+        exit_requested: false,
         heartbeat: ProcHeartbeat::build(&cfg),
         tasks: TaskSystem::build(),
+        docs: TextDocs::build(),
     };
 
-    let mut incoming: Vec<Message> = Vec::new();
+    let mut incoming: Vec<Option<Message>> = Vec::new();
     let mut outgoing: Vec<Option<Message>> = Vec::new();
     loop {
         recv_incoming(channel, &mut state.heartbeat, &mut incoming)?;
-        schedule_tasks(&incoming, &mut state, &mut cfg, &mut outgoing)?;
+
+        schedule_tasks(&mut incoming, &mut state, &mut cfg, &mut outgoing)?;
+        recv_completed_tasks(&mut state, &mut outgoing);
+
         send_outgoing(channel, &mut outgoing);
 
-        if incoming.len() > 0 && exit_requested(&incoming) {
+        if state.exit_requested {
             return Err(if state.shutdown_request_recv {
                 ReturnCode::OkExit
             } else {
@@ -185,12 +194,14 @@ fn handle_requests(channel: &mut StdioChannel, mut cfg: Config) -> Result<(), Re
 }
 
 fn schedule_tasks(
-    incoming: &[Message],
+    incoming: &mut [Option<Message>],
     state: &mut State,
     cfg: &mut Config,
     outgoing: &mut Vec<Option<Message>>,
 ) -> Result<(), ReturnCode> {
     for msg in incoming {
+        let msg = msg.take().expect("No empty slots in list.");
+
         match msg {
             // All new requests after a shutdown request was received should
             // be trigger an `InvalidRequest` error.
@@ -208,18 +219,27 @@ fn schedule_tasks(
                 ))));
             }
             Message::Notification(Notification::DidOpenTextDocumentNotification(
-                DidOpenTextDocumentNotification { params },
-            )) => {}
+                DidOpenTextDocumentNotification {
+                    params: DidOpenTextDocumentParams { text_document },
+                },
+            )) => {
+                state
+                    .tasks
+                    .schedule(Task::TextDocNew(text_document, import_doc))?;
+            }
             Message::Notification(Notification::SetTraceNotification(SetTraceNotification {
                 params: SetTraceParams { value },
             })) => {
-                cfg.trace_level = *value;
+                cfg.trace_level = value;
             }
             Message::Request(Request::ShutdownRequest(req)) => {
                 state.shutdown_request_recv = true;
                 outgoing.push(Some(Message::Response(Response::NullResponse(
                     NullResponse { id: req.id.clone() },
                 ))));
+            }
+            Message::Notification(Notification::ExitNotification(_)) => {
+                state.exit_requested = true;
             }
             _ => (),
         }
@@ -254,23 +274,14 @@ fn process_initialize_params(
     Ok(())
 }
 
-fn exit_requested(msgs: &[Message]) -> bool {
-    for msg in msgs {
-        if let Message::Notification(Notification::ExitNotification(_)) = msg {
-            return true;
-        }
-    }
-    false
-}
-
 fn recv_incoming(
     channel: &mut StdioChannel,
     heartbeat: &mut ProcHeartbeat,
-    incoming: &mut Vec<Message>,
+    incoming: &mut Vec<Option<Message>>,
 ) -> Result<(), ReturnCode> {
     loop {
         match read_msg(channel, heartbeat) {
-            Ok(Some(r)) => incoming.push(r),
+            Ok(Some(r)) => incoming.push(Some(r)),
             Ok(None) => break,
             Err(rc) => return Err(rc),
         };
@@ -302,6 +313,14 @@ fn read_msg(
             // work with.
             channel.send_msg(Message::Response(Response::ErrorResponse(err)));
             Ok(None)
+        }
+    }
+}
+
+fn recv_completed_tasks(state: &mut State, _outgoing: &mut Vec<Option<Message>>) {
+    for done in state.tasks.rx.try_iter() {
+        match done {
+            TaskDone::TextDocNew(doc, tree) => state.docs.add(doc, tree, TextDocStatus::Open),
         }
     }
 }

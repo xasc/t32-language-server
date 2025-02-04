@@ -160,8 +160,7 @@ pub enum InitializeErrorCodes {
     UnknownProtocolVersion = 1,
 }
 
-#[allow(dead_code)]
-#[derive(Serialize_repr)]
+#[derive(Debug, Deserialize_repr, Serialize_repr)]
 #[repr(u8)]
 pub enum TextDocumentSyncKind {
     None = 0,
@@ -273,8 +272,8 @@ pub enum NumberOrString {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum TextDocumentSyncServerCapabilities {
-    TextDocumentSyncOptions,
-    TextDocumentSyncKind,
+    TextDocumentSyncOptions(TextDocumentSyncOptions),
+    TextDocumentSyncKind(TextDocumentSyncKind),
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -523,6 +522,13 @@ pub enum ChangeNotifications {
 pub enum FileOperationPatternKind {
     File,
     Folder,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum TextDocumentSyncOptionsSaveCapabilities {
+    Bool(bool),
+    SaveOptions(SaveOptions),
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -1611,13 +1617,30 @@ pub struct ProgressParams {
     value: Value,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all(serialize = "camelCase"))]
 pub struct TextDocumentSyncOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
-    open_close: Option<bool>,
+    pub open_close: Option<bool>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    change: Option<TextDocumentSyncKind>,
+    pub change: Option<TextDocumentSyncKind>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub will_save: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub will_save_wait_until: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub save: Option<TextDocumentSyncOptionsSaveCapabilities>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all(serialize = "camelCase"))]
+pub struct SaveOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    include_text: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -2380,11 +2403,13 @@ pub struct LogTraceParams {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DidOpenTextDocumentParams {
     pub text_document: TextDocumentItem,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TextDocumentItem {
     pub uri: DocumentUri,
     pub language_id: String,

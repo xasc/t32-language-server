@@ -79,7 +79,7 @@ fn exits_on_wrong_parent_pid() {
     let init = utils::make_initialize_request(1, 2);
 
     let mut stdin = ls.stdin.take().unwrap();
-    stdin.write_all(init.as_bytes()).unwrap();
+    utils::to_stdin(&mut stdin, &init);
 
     let output = ls.wait_with_output().expect("Cannot capture output");
 
@@ -106,7 +106,7 @@ fn exits_on_wrong_parent_pid() {
     let init = utils::build_msg(&content.to_string());
 
     let mut stdin = ls.stdin.take().unwrap();
-    stdin.write_all(init.as_bytes()).unwrap();
+    utils::to_stdin(&mut stdin, &init);
 
     let output = ls.wait_with_output().expect("Cannot capture output");
 
@@ -121,4 +121,21 @@ fn exits_on_wrong_parent_pid() {
     assert!(std::str::from_utf8(&output.stdout)
         .unwrap()
         .contains("invalid"));
+}
+
+#[test]
+fn supports_docsync_did_open_notification() {
+    let mut ls = utils::start_ls(
+        &[&format!("--clientProcessId={}", process::id().to_string())],
+        true,
+    );
+    let mut stdin = ls.stdin.take().unwrap();
+
+    let notif = utils::make_did_open_text_doc_notification();
+    utils::to_stdin(&mut stdin, &notif);
+
+    utils::stop_ls(&mut ls, Some(&mut stdin), Some(2));
+    let output = ls.wait_with_output().expect("Cannot capture output");
+
+    assert_eq!(output.status.code(), Some(0));
 }

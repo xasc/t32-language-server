@@ -9,14 +9,18 @@ use std::{
     collections::VecDeque,
     sync::{
         atomic::{AtomicBool, AtomicU32, Ordering},
+        mpsc::{channel, Receiver, Sender},
         Arc, Condvar, Mutex, TryLockError,
     },
     thread::{available_parallelism, spawn, JoinHandle},
 };
 
-use crate::ReturnCode;
+use tree_sitter::Tree;
+
+use crate::{ls::textdoc::TextDoc, protocol::TextDocumentItem, ReturnCode};
 
 pub struct TaskSystem {
+    pub rx: Receiver<TaskDone>,
     queues: Arc<Vec<JobQueue>>,
     threads: Vec<Option<JoinHandle<Result<(), ReturnCode>>>>,
     work: Arc<(AtomicU32, AtomicBool)>,
@@ -30,7 +34,11 @@ pub struct JobQueue {
 
 #[derive(Debug, Clone)]
 pub enum Task {
+    TextDocNew(TextDocumentItem, fn(TextDocumentItem) -> (TextDoc, Tree)),
+}
 
+pub enum TaskDone {
+    TextDocNew(TextDoc, Tree),
 }
 
 impl TaskSystem {
@@ -53,15 +61,20 @@ impl TaskSystem {
         let work: Arc<(AtomicU32, AtomicBool)> =
             Arc::new((AtomicU32::new(0), AtomicBool::new(true)));
 
+        let (tx, rx) = channel::<TaskDone>();
+        let tx = Arc::new(tx);
+
         for ii in 0..num_workers {
             let s = signal.clone();
             let w = work.clone();
             let q = queues.clone();
+            let ch = tx.clone();
 
-            threads.push(Some(spawn(move || Self::run(ii, s, w, q))));
+            threads.push(Some(spawn(move || Self::run(ii, s, w, q, ch))));
         }
 
         TaskSystem {
+            rx,
             queues,
             threads,
             work,
@@ -70,11 +83,29 @@ impl TaskSystem {
         }
     }
 
+    pub fn schedule(&mut self, job: Task) -> Result<(), ReturnCode> {
+        let num_queues = self.queues.len();
+        loop {
+            for ii in 0..num_queues {
+                if self.queues[(self.slot + ii) % num_queues].try_push(&job)? {
+                    let (num_jobs, ..) = &*self.work;
+                    let (enqueued, ..) = &*self.signal;
+
+                    num_jobs.fetch_add(1, Ordering::Relaxed);
+                    enqueued.notify_one();
+                    return Ok(());
+                }
+            }
+            self.slot += 1;
+        }
+    }
+
     fn run(
         idx: usize,
         signal: Arc<(Condvar, Mutex<usize>)>,
         work: Arc<(AtomicU32, AtomicBool)>,
         queues: Arc<Vec<JobQueue>>,
+        tx: Arc<Sender<TaskDone>>,
     ) -> Result<(), ReturnCode> {
         let (enqueued, lock) = &*signal;
         let (num_jobs, running) = &*work;
@@ -90,8 +121,11 @@ impl TaskSystem {
             loop {
                 let num_queues = queues.len();
                 for ii in 0..num_queues {
-                    if let Some(_) = queues[(idx + ii) % num_queues].try_pop()? {
+                    if let Some(job) = queues[(idx + ii) % num_queues].try_pop()? {
                         num_jobs.fetch_sub(1, Ordering::Relaxed);
+
+                        let job = Self::execute(job);
+                        let _ = tx.send(job);
                         break;
                     }
                 }
@@ -104,20 +138,12 @@ impl TaskSystem {
         Ok(())
     }
 
-    fn push(&mut self, job: Task) -> Result<(), ReturnCode> {
-        let num_queues = self.queues.len();
-        loop {
-            for ii in 0..num_queues {
-                if self.queues[(self.slot + ii) % num_queues].try_push(&job)? {
-                    let (num_jobs, ..) = &*self.work;
-                    let (enqueued, ..) = &*self.signal;
-
-                    num_jobs.fetch_add(1, Ordering::Relaxed);
-                    enqueued.notify_one();
-                    return Ok(());
-                }
+    fn execute(job: Task) -> TaskDone {
+        match job {
+            Task::TextDocNew(doc, transform) => {
+                let (doc, tree) = transform(doc);
+                TaskDone::TextDocNew(doc, tree)
             }
-            self.slot += 1;
         }
     }
 }
@@ -181,10 +207,7 @@ impl JobQueue {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        thread,
-        time::Duration
-    };
+    use std::{thread, time::Duration};
 
     use super::*;
 

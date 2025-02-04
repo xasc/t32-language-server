@@ -315,10 +315,10 @@ fn deserialize_request(msg: RequestMessage) -> Result<Message, ErrorResponse> {
 }
 
 fn deserialize_notif(msg: NotificationMessage) -> Result<Message, ErrorResponse> {
-    const TEXTDOC_DID_OPEN: &'static str = "textDocument/didOpen";
     const EXIT: &'static str = "exit";
     const INITIALIZED: &'static str = "initialized";
     const SET_TRACE: &'static str = "$/setTrace";
+    const TEXTDOC_DID_OPEN: &'static str = "textDocument/didOpen";
 
     match msg.method.as_str() {
         EXIT => Ok(Message::Notification(Notification::ExitNotification(
@@ -642,6 +642,29 @@ mod tests {
         assert!(matches!(
             notif,
             Message::Notification(Notification::SetTraceNotification(_))
+        ));
+    }
+
+    #[test]
+    fn can_create_did_open_text_document_notification() {
+        let msg = LineMessage::NotificationMessage(NotificationMessage {
+            jsonrpc: "2.0".to_string(),
+            method: "textDocument/didOpen".to_string(),
+            params: Some(json!({
+                "textDocument": {
+                    "uri": "file:///c:/project/readme.md",
+                    "languageId": "practice",
+                    "version": 1,
+                    "text": "This is a test",
+                },
+            })),
+        });
+
+        let notif = deserialize_msg(msg).expect("Should not fail.");
+
+        assert!(matches!(
+            notif,
+            Message::Notification(Notification::DidOpenTextDocumentNotification(_))
         ));
     }
 
