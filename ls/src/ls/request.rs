@@ -2,6 +2,8 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use std::fmt;
+
 use crate::protocol::{
     DidOpenTextDocumentParams, InitializeParams, InitializedParams, LogTraceParams, NumberOrString,
     SetTraceParams,
@@ -64,5 +66,11 @@ impl Request {
             Request::InitializeRequest(InitializeRequest { id, .. }) => Some(id),
             Request::ShutdownRequest(ShutdownRequest { id }) => Some(id),
         }
+    }
+}
+
+impl fmt::Display for Notification {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
     }
 }

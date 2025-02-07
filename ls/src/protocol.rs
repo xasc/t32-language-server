@@ -248,7 +248,7 @@ pub enum PositionEncodingKind {
     Utf32,
 }
 
-#[derive(Copy, Clone, Debug, Deserialize)]
+#[derive(Copy, Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum TraceValue {
     Off,

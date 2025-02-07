@@ -17,4 +17,6 @@ categories = ["parsing", "text-editors"]
 repository = "https://codeberg.org/xasc/t32-language-server/"
 edition = "2021"
 
+include = ["../LICENSES"]
+
 [dependencies]

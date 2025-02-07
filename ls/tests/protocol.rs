@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use std::{io::Write, process};
+use std::process;
 
 use serde_json::json;
 
@@ -138,4 +138,23 @@ fn supports_docsync_did_open_notification() {
     let output = ls.wait_with_output().expect("Cannot capture output");
 
     assert_eq!(output.status.code(), Some(0));
+}
+
+#[test]
+fn can_enable_logging() {
+    let pid = process::id();
+
+    let mut ls = utils::start_ls(&[&format!("--clientProcessId={}", pid.to_string())], true);
+    let mut stdin = ls.stdin.take().unwrap();
+
+    let notif = utils::make_set_trace_notification();
+    utils::to_stdin(&mut stdin, &notif);
+
+    utils::stop_ls(&mut ls, Some(&mut stdin), Some(2));
+    let output = ls.wait_with_output().expect("Cannot capture output");
+
+    assert_eq!(output.status.code(), Some(0));
+    assert!(std::str::from_utf8(&output.stdout)
+        .unwrap()
+        .contains("$/logTrace"));
 }

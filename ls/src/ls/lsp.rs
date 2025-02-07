@@ -74,8 +74,14 @@ impl fmt::Display for Token {
 impl Message {
     pub fn is_request(&self) -> bool {
         match self {
-            Message::Request(Request::InitializeRequest(_))
-            | Message::Request(Request::ShutdownRequest(_)) => true,
+            Message::Request(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_notification(&self) -> bool {
+        match self {
+            Message::Notification(_) => true,
             _ => false,
         }
     }
@@ -84,6 +90,15 @@ impl Message {
         assert!(self.is_request());
         if let Message::Request(req) = self {
             req
+        } else {
+            panic!("Must only be called for Request.")
+        }
+    }
+
+    pub fn get_notification(&self) -> &Notification {
+        assert!(self.is_notification());
+        if let Message::Notification(notif) = self {
+            notif
         } else {
             panic!("Must only be called for Request.")
         }

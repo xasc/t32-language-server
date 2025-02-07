@@ -41,6 +41,10 @@ pub enum TaskDone {
     TextDocNew(TextDoc, Tree),
 }
 
+pub enum OngoingTask {
+    TextDocUpdate { uri: String },
+}
+
 impl TaskSystem {
     pub fn build() -> Self {
         let num_workers = match available_parallelism() {
@@ -83,11 +87,11 @@ impl TaskSystem {
         }
     }
 
-    pub fn schedule(&mut self, job: Task) -> Result<(), ReturnCode> {
+    pub fn schedule(&mut self, job: &Task) -> Result<(), ReturnCode> {
         let num_queues = self.queues.len();
         loop {
             for ii in 0..num_queues {
-                if self.queues[(self.slot + ii) % num_queues].try_push(&job)? {
+                if self.queues[(self.slot + ii) % num_queues].try_push(job)? {
                     let (num_jobs, ..) = &*self.work;
                     let (enqueued, ..) = &*self.signal;
 

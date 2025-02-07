@@ -101,6 +101,17 @@ pub fn make_did_open_text_doc_notification() -> String {
     build_msg(&content.to_string())
 }
 
+pub fn make_set_trace_notification() -> String {
+    let content = json!({
+        "jsonrpc": "2.0",
+        "method": "$/setTrace",
+        "params": {
+            "value": "messages",
+        }
+    });
+    build_msg(&content.to_string())
+}
+
 pub fn build_msg(content: &str) -> String {
     format!(
         "Content-Type: application/vscode-jsonrpc; charset=utf-8\r\nContent-Length: {}\r\n\r\n{}",

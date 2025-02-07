@@ -19,16 +19,17 @@ use crate::{
     ls::{
         proc::{proc_alive, ProcState},
         request::{
-            DidOpenTextDocumentNotification, ExitNotification, Notification, Request,
-            SetTraceNotification,
+            DidOpenTextDocumentNotification, ExitNotification, LogTraceNotification, Notification,
+            Request, SetTraceNotification,
         },
         response::{ErrorResponse, InitializeResponse, NullResponse, Response},
-        tasks::{Task, TaskDone, TaskSystem},
-        textdoc::{import_doc, TextDocStatus, TextDocs},
+        tasks::{OngoingTask, Task, TaskDone, TaskSystem},
+        textdoc::{import_doc, TextDoc, TextDocStatus, TextDocs},
     },
     protocol::{
         DidOpenTextDocumentParams, ErrorCodes, InitializeError, InitializeParams, InitializeResult,
-        ResponseError, ServerCapabilities, SetTraceParams,
+        LogTraceParams, ResponseError, ServerCapabilities, SetTraceParams, TextDocumentItem,
+        TraceValue,
     },
     ReturnCode,
 };
@@ -44,11 +45,17 @@ struct ProcHeartbeat {
     last_beat: Instant,
 }
 
+struct Tasks {
+    runner: TaskSystem,
+    blocked: Vec<Task>,
+    ongoing: Vec<OngoingTask>,
+}
+
 struct State {
     shutdown_request_recv: bool,
     exit_requested: bool,
     heartbeat: ProcHeartbeat,
-    tasks: TaskSystem,
+    tasks: Tasks,
     docs: TextDocs,
 }
 
@@ -95,8 +102,19 @@ pub fn serve(mut cfg: Config) -> ReturnCode {
             }
         }
         // No shutdown request was received before
-        Message::Notification(Notification::ExitNotification(_)) => return shutdown(channel, rc),
+        Message::Notification(Notification::ExitNotification(n)) => {
+            if cfg.trace_level != TraceValue::Off {
+                channel.send_msg(Message::Notification(log_notif(
+                    &Notification::ExitNotification(n),
+                )));
+            }
+            return shutdown(channel, rc);
+        }
         _ => unreachable!(),
+    }
+
+    if cfg.trace_level != TraceValue::Off {
+        channel.send_msg(Message::Notification(notif_initialized()));
     }
 
     match handle_requests(&mut channel, cfg) {
@@ -121,7 +139,7 @@ fn wait_for_initialize_req(
     let mut shutdown_request_recv = false;
     loop {
         let msg = match read_msg(channel, &mut heartbeat) {
-            Ok(Some(r)) => r,
+            Ok(Some(m)) => m,
             Ok(None) => continue,
             Err(rc) => {
                 return InitializationStatus {
@@ -167,17 +185,22 @@ fn handle_requests(channel: &mut StdioChannel, mut cfg: Config) -> Result<(), Re
         shutdown_request_recv: false,
         exit_requested: false,
         heartbeat: ProcHeartbeat::build(&cfg),
-        tasks: TaskSystem::build(),
+        tasks: Tasks {
+            runner: TaskSystem::build(),
+            blocked: Vec::new(),
+            ongoing: Vec::new(),
+        },
         docs: TextDocs::build(),
     };
 
     let mut incoming: Vec<Option<Message>> = Vec::new();
     let mut outgoing: Vec<Option<Message>> = Vec::new();
+
     loop {
         recv_incoming(channel, &mut state.heartbeat, &mut incoming)?;
+        recv_completed_tasks(&mut state.tasks, &mut state.docs, &mut outgoing);
 
         schedule_tasks(&mut incoming, &mut state, &mut cfg, &mut outgoing)?;
-        recv_completed_tasks(&mut state, &mut outgoing);
 
         send_outgoing(channel, &mut outgoing);
 
@@ -195,17 +218,29 @@ fn handle_requests(channel: &mut StdioChannel, mut cfg: Config) -> Result<(), Re
 
 fn schedule_tasks(
     incoming: &mut [Option<Message>],
-    state: &mut State,
+    g: &mut State,
     cfg: &mut Config,
     outgoing: &mut Vec<Option<Message>>,
 ) -> Result<(), ReturnCode> {
+    try_schedule_blocked(
+        &mut g.tasks.runner,
+        &mut g.tasks.ongoing,
+        &mut g.tasks.blocked,
+    )?;
+
     for msg in incoming {
         let msg = msg.take().expect("No empty slots in list.");
+
+        if cfg.trace_level != TraceValue::Off && msg.is_notification() {
+            outgoing.push(Some(Message::Notification(log_notif(
+                msg.get_notification(),
+            ))));
+        }
 
         match msg {
             // All new requests after a shutdown request was received should
             // be trigger an `InvalidRequest` error.
-            m if state.shutdown_request_recv && m.is_request() => {
+            m if g.shutdown_request_recv && m.is_request() => {
                 let req = m.get_request();
                 outgoing.push(Some(Message::Response(Response::ErrorResponse(
                     ErrorResponse {
@@ -223,9 +258,12 @@ fn schedule_tasks(
                     params: DidOpenTextDocumentParams { text_document },
                 },
             )) => {
-                state
-                    .tasks
-                    .schedule(Task::TextDocNew(text_document, import_doc))?;
+                try_schedule(
+                    &mut g.tasks.runner,
+                    Task::TextDocNew(text_document, import_doc),
+                    &mut g.tasks.ongoing,
+                    &mut g.tasks.blocked,
+                )?;
             }
             Message::Notification(Notification::SetTraceNotification(SetTraceNotification {
                 params: SetTraceParams { value },
@@ -233,13 +271,13 @@ fn schedule_tasks(
                 cfg.trace_level = value;
             }
             Message::Request(Request::ShutdownRequest(req)) => {
-                state.shutdown_request_recv = true;
+                g.shutdown_request_recv = true;
                 outgoing.push(Some(Message::Response(Response::NullResponse(
                     NullResponse { id: req.id.clone() },
                 ))));
             }
             Message::Notification(Notification::ExitNotification(_)) => {
-                state.exit_requested = true;
+                g.exit_requested = true;
             }
             _ => (),
         }
@@ -317,10 +355,55 @@ fn read_msg(
     }
 }
 
-fn recv_completed_tasks(state: &mut State, _outgoing: &mut Vec<Option<Message>>) {
-    for done in state.tasks.rx.try_iter() {
+fn try_schedule(
+    ts: &mut TaskSystem,
+    job: Task,
+    ongoing: &mut Vec<OngoingTask>,
+    blocked: &mut Vec<Task>,
+) -> Result<(), ReturnCode> {
+    if task_blocked(&job, ongoing) {
+        blocked.push(job);
+        return Ok(());
+    }
+    ts.schedule(&job)?;
+    add_ongoing_task_if_seq_ordered(&job, ongoing);
+
+    Ok(())
+}
+
+fn try_schedule_blocked(
+    ts: &mut TaskSystem,
+    ongoing: &mut Vec<OngoingTask>,
+    blocked: &mut Vec<Task>,
+) -> Result<(), ReturnCode> {
+    for job in blocked.iter() {
+        if task_blocked(job, &ongoing) {
+            continue;
+        }
+        ts.schedule(job)?;
+        add_ongoing_task_if_seq_ordered(job, ongoing);
+    }
+    blocked.retain(|t| task_blocked(t, &ongoing));
+
+    Ok(())
+}
+
+fn recv_completed_tasks(ts: &mut Tasks, docs: &mut TextDocs, _outgoing: &mut Vec<Option<Message>>) {
+    for done in ts.runner.rx.try_iter() {
         match done {
-            TaskDone::TextDocNew(doc, tree) => state.docs.add(doc, tree, TextDocStatus::Open),
+            TaskDone::TextDocNew(doc, tree) => {
+                let idx = ts
+                    .ongoing
+                    .iter()
+                    .position(|t| match t {
+                        OngoingTask::TextDocUpdate { uri } => *uri == doc.uri,
+                    })
+                    .expect("Must be a registered task.");
+
+                ts.ongoing.remove(idx);
+
+                docs.add(doc, tree, TextDocStatus::Open);
+            }
         }
     }
 }
@@ -330,6 +413,29 @@ fn send_outgoing(channel: &mut StdioChannel, msgs: &mut Vec<Option<Message>>) {
         let msg = msg.take().expect("No empty slots allowed.");
         channel.send_msg(msg);
     }
+}
+
+/// Some requests like document updates can only be processed one at a time.
+/// This functions checks whether there is an ongoing tasks that would block
+/// the scheduling of the new one.
+fn task_blocked(job: &Task, ongoing: &[OngoingTask]) -> bool {
+    match job {
+        Task::TextDocNew(TextDocumentItem { uri, .. }, ..) => ongoing.iter().any(|o| match o {
+            OngoingTask::TextDocUpdate { uri: file } => file == uri,
+        }),
+    }
+}
+
+/// Document updates need to be processed in the order in which they were
+/// received. Hence, we need to monitor for which documents we are currently
+/// processing an update.
+fn add_ongoing_task_if_seq_ordered(job: &Task, ongoing: &mut Vec<OngoingTask>) {
+    let t = match job {
+        Task::TextDocNew(TextDocumentItem { uri, .. }, ..) => {
+            OngoingTask::TextDocUpdate { uri: uri.clone() }
+        }
+    };
+    ongoing.push(t);
 }
 
 fn error_not_initialized() -> ResponseError {
@@ -372,10 +478,63 @@ fn error_pid_mismatch(pid_msg: u32, pid_cli: u32) -> ResponseError {
     }
 }
 
+fn notif_initialized() -> Notification {
+    Notification::LogTraceNotification(LogTraceNotification {
+        params: LogTraceParams {
+            message: "INFO: Server is initialized.".to_string(),
+            verbose: None,
+        },
+    })
+}
+
+fn log_notif(msg: &Notification) -> Notification {
+    Notification::LogTraceNotification(LogTraceNotification {
+        params: LogTraceParams {
+            message: format!("INFO: Received notification \"{:}\".", msg),
+            verbose: None,
+        },
+    })
+}
+
 /// We ignore the specification here when it states that the exit code 1 should
 /// be returned if no shutdown request has been received. Instead, we try to return
 /// a meaningful error code.
 fn shutdown(channel: StdioChannel, rc: ReturnCode) -> ReturnCode {
     drop(channel);
     rc
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::t32::LANGUAGE_ID;
+
+    #[test]
+    fn can_block_tasks_until_ready() {
+        let mut ts = TaskSystem::build();
+
+        let job = Task::TextDocNew(
+            TextDocumentItem {
+                uri: "file:///c:/project/readme.md".to_string(),
+                language_id: LANGUAGE_ID.to_string(),
+                version: 1,
+                text: "This is a test.".to_string(),
+            },
+            import_doc,
+        );
+        let job_copy = job.clone();
+
+        let mut ongoing = Vec::<OngoingTask>::new();
+        let mut blocked = Vec::<Task>::new();
+
+        try_schedule(&mut ts, job, &mut ongoing, &mut blocked).expect("Must not fail.");
+
+        assert!(matches!(ongoing[0], OngoingTask::TextDocUpdate { .. }));
+
+        try_schedule(&mut ts, job_copy, &mut ongoing, &mut blocked).expect("Must not fail.");
+
+        assert_eq!(ongoing.len(), 1);
+        assert!(matches!(blocked[0], Task::TextDocNew { .. }));
+    }
 }

@@ -37,16 +37,13 @@ impl Config {
         debug_assert!(args.len() > 0);
         let len = args[1..].len();
         for (ii, arg) in args[1..].iter().enumerate() {
-            match Self::parse_flag_value::<u32>(
-                "--clientProcessId=",
-                "-c",
-                arg,
-                if ii < len - 1 {
-                    Some(&args[1..][ii + 1])
-                } else {
-                    None
-                },
-            ) {
+            let next = if ii < len - 1 {
+                Some(args[1..][ii + 1].as_str())
+            } else {
+                None
+            };
+
+            match Self::parse_flag_value::<u32>("--clientProcessId=", "-c", arg, next) {
                 Err(err) => return Err(err),
                 Ok(Some(num)) => {
                     ppid = Some(num);
