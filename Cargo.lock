@@ -360,14 +360,14 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_repr",
- "t32-language-server-stdin",
+ "t32-language-server-transport-stdio",
  "tree-sitter",
  "tree-sitter-t32",
  "url",
 ]
 
 [[package]]
-name = "t32-language-server-stdin"
+name = "t32-language-server-transport-stdio"
 version = "1.0.0"
 
 [[package]]

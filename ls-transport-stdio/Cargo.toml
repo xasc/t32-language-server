@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
 [package]
-name = "t32-language-server-stdin"
+name = "t32-language-server-transport-stdio"
 description = "Language server child process for non-blocking stdio read operations"
 version = "1.0.0"
 authors = ["Christoph Sax <c_sax@mailbox.org>"]
