@@ -262,7 +262,7 @@ pub enum ProgressTokenKind {
     String(String),
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum NumberOrString {
     Number(i64),
@@ -2415,4 +2415,35 @@ pub struct TextDocumentItem {
     pub language_id: String,
     pub version: i64,
     pub text: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DidChangeTextDocumentParams {
+    pub text_document: VersionedTextDocumentIdentifier,
+    pub content_changes: Vec<TextDocumentContentChangeEvent>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct VersionedTextDocumentIdentifier {
+    pub uri: DocumentUri,
+    pub version: i64,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct TextDocumentContentChangeEvent {
+    pub range: Range,
+    pub text: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct Range {
+    pub start: Position,
+    pub end: Position,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct Position {
+    pub line: u32,
+    pub character: u32,
 }

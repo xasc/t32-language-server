@@ -17,7 +17,11 @@ use std::{
 
 use tree_sitter::Tree;
 
-use crate::{ls::textdoc::TextDoc, protocol::TextDocumentItem, ReturnCode};
+use crate::{
+    ls::textdoc::TextDoc,
+    protocol::{TextDocumentContentChangeEvent, TextDocumentItem},
+    ReturnCode,
+};
 
 pub struct TaskSystem {
     pub rx: Receiver<TaskDone>,
@@ -35,6 +39,7 @@ pub struct JobQueue {
 #[derive(Debug, Clone)]
 pub enum Task {
     TextDocNew(TextDocumentItem, fn(TextDocumentItem) -> (TextDoc, Tree)),
+    TextDocUpdate(TextDocumentItem, Vec<TextDocumentContentChangeEvent>),
 }
 
 pub enum TaskDone {
@@ -148,6 +153,7 @@ impl TaskSystem {
                 let (doc, tree) = transform(doc);
                 TaskDone::TextDocNew(doc, tree)
             }
+            Task::TextDocUpdate(_, _) => todo!(),
         }
     }
 }

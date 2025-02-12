@@ -8,16 +8,20 @@ use crate::{
     ls::transport::StdioChannel,
     ls::{
         log_notif, read_msg,
-        request::{DidOpenTextDocumentNotification, Notification, Request, SetTraceNotification},
+        request::{
+            DidChangeTextDocumentNotification, DidOpenTextDocumentNotification, Notification,
+            Request, SetTraceNotification,
+        },
         response::{ErrorResponse, NullResponse, Response},
         tasks::{OngoingTask, Task, TaskDone, TaskSystem},
         textdoc::{import_doc, TextDocStatus, TextDocs},
         ProcHeartbeat, State, Tasks,
     },
     protocol::{
-        DidOpenTextDocumentParams, ErrorCodes, ResponseError, SetTraceParams, TextDocumentItem,
-        TraceValue,
+        DidChangeTextDocumentParams, DidOpenTextDocumentParams, ErrorCodes, NumberOrString,
+        ResponseError, SetTraceParams, TextDocumentItem, TraceValue,
     },
+    t32::{lang_id_supported, LANGUAGE_ID},
     ReturnCode,
 };
 
@@ -82,29 +86,28 @@ fn schedule_tasks(
             // All new requests after a shutdown request was received should
             // be trigger an `InvalidRequest` error.
             m if g.shutdown_request_recv && m.is_request() => {
-                let req = m.get_request();
-                outgoing.push(Some(Message::Response(Response::ErrorResponse(
-                    ErrorResponse {
-                        id: Some(
-                            req.get_id()
-                                .expect("Every request must have an ID.")
-                                .clone(),
-                        ),
-                        error: error_shutdown_seq(),
-                    },
-                ))));
+                outgoing.push(Some(error_shutdown_seq(
+                    m.get_request()
+                        .get_id()
+                        .expect("Every request must have an ID.")
+                        .clone(),
+                )));
             }
             Message::Notification(Notification::DidOpenTextDocumentNotification(
                 DidOpenTextDocumentNotification {
                     params: DidOpenTextDocumentParams { text_document },
                 },
             )) => {
-                try_schedule(
-                    &mut g.tasks.runner,
-                    Task::TextDocNew(text_document, import_doc),
-                    &mut g.tasks.ongoing,
-                    &mut g.tasks.blocked,
-                )?;
+                if lang_id_supported(&text_document.language_id) {
+                    process_doc_open_notif(text_document, &mut g.tasks)?;
+                } else {
+                    outgoing.push(Some(error_lang_id_unsupported(&text_document.language_id)));
+                }
+            }
+            Message::Notification(Notification::DidChangeTextDocumentNotification(
+                DidChangeTextDocumentNotification { params },
+            )) => {
+                process_doc_change_notif(params, &mut g.tasks)?;
             }
             Message::Notification(Notification::SetTraceNotification(SetTraceNotification {
                 params: SetTraceParams { value },
@@ -201,14 +204,33 @@ fn send_outgoing(channel: &mut StdioChannel, msgs: &mut Vec<Option<Message>>) {
     }
 }
 
+fn process_doc_open_notif(doc: TextDocumentItem, ts: &mut Tasks) -> Result<(), ReturnCode> {
+    try_schedule(
+        &mut ts.runner,
+        Task::TextDocNew(doc, import_doc),
+        &mut ts.ongoing,
+        &mut ts.blocked,
+    )
+}
+
+fn process_doc_change_notif(
+    params: DidChangeTextDocumentParams,
+    ts: &mut Tasks,
+) -> Result<(), ReturnCode> {
+    Ok(())
+}
+
 /// Some requests like document updates can only be processed one at a time.
 /// This functions checks whether there is an ongoing tasks that would block
 /// the scheduling of the new one.
 fn task_blocked(job: &Task, ongoing: &[OngoingTask]) -> bool {
     match job {
-        Task::TextDocNew(TextDocumentItem { uri, .. }, ..) => ongoing.iter().any(|o| match o {
-            OngoingTask::TextDocUpdate { uri: file } => file == uri,
-        }),
+        Task::TextDocNew(TextDocumentItem { uri, .. }, ..)
+        | Task::TextDocUpdate(TextDocumentItem { uri, .. }, ..) => {
+            ongoing.iter().any(|o| match o {
+                OngoingTask::TextDocUpdate { uri: file } => file == uri,
+            })
+        }
     }
 }
 
@@ -217,19 +239,36 @@ fn task_blocked(job: &Task, ongoing: &[OngoingTask]) -> bool {
 /// processing an update.
 fn add_ongoing_task_if_seq_ordered(job: &Task, ongoing: &mut Vec<OngoingTask>) {
     let t = match job {
-        Task::TextDocNew(TextDocumentItem { uri, .. }, ..) => {
+        Task::TextDocNew(TextDocumentItem { uri, .. }, ..)
+        | Task::TextDocUpdate(TextDocumentItem { uri, .. }, ..) => {
             OngoingTask::TextDocUpdate { uri: uri.clone() }
         }
     };
     ongoing.push(t);
 }
 
-fn error_shutdown_seq() -> ResponseError {
-    ResponseError {
-        code: ErrorCodes::InvalidRequest as i64,
-        message: "Error: Server has received shutdown request. Cannot handle request.".to_string(),
-        data: None,
-    }
+fn error_shutdown_seq(id: NumberOrString) -> Message {
+    Message::Response(Response::ErrorResponse(ErrorResponse {
+        id: Some(id),
+        error: ResponseError {
+            code: ErrorCodes::InvalidRequest as i64,
+            message: "Error: Server has received shutdown request. Cannot handle request."
+                .to_string(),
+            data: None,
+        },
+    }))
+}
+
+fn error_lang_id_unsupported(lang_id: &str) -> Message {
+    Message::Response(Response::ErrorResponse(ErrorResponse {
+        id: None,
+        error: ResponseError {
+            code: ErrorCodes::InvalidParams as i64,
+            message: format!("Error: Language ID \"{}\" is not supported for text documents. The only supported language ID is \"{}\".",
+                lang_id, LANGUAGE_ID),
+            data: None,
+        },
+    }))
 }
 
 #[cfg(test)]

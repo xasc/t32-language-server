@@ -14,14 +14,14 @@ use serde_json::{error::Category, Error, Value};
 use crate::{
     ls::lsp::Message,
     ls::request::{
-        DidOpenTextDocumentNotification, ExitNotification, InitializeRequest,
-        InitializedNotification, LogTraceNotification, Notification, Request, SetTraceNotification,
-        ShutdownRequest,
+        DidChangeTextDocumentNotification, DidOpenTextDocumentNotification, ExitNotification,
+        InitializeRequest, InitializedNotification, LogTraceNotification, Notification, Request,
+        SetTraceNotification, ShutdownRequest,
     },
     ls::response::{ErrorResponse, InitializeResponse, NullResponse, Response},
     protocol::{
-        DidOpenTextDocumentParams, ErrorCodes, InitializeParams, InitializedParams, NumberOrString,
-        ResponseError, SetTraceParams,
+        DidChangeTextDocumentParams, DidOpenTextDocumentParams, ErrorCodes, InitializeParams,
+        InitializedParams, NumberOrString, ResponseError, SetTraceParams,
     },
 };
 
@@ -319,6 +319,7 @@ fn deserialize_notif(msg: NotificationMessage) -> Result<Message, ErrorResponse>
     const INITIALIZED: &'static str = "initialized";
     const SET_TRACE: &'static str = "$/setTrace";
     const TEXTDOC_DID_OPEN: &'static str = "textDocument/didOpen";
+    const TEXTDOC_DID_CHANGE: &'static str = "textDocument/didChange";
 
     match msg.method.as_str() {
         EXIT => Ok(Message::Notification(Notification::ExitNotification(
@@ -342,6 +343,19 @@ fn deserialize_notif(msg: NotificationMessage) -> Result<Message, ErrorResponse>
                 error: err,
             }),
         },
+        TEXTDOC_DID_CHANGE => {
+            match deserialize_msg_params::<DidChangeTextDocumentParams>(msg.params) {
+                Ok(params) => Ok(Message::Notification(
+                    Notification::DidChangeTextDocumentNotification(
+                        DidChangeTextDocumentNotification { params },
+                    ),
+                )),
+                Err(err) => Err(ErrorResponse {
+                    id: None,
+                    error: err,
+                }),
+            }
+        }
         TEXTDOC_DID_OPEN => match deserialize_msg_params::<DidOpenTextDocumentParams>(msg.params) {
             Ok(params) => Ok(Message::Notification(
                 Notification::DidOpenTextDocumentNotification(DidOpenTextDocumentNotification {
@@ -665,6 +679,40 @@ mod tests {
         assert!(matches!(
             notif,
             Message::Notification(Notification::DidOpenTextDocumentNotification(_))
+        ));
+    }
+
+    #[test]
+    fn can_create_did_change_text_document_notification() {
+        let msg = LineMessage::NotificationMessage(NotificationMessage {
+            jsonrpc: "2.0".to_string(),
+            method: "textDocument/didChange".to_string(),
+            params: Some(json!({
+                "textDocument": {
+                    "uri": "file:///c:/project/readme.md",
+                    "version": 1,
+                },
+                "contentChanges": [{
+                    "range": {
+                        "start": {
+                            "line": 5,
+                            "character": 43,
+                        },
+                        "end": {
+                            "line": 7,
+                            "character": 0,
+                        }
+                    },
+                    "text": "Replacement text",
+                }],
+            })),
+        });
+
+        let notif = deserialize_msg(msg).expect("Should not fail.");
+
+        assert!(matches!(
+            notif,
+            Message::Notification(Notification::DidChangeTextDocumentNotification(_))
         ));
     }
 
