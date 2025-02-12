@@ -11,7 +11,10 @@
 //! header field of the next one.
 //! - The whitespace after the colon delimter between HTTP header field name and
 //! value is normally optional. The LSP protocol makes it mandatory.
-//! - The string representation is UTF-8
+//! - The string representation is UTF-8.
+//! - Text ranges (line and character offset) exclude the end position. To select the
+//! last character in a line, the first character of the next line should be used as
+//! the end position. How do we then select the last character in a text?
 
 mod header;
 mod jsonrpc;

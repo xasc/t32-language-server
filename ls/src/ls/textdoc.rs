@@ -41,20 +41,31 @@ pub struct TextDocs {
     free_list: FreeLists,
 }
 
+#[derive(Debug)]
 pub struct TextDoc {
     pub uri: String,
     pub lang_id: String,
     pub text: String,
     pub version: i64,
+    lines: LineMap,
+}
+
+#[derive(Debug, PartialEq)]
+struct LineMap {
+    byte_offsets: Vec<usize>,
+    max_utf16_char_offset: Vec<Option<u32>>,
 }
 
 impl From<TextDocumentItem> for TextDoc {
     fn from(item: TextDocumentItem) -> Self {
+        let lines = create_line_map_for_text(&item.text, None);
+
         TextDoc {
             uri: item.uri,
             lang_id: LANGUAGE_ID.to_string(),
             version: item.version,
             text: item.text,
+            lines,
         }
     }
 }
@@ -178,4 +189,139 @@ pub fn import_doc(r#in: TextDocumentItem) -> (TextDoc, Tree) {
     let tree = doc.parse();
 
     (doc, tree)
+}
+
+/// Clients only need to support UTF-16 encoding to character offsets, so
+/// this is the common denominator we need to support.
+fn create_line_map_for_text(text: &str, bias: Option<usize>) -> LineMap {
+    debug_assert!(text.len() > 0);
+
+    const NEWLINE_LEN: usize = '\n'.len_utf8();
+    const CARRIAGE_RETURN_LEN: usize = '\r'.len_utf8();
+
+    let bias = bias.unwrap_or(0);
+
+    let mut byte_offsets = vec![bias];
+    let mut max_utf16_char_offset: Vec<Option<u32>> = vec![None];
+
+    let mut num_inline_code_units: u32 = 0;
+    let mut chars = text.char_indices().peekable();
+
+    while let Some((offset, char)) = chars.next() {
+        /* The character offset can never move past the start of the first
+         * character of the end-of-line sequence.
+         */
+        let len = max_utf16_char_offset.len();
+        max_utf16_char_offset[len -1] = Some(num_inline_code_units);
+
+        if char == '\r' {
+            max_utf16_char_offset.push(None);
+            num_inline_code_units = 0;
+
+            if let Some(&(off, '\n')) = chars.peek() {
+                byte_offsets.push(bias + off + NEWLINE_LEN);
+                chars.next();
+            } else {
+                byte_offsets.push(bias + offset + CARRIAGE_RETURN_LEN);
+            }
+        } else if char == '\n' {
+            max_utf16_char_offset.push(None);
+            num_inline_code_units = 0;
+
+            byte_offsets.push(bias + offset + NEWLINE_LEN);
+        } else {
+            num_inline_code_units += char.len_utf16() as u32;
+        }
+    }
+
+    debug_assert!(byte_offsets.len() == max_utf16_char_offset.len());
+
+    LineMap {
+        byte_offsets,
+        max_utf16_char_offset,
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn uses_bytes_and_utf16_code_units_for_offsets() {
+        let text = "a𐐀b";
+
+        let map = create_line_map_for_text(&text, None);
+        assert_eq!(
+            map,
+            LineMap {
+                byte_offsets: vec![0],
+                max_utf16_char_offset: vec![Some(3)]
+            }
+        );
+    }
+
+    #[test]
+    fn can_calculate_offsets_for_all_eol_variants() {
+        let text = "Line 1\nLine 🚀\nline ɣ\n";
+
+        let map = create_line_map_for_text(&text, None);
+        assert_eq!(
+            map,
+            LineMap {
+                byte_offsets: vec![0, "Line 1\n".len(), "Line 1\nLine 🚀\n".len(), "Line 1\nLine 🚀\nline ɣ\n".len()],
+                max_utf16_char_offset: vec![Some(6), Some(7), Some(6), None]
+            }
+        );
+
+        let text = "Line 1\rLine 🚀\rline ɣ\r";
+
+        let map = create_line_map_for_text(&text, None);
+        assert_eq!(
+            map,
+            LineMap {
+                byte_offsets: vec![0, "Line 1\r".len(), "Line 1\rLine 🚀\r".len(), "Line 1\rLine 🚀\nline ɣ\r".len()],
+                max_utf16_char_offset: vec![Some(6), Some(7), Some(6), None]
+            }
+        );
+
+        let text = "Line 1\r\nLine 🚀\r\nline ɣ\r\n";
+
+        let map = create_line_map_for_text(&text, None);
+        assert_eq!(
+            map,
+            LineMap {
+                byte_offsets: vec![0, "Line 1\r\n".len(), "Line 1\r\nLine 🚀\r\n".len(), "Line 1\r\nLine 🚀\r\nline ɣ\r\n".len()],
+                max_utf16_char_offset: vec![Some(6), Some(7), Some(6), None]
+            }
+        );
+    }
+
+    #[test]
+    fn can_handle_text_not_ending_with_newline() {
+        let text = "Line 1\nabcd";
+
+        let map = create_line_map_for_text(&text, None);
+        assert_eq!(
+            map,
+            LineMap {
+                byte_offsets: vec![0, "Line 1\n".len()],
+                max_utf16_char_offset: vec![Some(6), Some(3)]
+            }
+        );
+    }
+
+    #[test]
+    fn can_shift_byte_offset() {
+        let text = "Line A\rLine B\rLine C\r";
+
+        let bias = 52;
+        let map = create_line_map_for_text(&text, Some(bias));
+        assert_eq!(
+            map,
+            LineMap {
+                byte_offsets: vec![bias, bias + "Line A\r".len(), bias + "Line A\rLine B\r".len(), bias + "Line A\rLine B\nline C\r".len()],
+                max_utf16_char_offset: vec![Some(6), Some(6), Some(6), None]
+            }
+        );
+    }
 }
