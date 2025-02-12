@@ -65,7 +65,7 @@ impl StdioChannel {
         };
 
         let mut bin = PathBuf::from(dir.parent().expect("Executable must have one parent."));
-        bin.push("t32-language-server-stdin");
+        bin.push("t32-language-server-transport-stdio");
 
         // All read operations on stdin are blocking by default. We can move
         // them to a separate thread, but then it becomes impossible to clean
