@@ -4,10 +4,10 @@
 
 use std::collections::BTreeMap;
 
-use tree_sitter::Tree;
+use tree_sitter::{Tree, InputEdit};
 
 use crate::{
-    protocol::TextDocumentItem,
+    protocol::{Position, Range, TextDocumentContentChangeEvent, TextDocumentItem},
     t32::{self, LANGUAGE_ID},
 };
 
@@ -41,16 +41,16 @@ pub struct TextDocs {
     free_list: FreeLists,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct TextDoc {
     pub uri: String,
     pub lang_id: String,
     pub text: String,
     pub version: i64,
-    lines: LineMap,
+    pub lines: LineMap,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct LineMap {
     byte_offsets: Vec<usize>,
     max_utf16_char_offset: Vec<Option<u32>>,
@@ -73,6 +73,41 @@ impl From<TextDocumentItem> for TextDoc {
 impl TextDoc {
     pub fn parse(&self) -> Tree {
         t32::parse(self.text.as_bytes(), None)
+    }
+
+    pub fn update(&mut self, change: &Range, new: &str) -> InputEdit {
+        debug_assert_ne!(change.start, change.end);
+
+        let mut start = self.get_byte_offset_at(&change.start);
+        let mut end = self.get_byte_offset_at(&change.end);
+
+        if end < start {
+            (end, start) = (start, end);
+        }
+        self.text.replace_range(start..end, new);
+    }
+
+    fn get_byte_offset_at(&self, spot: &Position) -> usize {
+        let spot = normalize_position(spot, &self.lines);
+        if spot.line >= self.lines.byte_offsets.len() as u32 {
+            return self.text.len();
+        }
+
+        let mut offset = self.lines.byte_offsets[spot.line as usize];
+        if spot.character == 0 {
+            return offset;
+        }
+
+        let mut num_inline_code_units = 0;
+        for ch in self.text[offset..].chars() {
+            offset += ch.len_utf8();
+            num_inline_code_units += ch.len_utf16();
+
+            if num_inline_code_units >= spot.character as usize {
+                break;
+            }
+        }
+        offset
     }
 }
 
@@ -182,11 +217,49 @@ impl TextDocs {
             None => None,
         }
     }
+
+    pub fn get_doc_and_tree(&self, uri: &str) -> Option<(&TextDoc, &Tree)> {
+        match self.registry.get(uri) {
+            Some(idx) if idx.0 == TextDocStatus::Open => {
+                if self.docs.open[idx.1].is_none() || self.trees.open[idx.1].is_none() {
+                    Some((
+                        &self.docs.open[idx.1].as_ref().unwrap(),
+                        &self.trees.open[idx.1].as_ref().unwrap(),
+                    ))
+                } else {
+                    None
+                }
+            }
+            Some(idx) => {
+                if self.docs.closed[idx.1].is_none() || self.trees.closed[idx.1].is_none() {
+                    Some((
+                        &self.docs.open[idx.1].as_ref().unwrap(),
+                        &self.trees.open[idx.1].as_ref().unwrap(),
+                    ))
+                } else {
+                    None
+                }
+            }
+            None => None,
+        }
+    }
+
+    pub fn is_open(&self, uri: &str) -> bool {
+        self.registry.contains_key(uri)
+    }
 }
 
 pub fn import_doc(r#in: TextDocumentItem) -> (TextDoc, Tree) {
     let doc = TextDoc::from(r#in);
     let tree = doc.parse();
+
+    (doc, tree)
+}
+
+pub fn update_doc(mut doc: TextDoc, tree: Tree, changes: Vec<TextDocumentContentChangeEvent>) -> (TextDoc, Tree) {
+    for change in changes {
+        doc.update(&change.range, &change.text);
+    }
 
     (doc, tree)
 }
@@ -212,7 +285,7 @@ fn create_line_map_for_text(text: &str, bias: Option<usize>) -> LineMap {
          * character of the end-of-line sequence.
          */
         let len = max_utf16_char_offset.len();
-        max_utf16_char_offset[len -1] = Some(num_inline_code_units);
+        max_utf16_char_offset[len - 1] = Some(num_inline_code_units);
 
         if char == '\r' {
             max_utf16_char_offset.push(None);
@@ -242,6 +315,20 @@ fn create_line_map_for_text(text: &str, bias: Option<usize>) -> LineMap {
     }
 }
 
+fn normalize_position(spot: &Position, lines: &LineMap) -> Position {
+    let num_lines = lines.byte_offsets.len() as u32;
+
+    let Position { mut line, mut character } = spot;
+    if spot.line >= num_lines {
+        line = num_lines;
+        character = 0;
+    }
+    else if character > lines.max_utf16_char_offset[line as usize].unwrap_or(0) {
+        character = lines.max_utf16_char_offset[line as usize].unwrap_or(0);
+    }
+    Position { line, character }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -268,7 +355,12 @@ mod test {
         assert_eq!(
             map,
             LineMap {
-                byte_offsets: vec![0, "Line 1\n".len(), "Line 1\nLine 🚀\n".len(), "Line 1\nLine 🚀\nline ɣ\n".len()],
+                byte_offsets: vec![
+                    0,
+                    "Line 1\n".len(),
+                    "Line 1\nLine 🚀\n".len(),
+                    "Line 1\nLine 🚀\nline ɣ\n".len()
+                ],
                 max_utf16_char_offset: vec![Some(6), Some(7), Some(6), None]
             }
         );
@@ -279,7 +371,12 @@ mod test {
         assert_eq!(
             map,
             LineMap {
-                byte_offsets: vec![0, "Line 1\r".len(), "Line 1\rLine 🚀\r".len(), "Line 1\rLine 🚀\nline ɣ\r".len()],
+                byte_offsets: vec![
+                    0,
+                    "Line 1\r".len(),
+                    "Line 1\rLine 🚀\r".len(),
+                    "Line 1\rLine 🚀\nline ɣ\r".len()
+                ],
                 max_utf16_char_offset: vec![Some(6), Some(7), Some(6), None]
             }
         );
@@ -290,7 +387,12 @@ mod test {
         assert_eq!(
             map,
             LineMap {
-                byte_offsets: vec![0, "Line 1\r\n".len(), "Line 1\r\nLine 🚀\r\n".len(), "Line 1\r\nLine 🚀\r\nline ɣ\r\n".len()],
+                byte_offsets: vec![
+                    0,
+                    "Line 1\r\n".len(),
+                    "Line 1\r\nLine 🚀\r\n".len(),
+                    "Line 1\r\nLine 🚀\r\nline ɣ\r\n".len()
+                ],
                 max_utf16_char_offset: vec![Some(6), Some(7), Some(6), None]
             }
         );
@@ -319,7 +421,12 @@ mod test {
         assert_eq!(
             map,
             LineMap {
-                byte_offsets: vec![bias, bias + "Line A\r".len(), bias + "Line A\rLine B\r".len(), bias + "Line A\rLine B\nline C\r".len()],
+                byte_offsets: vec![
+                    bias,
+                    bias + "Line A\r".len(),
+                    bias + "Line A\rLine B\r".len(),
+                    bias + "Line A\rLine B\nLine C\r".len()
+                ],
                 max_utf16_char_offset: vec![Some(6), Some(6), Some(6), None]
             }
         );

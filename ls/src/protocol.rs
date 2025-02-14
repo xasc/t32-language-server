@@ -2436,13 +2436,13 @@ pub struct TextDocumentContentChangeEvent {
     pub text: String,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct Range {
     pub start: Position,
     pub end: Position,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct Position {
     pub line: u32,
     pub character: u32,

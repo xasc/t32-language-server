@@ -14,7 +14,7 @@ use crate::{
         },
         response::{ErrorResponse, NullResponse, Response},
         tasks::{OngoingTask, Task, TaskDone, TaskSystem},
-        textdoc::{import_doc, TextDocStatus, TextDocs},
+        textdoc::{import_doc, update_doc, TextDoc, TextDocStatus, TextDocs},
         ProcHeartbeat, State, Tasks,
     },
     protocol::{
@@ -107,7 +107,7 @@ fn schedule_tasks(
             Message::Notification(Notification::DidChangeTextDocumentNotification(
                 DidChangeTextDocumentNotification { params },
             )) => {
-                process_doc_change_notif(params, &mut g.tasks)?;
+                process_doc_change_notif(params, &g.docs, &mut g.tasks, outgoing)?;
             }
             Message::Notification(Notification::SetTraceNotification(SetTraceNotification {
                 params: SetTraceParams { value },
@@ -215,9 +215,27 @@ fn process_doc_open_notif(doc: TextDocumentItem, ts: &mut Tasks) -> Result<(), R
 
 fn process_doc_change_notif(
     params: DidChangeTextDocumentParams,
+    docs: &TextDocs,
     ts: &mut Tasks,
+    outgoing: &mut Vec<Option<Message>>,
 ) -> Result<(), ReturnCode> {
-    Ok(())
+    if !docs.is_open(&params.text_document.uri) {
+        outgoing.push(Some(error_textdoc_not_open(&params.text_document.uri)));
+        return Ok(());
+    }
+
+    let (doc, tree) = docs.get_doc_and_tree(&params.text_document.uri).unwrap();
+
+    let doc = TextDoc {
+        version: params.text_document.version,
+        ..doc.clone()
+    };
+    try_schedule(
+        &mut ts.runner,
+        Task::TextDocUpdate(doc, tree.clone(), params.content_changes, update_doc),
+        &mut ts.ongoing,
+        &mut ts.blocked,
+    )
 }
 
 /// Some requests like document updates can only be processed one at a time.
@@ -226,11 +244,9 @@ fn process_doc_change_notif(
 fn task_blocked(job: &Task, ongoing: &[OngoingTask]) -> bool {
     match job {
         Task::TextDocNew(TextDocumentItem { uri, .. }, ..)
-        | Task::TextDocUpdate(TextDocumentItem { uri, .. }, ..) => {
-            ongoing.iter().any(|o| match o {
-                OngoingTask::TextDocUpdate { uri: file } => file == uri,
-            })
-        }
+        | Task::TextDocUpdate(TextDoc { uri, .. }, ..) => ongoing.iter().any(|o| match o {
+            OngoingTask::TextDocUpdate { uri: file } => file == uri,
+        }),
     }
 }
 
@@ -240,7 +256,7 @@ fn task_blocked(job: &Task, ongoing: &[OngoingTask]) -> bool {
 fn add_ongoing_task_if_seq_ordered(job: &Task, ongoing: &mut Vec<OngoingTask>) {
     let t = match job {
         Task::TextDocNew(TextDocumentItem { uri, .. }, ..)
-        | Task::TextDocUpdate(TextDocumentItem { uri, .. }, ..) => {
+        | Task::TextDocUpdate(TextDoc { uri, .. }, ..) => {
             OngoingTask::TextDocUpdate { uri: uri.clone() }
         }
     };
@@ -266,6 +282,20 @@ fn error_lang_id_unsupported(lang_id: &str) -> Message {
             code: ErrorCodes::InvalidParams as i64,
             message: format!("Error: Language ID \"{}\" is not supported for text documents. The only supported language ID is \"{}\".",
                 lang_id, LANGUAGE_ID),
+            data: None,
+        },
+    }))
+}
+
+fn error_textdoc_not_open(uri: &str) -> Message {
+    Message::Response(Response::ErrorResponse(ErrorResponse {
+        id: None,
+        error: ResponseError {
+            code: ErrorCodes::InvalidRequest as i64,
+            message: format!(
+                "Error: Text document \"{}\" has not been opened, so it cannot be changed.",
+                uri
+            ),
             data: None,
         },
     }))
