@@ -3,26 +3,25 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use crate::{
+    ReturnCode,
     config::Config,
     ls::lsp::Message,
     ls::transport::StdioChannel,
     ls::{
-        log_notif, read_msg,
+        ProcHeartbeat, State, Tasks, log_notif, read_msg,
         request::{
             DidChangeTextDocumentNotification, DidOpenTextDocumentNotification, Notification,
             Request, SetTraceNotification,
         },
         response::{ErrorResponse, NullResponse, Response},
         tasks::{OngoingTask, Task, TaskDone, TaskSystem},
-        textdoc::{import_doc, update_doc, TextDoc, TextDocStatus, TextDocs},
-        ProcHeartbeat, State, Tasks,
+        textdoc::{TextDoc, TextDocStatus, TextDocs, import_doc, update_doc},
     },
     protocol::{
         DidChangeTextDocumentParams, DidOpenTextDocumentParams, ErrorCodes, NumberOrString,
         ResponseError, SetTraceParams, TextDocumentItem, TraceValue,
     },
-    t32::{lang_id_supported, LANGUAGE_ID},
-    ReturnCode,
+    t32::{LANGUAGE_ID, lang_id_supported},
 };
 
 pub fn handle_requests(channel: &mut StdioChannel, mut cfg: Config) -> Result<(), ReturnCode> {
@@ -280,8 +279,10 @@ fn error_lang_id_unsupported(lang_id: &str) -> Message {
         id: None,
         error: ResponseError {
             code: ErrorCodes::InvalidParams as i64,
-            message: format!("Error: Language ID \"{}\" is not supported for text documents. The only supported language ID is \"{}\".",
-                lang_id, LANGUAGE_ID),
+            message: format!(
+                "Error: Language ID \"{}\" is not supported for text documents. The only supported language ID is \"{}\".",
+                lang_id, LANGUAGE_ID
+            ),
             data: None,
         },
     }))

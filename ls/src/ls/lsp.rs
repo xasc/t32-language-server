@@ -14,7 +14,8 @@
 //! - The string representation is UTF-8.
 //! - Text ranges (line and character offset) exclude the end position. To select the
 //! last character in a line, the first character of the next line should be used as
-//! the end position. How do we then select the last character in a text?
+//! the end position. If the character offset is longer than the line length it should
+//! be reverted back to the line length. How do we then select the last character in a text?
 
 mod header;
 mod jsonrpc;
@@ -277,8 +278,7 @@ mod tests {
 
     #[test]
     fn parses_full_header() {
-        let header =
-        "Content-Type: application/vscode-jsonrpc; charset=utf-8\r\nContent-Length: 100\r\n\r\n";
+        let header = "Content-Type: application/vscode-jsonrpc; charset=utf-8\r\nContent-Length: 100\r\n\r\n";
 
         let mut state = ParseState::Syncing;
         let mut tokens = Vec::<Token>::new();
@@ -308,8 +308,7 @@ mod tests {
 
     #[test]
     fn ignores_garbage_before_header() {
-        let header =
-        "abcContent-Type: application/vscode-jsonrpc; charset=utf-8\r\nContent-Length: 1\r\n\r\n";
+        let header = "abcContent-Type: application/vscode-jsonrpc; charset=utf-8\r\nContent-Length: 1\r\n\r\n";
 
         let mut state = ParseState::Syncing;
         let mut tokens = Vec::<Token>::new();

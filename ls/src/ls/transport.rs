@@ -13,11 +13,11 @@ use std::{
 };
 
 use crate::{
+    ReturnCode,
     config::{ChannelKind, Config},
     ls::lsp::{self, Message, ParseState, Token},
     ls::response::ErrorResponse,
     protocol::{ErrorCodes, ResponseError},
-    ReturnCode,
 };
 
 enum RecvMessage {

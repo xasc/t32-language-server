@@ -469,8 +469,7 @@ mod tests {
 
     #[test]
     fn scans_full_header() {
-        let header =
-            "Content-Type: application/vscode-jsonrpc; charset=utf-8\r\nContent-Length: 100\r\n\r\n";
+        let header = "Content-Type: application/vscode-jsonrpc; charset=utf-8\r\nContent-Length: 100\r\n\r\n";
 
         let tokens = scan(header.as_bytes(), false).expect("Scanning should be sucessful");
 

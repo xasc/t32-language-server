@@ -40,9 +40,11 @@ fn supports_lifecycle_shutdown_req() {
     utils::stop_ls(&mut ls, Some(&mut stdin), Some(2));
     let output = ls.wait_with_output().expect("Cannot capture output");
 
-    assert!(std::str::from_utf8(&output.stdout)
-        .unwrap()
-        .contains(r#"{"jsonrpc":"2.0","id":2,"result":null}"#));
+    assert!(
+        std::str::from_utf8(&output.stdout)
+            .unwrap()
+            .contains(r#"{"jsonrpc":"2.0","id":2,"result":null}"#)
+    );
     assert_eq!(output.status.code(), Some(0));
 }
 
@@ -88,9 +90,11 @@ fn exits_on_wrong_parent_pid() {
         Some(t32_language_server::ReturnCode::ProtcolErr as i32)
     );
 
-    assert!(std::str::from_utf8(&output.stdout)
-        .unwrap()
-        .contains("Error: Process ID of the parent process 2 is different"));
+    assert!(
+        std::str::from_utf8(&output.stdout)
+            .unwrap()
+            .contains("Error: Process ID of the parent process 2 is different")
+    );
 
     let mut ls = utils::start_ls(&[&format!("--clientProcessId={}", pid)], false);
 
@@ -115,12 +119,16 @@ fn exits_on_wrong_parent_pid() {
         Some(t32_language_server::ReturnCode::ProtcolErr as i32)
     );
 
-    assert!(std::str::from_utf8(&output.stdout)
-        .unwrap()
-        .contains("Error: Process ID of the parent process"));
-    assert!(std::str::from_utf8(&output.stdout)
-        .unwrap()
-        .contains("invalid"));
+    assert!(
+        std::str::from_utf8(&output.stdout)
+            .unwrap()
+            .contains("Error: Process ID of the parent process")
+    );
+    assert!(
+        std::str::from_utf8(&output.stdout)
+            .unwrap()
+            .contains("invalid")
+    );
 }
 
 #[test]
@@ -154,7 +162,9 @@ fn can_enable_logging() {
     let output = ls.wait_with_output().expect("Cannot capture output");
 
     assert_eq!(output.status.code(), Some(0));
-    assert!(std::str::from_utf8(&output.stdout)
-        .unwrap()
-        .contains("$/logTrace"));
+    assert!(
+        std::str::from_utf8(&output.stdout)
+            .unwrap()
+            .contains("$/logTrace")
+    );
 }

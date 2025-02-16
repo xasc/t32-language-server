@@ -8,8 +8,8 @@ use std::{
 };
 
 use crate::{
-    protocol::{PositionEncodingKind, TraceValue},
     ReturnCode,
+    protocol::{PositionEncodingKind, TraceValue},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]

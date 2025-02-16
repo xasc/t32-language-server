@@ -5,11 +5,11 @@
 use std::fmt;
 
 use serde::{
+    Deserialize, Serialize,
     de::{self, DeserializeOwned, Deserializer, MapAccess, Visitor},
     ser::{SerializeStruct, Serializer},
-    Deserialize, Serialize,
 };
-use serde_json::{error::Category, Error, Value};
+use serde_json::{Error, Value, error::Category};
 
 use crate::{
     ls::lsp::Message,
@@ -512,7 +512,10 @@ fn error_type(method: &str) -> ResponseError {
 fn error_jsonrcp_ver(ver: &str) -> ResponseError {
     ResponseError {
         code: ErrorCodes::InvalidRequest as i64,
-        message: format!("Data error: JSON-RPC protocol version \"{}\" is not supported. Expected version \"2.0\".", ver),
+        message: format!(
+            "Data error: JSON-RPC protocol version \"{}\" is not supported. Expected version \"2.0\".",
+            ver
+        ),
         data: None,
     }
 }

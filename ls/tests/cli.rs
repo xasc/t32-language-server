@@ -16,7 +16,9 @@ fn prints_help() {
         output.status.code(),
         Some(t32_language_server::ReturnCode::OkExit as i32)
     );
-    assert!(std::str::from_utf8(&output.stdout)
-        .unwrap()
-        .starts_with("Usage: t32-language-server"));
+    assert!(
+        std::str::from_utf8(&output.stdout)
+            .unwrap()
+            .starts_with("Usage: t32-language-server")
+    );
 }

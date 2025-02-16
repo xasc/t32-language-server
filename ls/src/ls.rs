@@ -14,11 +14,12 @@ mod transport;
 use std::time::{Duration, Instant};
 
 use crate::{
+    ReturnCode,
     config::Config,
     ls::lsp::Message,
     ls::transport::StdioChannel,
     ls::{
-        proc::{proc_alive, ProcState},
+        proc::{ProcState, proc_alive},
         request::{ExitNotification, LogTraceNotification, Notification, Request},
         response::{ErrorResponse, InitializeResponse, Response},
         tasks::{OngoingTask, Task, TaskSystem},
@@ -28,7 +29,6 @@ use crate::{
         ErrorCodes, InitializeError, InitializeParams, InitializeResult, LogTraceParams,
         ResponseError, ServerCapabilities, TraceValue,
     },
-    ReturnCode,
 };
 
 struct InitializationStatus {
@@ -142,7 +142,7 @@ fn wait_for_initialize_req(
                 return InitializationStatus {
                     msg: Message::Notification(Notification::ExitNotification(ExitNotification {})),
                     rc,
-                }
+                };
             }
         };
 
@@ -156,7 +156,7 @@ fn wait_for_initialize_req(
                     } else {
                         ReturnCode::ErrExit
                     },
-                }
+                };
             }
             m if m.is_request() => {
                 if let Message::Request(Request::ShutdownRequest(_)) = m {
@@ -260,7 +260,9 @@ fn error_pid_mismatch(pid_msg: u32, pid_cli: u32) -> ResponseError {
             "Error: Process ID of the parent process {} is different from the process ID specified by \"--clientProcessId=\" {}.",
             pid_msg, pid_cli
         ),
-        data: Some(serde_json::to_value(InitializeError { retry: true }).expect("Must convert to value.")),
+        data: Some(
+            serde_json::to_value(InitializeError { retry: true }).expect("Must convert to value."),
+        ),
     }
 }
 

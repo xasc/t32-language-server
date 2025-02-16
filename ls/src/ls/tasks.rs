@@ -8,19 +8,19 @@
 use std::{
     collections::VecDeque,
     sync::{
-        atomic::{AtomicBool, AtomicU32, Ordering},
-        mpsc::{channel, Receiver, Sender},
         Arc, Condvar, Mutex, TryLockError,
+        atomic::{AtomicBool, AtomicU32, Ordering},
+        mpsc::{Receiver, Sender, channel},
     },
-    thread::{available_parallelism, spawn, JoinHandle},
+    thread::{JoinHandle, available_parallelism, spawn},
 };
 
 use tree_sitter::Tree;
 
 use crate::{
+    ReturnCode,
     ls::textdoc::TextDoc,
     protocol::{TextDocumentContentChangeEvent, TextDocumentItem},
-    ReturnCode,
 };
 
 pub struct TaskSystem {
