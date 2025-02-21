@@ -379,8 +379,6 @@ pub fn update_doc(
 /// Clients only need to support UTF-16 encoding to character offsets, so
 /// this is the common denominator we need to support.
 fn create_line_map_for_text(text: &str, bias: Option<usize>, cutoff: Option<usize>) -> LineMap {
-    debug_assert!(text.len() > 0);
-
     const NEWLINE_LEN: usize = '\n'.len_utf8();
     const CARRIAGE_RETURN_LEN: usize = '\r'.len_utf8();
 
@@ -892,4 +890,86 @@ mod test {
         );
         assert_eq!(doc.text, "NEW LINE#a𐐀b");
     }
+
+    #[test]
+    fn can_handle_edits_that_remove_text() {
+        let text = "𝕿𝖍𝖎𝖘 𝖎𝖘 𝖆 𝖑𝖆𝖓𝖌𝖚𝖆𝖌𝖊 𝖘𝖊𝖗𝖛𝖊𝖗.\nIƚ ιʂ ϝσɾ PRACTICE.\n";
+        let lines = create_line_map_for_text(&text, None, None);
+
+        let mut doc = TextDoc {
+            uri: "file:///C:/doc.rs".to_string(),
+            lang_id: LANGUAGE_ID.to_string(),
+            version: 1,
+            text: text.to_string(),
+            lines,
+        };
+
+        let delta = doc.update(
+            Range {
+                start: Position {
+                    line: 0,
+                    character: "𝕿𝖍𝖎𝖘 𝖎𝖘 𝖆 𝖑𝖆𝖓𝖌𝖚𝖆𝖌𝖊 𝖘𝖊𝖗𝖛𝖊𝖗.".chars().map(|ch| ch.len_utf16()).sum::<usize>() as u32,
+                },
+                end: Position {
+                    line: 1,
+                    character: "Iƚ ιʂ ϝσɾ PRACTICE.\n".chars().map(|ch| ch.len_utf16()).sum::<usize>() as u32 + 4,
+                },
+            },
+            &"",
+        );
+
+        assert_eq!(
+            delta,
+            InputEdit {
+                start_byte: "𝕿𝖍𝖎𝖘 𝖎𝖘 𝖆 𝖑𝖆𝖓𝖌𝖚𝖆𝖌𝖊 𝖘𝖊𝖗𝖛𝖊𝖗.".len(),
+                old_end_byte: "𝕿𝖍𝖎𝖘 𝖎𝖘 𝖆 𝖑𝖆𝖓𝖌𝖚𝖆𝖌𝖊 𝖘𝖊𝖗𝖛𝖊𝖗.\nIƚ ιʂ ϝσɾ PRACTICE.\n".len(),
+                new_end_byte: "𝕿𝖍𝖎𝖘 𝖎𝖘 𝖆 𝖑𝖆𝖓𝖌𝖚𝖆𝖌𝖊 𝖘𝖊𝖗𝖛𝖊𝖗.".len(),
+                start_position: Point::new(0, "𝕿𝖍𝖎𝖘 𝖎𝖘 𝖆 𝖑𝖆𝖓𝖌𝖚𝖆𝖌𝖊 𝖘𝖊𝖗𝖛𝖊𝖗.".len()),
+                old_end_position: Point::new(2, 0),
+                new_end_position: Point::new(0, "𝕿𝖍𝖎𝖘 𝖎𝖘 𝖆 𝖑𝖆𝖓𝖌𝖚𝖆𝖌𝖊 𝖘𝖊𝖗𝖛𝖊𝖗.".len()),
+            }
+        );
+        assert_eq!(doc.text, "𝕿𝖍𝖎𝖘 𝖎𝖘 𝖆 𝖑𝖆𝖓𝖌𝖚𝖆𝖌𝖊 𝖘𝖊𝖗𝖛𝖊𝖗.");
+    }
+
+    #[test]
+    fn can_deal_with_malformed_ranges() {
+        let text = "Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium,\ntotam rem aperiam,\neaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo.";
+        let lines = create_line_map_for_text(&text, None, None);
+
+        let mut doc = TextDoc {
+            uri: "file:///C:/doc.rs".to_string(),
+            lang_id: LANGUAGE_ID.to_string(),
+            version: 1,
+            text: text.to_string(),
+            lines,
+        };
+
+        let delta = doc.update(
+            Range {
+                start: Position {
+                    line: 1,
+                    character: 3,
+                },
+                end: Position {
+                    line: 0,
+                    character: 0,
+                },
+            },
+            &"Lorem Ipsum#",
+        );
+        assert_eq!(
+            delta,
+            InputEdit {
+                start_byte: 0,
+                old_end_byte: "Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium,\ntot".len(),
+                new_end_byte: "Lorem Ipsum#".len(),
+                start_position: Point::new(0, 0),
+                old_end_position: Point::new(1, 3),
+                new_end_position: Point::new(0, "Lorem Ipsum#".len()),
+            }
+        );
+        assert_eq!(doc.text, "Lorem Ipsum#am rem aperiam,\neaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo.");
+    }
+
 }
