@@ -5,8 +5,8 @@
 use std::fmt;
 
 use crate::protocol::{
-    DidChangeTextDocumentParams, DidOpenTextDocumentParams, InitializeParams, InitializedParams,
-    LogTraceParams, NumberOrString, SetTraceParams,
+    DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
+    InitializeParams, InitializedParams, LogTraceParams, NumberOrString, SetTraceParams,
 };
 
 // Requests from client to server.
@@ -18,12 +18,18 @@ pub enum Request {
 
 #[derive(Debug)]
 pub enum Notification {
+    DidCloseTextDocumentNotification(DidCloseTextDocumentNotification),
     DidChangeTextDocumentNotification(DidChangeTextDocumentNotification),
     DidOpenTextDocumentNotification(DidOpenTextDocumentNotification),
     ExitNotification(ExitNotification),
     InitializedNotification(InitializedNotification),
     LogTraceNotification(LogTraceNotification),
     SetTraceNotification(SetTraceNotification),
+}
+
+#[derive(Debug)]
+pub struct DidCloseTextDocumentNotification {
+    pub params: DidCloseTextDocumentParams,
 }
 
 #[derive(Debug)]

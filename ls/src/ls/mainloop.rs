@@ -2,6 +2,9 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use serde_json::json;
+use tree_sitter::Tree;
+
 use crate::{
     ReturnCode,
     config::Config,
@@ -10,16 +13,18 @@ use crate::{
     ls::{
         ProcHeartbeat, State, Tasks, log_notif, read_msg,
         request::{
-            DidChangeTextDocumentNotification, DidOpenTextDocumentNotification, Notification,
-            Request, SetTraceNotification,
+            DidChangeTextDocumentNotification, DidCloseTextDocumentNotification,
+            DidOpenTextDocumentNotification, LogTraceNotification, Notification, Request,
+            SetTraceNotification,
         },
         response::{ErrorResponse, NullResponse, Response},
         tasks::{OngoingTask, Task, TaskDone, TaskSystem},
         textdoc::{TextDoc, TextDocStatus, TextDocs, import_doc, update_doc},
     },
     protocol::{
-        DidChangeTextDocumentParams, DidOpenTextDocumentParams, ErrorCodes, NumberOrString,
-        ResponseError, SetTraceParams, TextDocumentItem, TraceValue,
+        DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
+        ErrorCodes, LogTraceParams, NumberOrString, ResponseError, SetTraceParams,
+        TextDocumentItem, TraceValue,
     },
     t32::{LANGUAGE_ID, lang_id_supported},
 };
@@ -42,7 +47,7 @@ pub fn handle_requests(channel: &mut StdioChannel, mut cfg: Config) -> Result<()
 
     loop {
         recv_incoming(channel, &mut state.heartbeat, &mut incoming)?;
-        recv_completed_tasks(&mut state.tasks, &mut state.docs, &mut outgoing);
+        recv_completed_tasks(&cfg, &mut state.tasks, &mut state.docs, &mut outgoing);
 
         schedule_tasks(&mut incoming, &mut state, &mut cfg, &mut outgoing)?;
 
@@ -91,6 +96,13 @@ fn schedule_tasks(
                         .expect("Every request must have an ID.")
                         .clone(),
                 )));
+            }
+            Message::Notification(Notification::DidCloseTextDocumentNotification(
+                DidCloseTextDocumentNotification {
+                    params: DidCloseTextDocumentParams { text_document },
+                },
+            )) => {
+                process_doc_close_notif(&text_document.uri, &mut g.docs, outgoing);
             }
             Message::Notification(Notification::DidOpenTextDocumentNotification(
                 DidOpenTextDocumentNotification {
@@ -154,7 +166,7 @@ fn try_schedule(
         return Ok(());
     }
     ts.schedule(&job)?;
-    add_ongoing_task_if_seq_ordered(&job, ongoing);
+    add_ongoing_task_if_strictly_ordered(&job, ongoing);
 
     Ok(())
 }
@@ -169,28 +181,34 @@ fn try_schedule_blocked(
             continue;
         }
         ts.schedule(job)?;
-        add_ongoing_task_if_seq_ordered(job, ongoing);
+        add_ongoing_task_if_strictly_ordered(job, ongoing);
     }
     blocked.retain(|t| task_blocked(t, &ongoing));
 
     Ok(())
 }
 
-fn recv_completed_tasks(ts: &mut Tasks, docs: &mut TextDocs, _outgoing: &mut Vec<Option<Message>>) {
+fn recv_completed_tasks(
+    cfg: &Config,
+    ts: &mut Tasks,
+    docs: &mut TextDocs,
+    outgoing: &mut Vec<Option<Message>>,
+) {
     for done in ts.runner.rx.try_iter() {
+        mark_ongoing_task_completed(&done, &mut ts.ongoing);
+
         match done {
             TaskDone::TextDocNew(doc, tree) => {
-                let idx = ts
-                    .ongoing
-                    .iter()
-                    .position(|t| match t {
-                        OngoingTask::TextDocUpdate { uri } => *uri == doc.uri,
-                    })
-                    .expect("Must be a registered task.");
-
-                ts.ongoing.remove(idx);
-
+                if cfg.trace_level != TraceValue::Off {
+                    outgoing.push(Some(trace_doc_change(&doc, &tree)));
+                }
                 docs.add(doc, tree, TextDocStatus::Open);
+            }
+            TaskDone::TextDocEdit(doc, tree) => {
+                if cfg.trace_level != TraceValue::Off {
+                    outgoing.push(Some(trace_doc_change(&doc, &tree)));
+                }
+                docs.update(doc, tree);
             }
         }
     }
@@ -231,10 +249,18 @@ fn process_doc_change_notif(
     };
     try_schedule(
         &mut ts.runner,
-        Task::TextDocUpdate(doc, tree.clone(), params.content_changes, update_doc),
+        Task::TextDocEdit(doc, tree.clone(), params.content_changes, update_doc),
         &mut ts.ongoing,
         &mut ts.blocked,
     )
+}
+
+fn process_doc_close_notif(uri: &str, docs: &mut TextDocs, outgoing: &mut Vec<Option<Message>>) {
+    if !docs.is_open(uri) {
+        outgoing.push(Some(error_textdoc_cannot_close(uri)));
+        return;
+    }
+    docs.close(uri);
 }
 
 /// Some requests like document updates can only be processed one at a time.
@@ -243,7 +269,7 @@ fn process_doc_change_notif(
 fn task_blocked(job: &Task, ongoing: &[OngoingTask]) -> bool {
     match job {
         Task::TextDocNew(TextDocumentItem { uri, .. }, ..)
-        | Task::TextDocUpdate(TextDoc { uri, .. }, ..) => ongoing.iter().any(|o| match o {
+        | Task::TextDocEdit(TextDoc { uri, .. }, ..) => ongoing.iter().any(|o| match o {
             OngoingTask::TextDocUpdate { uri: file } => file == uri,
         }),
     }
@@ -252,14 +278,29 @@ fn task_blocked(job: &Task, ongoing: &[OngoingTask]) -> bool {
 /// Document updates need to be processed in the order in which they were
 /// received. Hence, we need to monitor for which documents we are currently
 /// processing an update.
-fn add_ongoing_task_if_seq_ordered(job: &Task, ongoing: &mut Vec<OngoingTask>) {
+fn add_ongoing_task_if_strictly_ordered(job: &Task, ongoing: &mut Vec<OngoingTask>) {
     let t = match job {
         Task::TextDocNew(TextDocumentItem { uri, .. }, ..)
-        | Task::TextDocUpdate(TextDoc { uri, .. }, ..) => {
+        | Task::TextDocEdit(TextDoc { uri, .. }, ..) => {
             OngoingTask::TextDocUpdate { uri: uri.clone() }
         }
     };
     ongoing.push(t);
+}
+
+fn mark_ongoing_task_completed(job: &TaskDone, ongoing: &mut Vec<OngoingTask>) {
+    match job {
+        TaskDone::TextDocNew(doc, ..) | TaskDone::TextDocEdit(doc, ..) => {
+            let idx = ongoing
+                .iter()
+                .position(|t| match t {
+                    OngoingTask::TextDocUpdate { uri } => *uri == doc.uri,
+                })
+                .expect("Must be a registered task.");
+
+            ongoing.remove(idx);
+        }
+    }
 }
 
 fn error_shutdown_seq(id: NumberOrString) -> Message {
@@ -298,6 +339,38 @@ fn error_textdoc_not_open(uri: &str) -> Message {
                 uri
             ),
             data: None,
+        },
+    }))
+}
+
+fn error_textdoc_cannot_close(uri: &str) -> Message {
+    Message::Response(Response::ErrorResponse(ErrorResponse {
+        id: None,
+        error: ResponseError {
+            code: ErrorCodes::InvalidRequest as i64,
+            message: format!(
+                "Error: Text document \"{}\" has not been opened, so it cannot be closed.",
+                uri
+            ),
+            data: None,
+        },
+    }))
+}
+
+fn trace_doc_change(doc: &TextDoc, tree: &Tree) -> Message {
+    Message::Notification(Notification::LogTraceNotification(LogTraceNotification {
+        params: LogTraceParams {
+            message: format!(
+                "INFO: Text document \"{}\" was updated to version {}.",
+                doc.uri, doc.version
+            ),
+            verbose: Some(
+                json!({
+                    "text": doc.text,
+                    "tree": tree.root_node().to_sexp(),
+                })
+                .to_string(),
+            ),
         },
     }))
 }

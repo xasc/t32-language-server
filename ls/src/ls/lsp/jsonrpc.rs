@@ -14,14 +14,16 @@ use serde_json::{Error, Value, error::Category};
 use crate::{
     ls::lsp::Message,
     ls::request::{
-        DidChangeTextDocumentNotification, DidOpenTextDocumentNotification, ExitNotification,
-        InitializeRequest, InitializedNotification, LogTraceNotification, Notification, Request,
-        SetTraceNotification, ShutdownRequest,
+        DidChangeTextDocumentNotification, DidCloseTextDocumentNotification,
+        DidOpenTextDocumentNotification, ExitNotification, InitializeRequest,
+        InitializedNotification, LogTraceNotification, Notification, Request, SetTraceNotification,
+        ShutdownRequest,
     },
     ls::response::{ErrorResponse, InitializeResponse, NullResponse, Response},
     protocol::{
-        DidChangeTextDocumentParams, DidOpenTextDocumentParams, ErrorCodes, InitializeParams,
-        InitializedParams, NumberOrString, ResponseError, SetTraceParams,
+        DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
+        ErrorCodes, InitializeParams, InitializedParams, NumberOrString, ResponseError,
+        SetTraceParams,
     },
 };
 
@@ -318,8 +320,9 @@ fn deserialize_notif(msg: NotificationMessage) -> Result<Message, ErrorResponse>
     const EXIT: &'static str = "exit";
     const INITIALIZED: &'static str = "initialized";
     const SET_TRACE: &'static str = "$/setTrace";
-    const TEXTDOC_DID_OPEN: &'static str = "textDocument/didOpen";
+    const TEXTDOC_DID_CLOSE: &'static str = "textDocument/didClose";
     const TEXTDOC_DID_CHANGE: &'static str = "textDocument/didChange";
+    const TEXTDOC_DID_OPEN: &'static str = "textDocument/didOpen";
 
     match msg.method.as_str() {
         EXIT => Ok(Message::Notification(Notification::ExitNotification(
@@ -343,6 +346,19 @@ fn deserialize_notif(msg: NotificationMessage) -> Result<Message, ErrorResponse>
                 error: err,
             }),
         },
+        TEXTDOC_DID_CLOSE => {
+            match deserialize_msg_params::<DidCloseTextDocumentParams>(msg.params) {
+                Ok(params) => Ok(Message::Notification(
+                    Notification::DidCloseTextDocumentNotification(
+                        DidCloseTextDocumentNotification { params },
+                    ),
+                )),
+                Err(err) => Err(ErrorResponse {
+                    id: None,
+                    error: err,
+                }),
+            }
+        }
         TEXTDOC_DID_CHANGE => {
             match deserialize_msg_params::<DidChangeTextDocumentParams>(msg.params) {
                 Ok(params) => Ok(Message::Notification(
@@ -716,6 +732,26 @@ mod tests {
         assert!(matches!(
             notif,
             Message::Notification(Notification::DidChangeTextDocumentNotification(_))
+        ));
+    }
+
+    #[test]
+    fn can_create_did_close_text_document_notification() {
+        let msg = LineMessage::NotificationMessage(NotificationMessage {
+            jsonrpc: "2.0".to_string(),
+            method: "textDocument/didClose".to_string(),
+            params: Some(json!({
+                "textDocument": {
+                    "uri": "file:///c:/project/a.cmm",
+                },
+            })),
+        });
+
+        let notif = deserialize_msg(msg).expect("Should not fail.");
+
+        assert!(matches!(
+            notif,
+            Message::Notification(Notification::DidCloseTextDocumentNotification(_))
         ));
     }
 

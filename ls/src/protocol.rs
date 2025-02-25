@@ -2425,6 +2425,17 @@ pub struct DidChangeTextDocumentParams {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DidCloseTextDocumentParams {
+    pub text_document: TextDocumentIdentifier,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TextDocumentIdentifier {
+    pub uri: DocumentUri,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct VersionedTextDocumentIdentifier {
     pub uri: DocumentUri,
     pub version: i64,

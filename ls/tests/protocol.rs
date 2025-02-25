@@ -139,7 +139,33 @@ fn supports_docsync_did_open_notification() {
     );
     let mut stdin = ls.stdin.take().unwrap();
 
+    let notif = utils::make_set_trace_notification(utils::TraceValue::Messages);
+    utils::to_stdin(&mut stdin, &notif);
+
     let notif = utils::make_did_open_text_doc_notification();
+    utils::to_stdin(&mut stdin, &notif);
+
+    utils::stop_ls(&mut ls, Some(&mut stdin), Some(2));
+    let output = ls.wait_with_output().expect("Cannot capture output");
+
+    assert_eq!(output.status.code(), Some(0));
+}
+
+#[test]
+fn supports_docsync_did_change_notification() {
+    let mut ls = utils::start_ls(
+        &[&format!("--clientProcessId={}", process::id().to_string())],
+        true,
+    );
+    let mut stdin = ls.stdin.take().unwrap();
+
+    let notif = utils::make_set_trace_notification(utils::TraceValue::Messages);
+    utils::to_stdin(&mut stdin, &notif);
+
+    let notif = utils::make_did_open_text_doc_notification();
+    utils::to_stdin(&mut stdin, &notif);
+
+    let notif = utils::make_did_change_text_doc_notification();
     utils::to_stdin(&mut stdin, &notif);
 
     utils::stop_ls(&mut ls, Some(&mut stdin), Some(2));
@@ -155,7 +181,7 @@ fn can_enable_logging() {
     let mut ls = utils::start_ls(&[&format!("--clientProcessId={}", pid.to_string())], true);
     let mut stdin = ls.stdin.take().unwrap();
 
-    let notif = utils::make_set_trace_notification();
+    let notif = utils::make_set_trace_notification(utils::TraceValue::Messages);
     utils::to_stdin(&mut stdin, &notif);
 
     utils::stop_ls(&mut ls, Some(&mut stdin), Some(2));

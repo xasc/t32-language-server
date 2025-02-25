@@ -8,7 +8,7 @@ use tree_sitter::{InputEdit, Point, Tree};
 
 use crate::{
     protocol::{Position, Range, TextDocumentContentChangeEvent, TextDocumentItem},
-    t32::{self, LANGUAGE_ID, parse},
+    t32::{self, LANGUAGE_ID},
 };
 
 #[derive(Debug, PartialEq)]
@@ -95,7 +95,10 @@ impl TextDoc {
             new_end_byte: start_byte + new.len(),
             start_position: start_pos,
             old_end_position: end_pos,
-            new_end_position: Point { row: usize::MAX, column: usize::MAX },
+            new_end_position: Point {
+                row: usize::MAX,
+                column: usize::MAX,
+            },
         };
 
         self.update_line_map(&edit);
@@ -240,6 +243,11 @@ impl TextDocs {
             if val.0 == status {
                 match status {
                     TextDocStatus::Open => {
+                        debug_assert_eq!(
+                            self.docs.open[val.1].as_ref().unwrap().lang_id,
+                            doc.lang_id
+                        );
+
                         self.docs.open[val.1] = Some(doc);
                         self.trees.open[val.1] = Some(tree);
                     }
@@ -307,6 +315,63 @@ impl TextDocs {
         }
     }
 
+    pub fn update(&mut self, doc: TextDoc, tree: Tree) {
+        if let Some(val) = self.registry.get(&doc.uri) {
+            debug_assert_eq!(val.0, TextDocStatus::Open);
+
+            match val.0 {
+                TextDocStatus::Open => {
+                    debug_assert_eq!(self.docs.open[val.1].as_ref().unwrap().uri, doc.uri);
+
+                    self.docs.open[val.1] = Some(doc);
+                    self.trees.open[val.1] = Some(tree);
+                }
+                TextDocStatus::Closed => {
+                    debug_assert_eq!(self.docs.open[val.1].as_ref().unwrap().uri, doc.uri);
+
+                    self.docs.closed[val.1] = Some(doc);
+                    self.trees.closed[val.1] = Some(tree);
+                }
+            }
+            return;
+        } else {
+            unreachable!("Docs that are updated must already be present.");
+        }
+    }
+
+    pub fn close(&mut self, uri: &str) {
+        debug_assert!(self.is_open(uri));
+
+        let &DocIndex(_, idx) = self
+            .registry
+            .get(uri)
+            .expect("Doc must already be present.");
+
+        let doc = self.docs.open[idx].take().unwrap();
+        let tree = self.trees.open[idx].take().unwrap();
+
+        self.free_list.open.push(idx);
+        self.registry.remove(uri);
+
+        if self.free_list.closed.is_empty() {
+            let len = self.docs.closed.len();
+
+            self.docs.closed.push(Some(doc));
+            self.trees.closed.push(Some(tree));
+
+            self.registry
+                .insert(uri.to_string(), DocIndex(TextDocStatus::Closed, len));
+        } else {
+            let slot = self.free_list.closed.pop().unwrap();
+
+            self.docs.closed[slot] = Some(doc);
+            self.trees.closed[slot] = Some(tree);
+
+            self.registry
+                .insert(uri.to_string(), DocIndex(TextDocStatus::Closed, slot));
+        }
+    }
+
     pub fn get_doc(&self, uri: &str) -> Option<&TextDoc> {
         match self.registry.get(uri) {
             Some(idx) if idx.0 == TextDocStatus::Open => self.docs.open[idx.1].as_ref(),
@@ -350,7 +415,9 @@ impl TextDocs {
     }
 
     pub fn is_open(&self, uri: &str) -> bool {
-        self.registry.contains_key(uri)
+        let doc = self.registry.get(uri);
+
+        !doc.is_none_or(|d| d.0 == TextDocStatus::Closed)
     }
 }
 
@@ -372,7 +439,6 @@ pub fn update_doc(
         tree.edit(&edits);
         t32::parse(doc.text.as_bytes(), Some(&tree));
     }
-
     (doc, tree)
 }
 
@@ -553,6 +619,21 @@ fn text_ends_with_eol(lines: &LineMap) -> bool {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    fn create_doc(uri: &str) -> (TextDoc, Tree) {
+        let text = "PRINT \"Hello, World!\"\n";
+        let lines = create_line_map_for_text(&text, None, None);
+        let doc = TextDoc {
+            uri: uri.to_string(),
+            lang_id: LANGUAGE_ID.to_string(),
+            version: 1,
+            text: text.to_string(),
+            lines,
+        };
+        let tree = t32::parse(text.as_bytes(), None);
+
+        (doc, tree)
+    }
 
     #[test]
     fn uses_bytes_and_utf16_code_units_for_offsets() {
@@ -908,11 +989,18 @@ mod test {
             Range {
                 start: Position {
                     line: 0,
-                    character: "𝕿𝖍𝖎𝖘 𝖎𝖘 𝖆 𝖑𝖆𝖓𝖌𝖚𝖆𝖌𝖊 𝖘𝖊𝖗𝖛𝖊𝖗.".chars().map(|ch| ch.len_utf16()).sum::<usize>() as u32,
+                    character: "𝕿𝖍𝖎𝖘 𝖎𝖘 𝖆 𝖑𝖆𝖓𝖌𝖚𝖆𝖌𝖊 𝖘𝖊𝖗𝖛𝖊𝖗."
+                        .chars()
+                        .map(|ch| ch.len_utf16())
+                        .sum::<usize>() as u32,
                 },
                 end: Position {
                     line: 1,
-                    character: "Iƚ ιʂ ϝσɾ PRACTICE.\n".chars().map(|ch| ch.len_utf16()).sum::<usize>() as u32 + 4,
+                    character: "Iƚ ιʂ ϝσɾ PRACTICE.\n"
+                        .chars()
+                        .map(|ch| ch.len_utf16())
+                        .sum::<usize>() as u32
+                        + 4,
                 },
             },
             &"",
@@ -969,7 +1057,69 @@ mod test {
                 new_end_position: Point::new(0, "Lorem Ipsum#".len()),
             }
         );
-        assert_eq!(doc.text, "Lorem Ipsum#am rem aperiam,\neaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo.");
+        assert_eq!(
+            doc.text,
+            "Lorem Ipsum#am rem aperiam,\neaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo."
+        );
     }
 
+    #[test]
+    fn can_open_documents() {
+        let mut docs = TextDocs::build();
+
+        let uri_a = "file:///a.cmm";
+        let (doc, tree) = create_doc(uri_a);
+
+        docs.add(doc, tree, TextDocStatus::Open);
+
+        assert!(docs.is_open(uri_a));
+
+        let uri_b = "file:///b.cmm";
+        let (doc, tree) = create_doc(uri_b);
+
+        docs.add(doc, tree, TextDocStatus::Open);
+
+        assert!(docs.is_open(uri_b));
+        assert!(docs.free_list.open.is_empty());
+        assert!(docs.free_list.closed.is_empty());
+
+        docs.close(uri_a);
+        docs.close(uri_b);
+
+        assert!(!docs.free_list.open.is_empty());
+        assert!(docs.free_list.closed.is_empty());
+
+        let uri_a = "file:///a.cmm";
+        let (doc, tree) = create_doc(uri_a);
+
+        docs.add(doc, tree, TextDocStatus::Open);
+
+        assert!(!docs.free_list.open.is_empty());
+        assert!(!docs.free_list.closed.is_empty());
+
+        let uri_b = "file:///b.cmm";
+        let (doc, tree) = create_doc(uri_b);
+
+        docs.add(doc, tree, TextDocStatus::Open);
+
+        assert!(docs.free_list.open.is_empty());
+        assert!(!docs.free_list.closed.is_empty());
+    }
+
+    #[test]
+    fn can_close_documents() {
+        let mut docs = TextDocs::build();
+
+        let uri_a = "file:///test.cmm";
+        let (doc, tree) = create_doc(uri_a);
+
+        docs.add(doc, tree, TextDocStatus::Open);
+
+        assert!(docs.free_list.closed.is_empty());
+
+        docs.close(uri_a);
+
+        assert!(!docs.free_list.open.is_empty());
+        assert!(!docs.is_open(uri_a));
+    }
 }

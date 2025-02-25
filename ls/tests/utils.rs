@@ -10,6 +10,13 @@ use std::{
 
 use serde_json::json;
 
+#[derive(PartialEq)]
+pub enum TraceValue {
+    Messages,
+    Verbose,
+    Off,
+}
+
 pub fn start_ls(args: &[&str], try_initialize: bool) -> Child {
     let mut params = vec!["run", "--quiet", "--"];
     params.extend_from_slice(&args);
@@ -94,19 +101,50 @@ pub fn make_did_open_text_doc_notification() -> String {
                 "uri": "file:///c:/project/test.cmm",
                 "languageId": "practice",
                 "version": 1,
-                "text": "This is a test.",
+                "text": "PRINT \"Hello, World!\"",
             }
         }
     });
     build_msg(&content.to_string())
 }
 
-pub fn make_set_trace_notification() -> String {
+pub fn make_did_change_text_doc_notification() -> String {
+    let content = json!({
+        "jsonrpc": "2.0",
+        "method": "textDocument/didChange",
+        "params": {
+            "textDocument": {
+                "uri": "file:///c:/project/test.cmm",
+                "version": 2,
+            },
+            "contentChanges": [{
+                "range": {
+                    "start": {
+                        "line": 0,
+                        "character": 12,
+                    },
+                    "end": {
+                        "line": 0,
+                        "character": 19,
+                    }
+                },
+                "text": "",
+            }],
+        }
+    });
+    build_msg(&content.to_string())
+}
+
+pub fn make_set_trace_notification(level: TraceValue) -> String {
     let content = json!({
         "jsonrpc": "2.0",
         "method": "$/setTrace",
         "params": {
-            "value": "messages",
+            "value": match level {
+                TraceValue::Messages => "messages",
+                TraceValue::Verbose => "verbose",
+                TraceValue::Off => "off",
+            }
         }
     });
     build_msg(&content.to_string())

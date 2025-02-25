@@ -39,7 +39,7 @@ pub struct JobQueue {
 #[derive(Debug, Clone)]
 pub enum Task {
     TextDocNew(TextDocumentItem, fn(TextDocumentItem) -> (TextDoc, Tree)),
-    TextDocUpdate(
+    TextDocEdit(
         TextDoc,
         Tree,
         Vec<TextDocumentContentChangeEvent>,
@@ -49,6 +49,7 @@ pub enum Task {
 
 pub enum TaskDone {
     TextDocNew(TextDoc, Tree),
+    TextDocEdit(TextDoc, Tree),
 }
 
 pub enum OngoingTask {
@@ -158,7 +159,10 @@ impl TaskSystem {
                 let (doc, tree) = transform(doc);
                 TaskDone::TextDocNew(doc, tree)
             }
-            Task::TextDocUpdate(doc, tree, changes, update) => todo!(),
+            Task::TextDocEdit(doc, tree, changes, update) => {
+                let (doc, tree) = update(doc, tree, changes);
+                TaskDone::TextDocEdit(doc, tree)
+            }
         }
     }
 }
