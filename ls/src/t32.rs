@@ -10,6 +10,8 @@ use tree_sitter_t32;
 /// Studio Code.
 pub const LANGUAGE_ID: &'static str = "practice";
 
+pub const SUFFIXES: [&'static str; 2] = ["cmm", "cmmt"];
+
 pub fn lang_id_supported(lang_id: &str) -> bool {
     lang_id == LANGUAGE_ID
 }

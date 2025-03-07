@@ -3,12 +3,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use std::{
+    env, fs,
     io::Write,
+    path::{self, Path},
     process::{self, Child, ChildStdin, Command, Stdio},
     time::{Duration, Instant},
 };
 
 use serde_json::json;
+use url::Url;
 
 #[derive(PartialEq)]
 pub enum TraceValue {
@@ -40,7 +43,6 @@ pub fn start_ls(args: &[&str], try_initialize: bool) -> Child {
     ls
 }
 
-#[allow(dead_code)]
 pub fn stop_ls(proc: &mut Child, stdin: Option<&mut ChildStdin>, try_shutdown: Option<isize>) {
     if let Some(cin) = stdin {
         if let Some(id) = try_shutdown {
@@ -69,9 +71,99 @@ pub fn make_initialize_request(id: isize, pid: u32) -> String {
         "method": "initialize",
         "params": {
             "processId": pid,
-            "capabilities": {}
+            "capabilities": {},
         }
     });
+    build_msg(&content.to_string())
+}
+
+pub fn make_initialize_request_with_multi_root_workspace(id: isize, pid: u32) -> String {
+    let dir = env::current_dir().unwrap().join("tests").join("samples");
+    let workspace: Url = Url::from_directory_path(path::absolute(dir).unwrap()).unwrap();
+
+    let content = json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "method": "initialize",
+        "params": {
+            "processId": pid,
+            "workspaceFolders": [{
+                "uri": workspace.as_str(),
+                "name": "workspace",
+            }],
+            "capabilities": {},
+        }
+    });
+
+    build_msg(&content.to_string())
+}
+
+pub fn make_initialize_request_with_invalid_multi_root_workspace(id: isize, pid: u32) -> String {
+    let dir = env::current_dir().unwrap().join("tests").join("samples");
+    let workspace: Url = Url::from_directory_path(path::absolute(dir.clone()).unwrap()).unwrap();
+
+    let dir_invalid = env::current_dir()
+        .unwrap()
+        .join("tests")
+        .join("__invalid__");
+    let workspace_invalid: Url =
+        Url::from_directory_path(path::absolute(dir_invalid).unwrap()).unwrap();
+
+    let content = json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "method": "initialize",
+        "params": {
+            "processId": pid,
+            "workspaceFolders": [
+                {
+                    "uri": workspace.as_str(),
+                    "name": "workspace",
+                },
+                {
+                    "uri": workspace_invalid.as_str(),
+                    "name": "invalid",
+                },
+            ],
+            "capabilities": {},
+        }
+    });
+
+    build_msg(&content.to_string())
+}
+
+pub fn make_initialize_request_with_root_uri(id: isize, pid: u32) -> String {
+    let dir = env::current_dir().unwrap().join("tests").join("samples");
+    let workspace: Url = Url::from_directory_path(path::absolute(dir.clone()).unwrap()).unwrap();
+
+    let content = json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "method": "initialize",
+        "params": {
+            "processId": pid,
+            "rootUri": workspace.as_str(),
+            "capabilities": {},
+        }
+    });
+
+    build_msg(&content.to_string())
+}
+
+pub fn make_initialize_request_with_root_path(id: isize, pid: u32) -> String {
+    let dir = env::current_dir().unwrap().join("tests").join("samples");
+
+    let content = json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "method": "initialize",
+        "params": {
+            "processId": pid,
+            "rootPath": dir,
+            "capabilities": {},
+        }
+    });
+
     build_msg(&content.to_string())
 }
 
@@ -130,6 +222,19 @@ pub fn make_did_change_text_doc_notification() -> String {
                 },
                 "text": "",
             }],
+        }
+    });
+    build_msg(&content.to_string())
+}
+
+pub fn make_did_close_text_doc_notification() -> String {
+    let content = json!({
+        "jsonrpc": "2.0",
+        "method": "textDocument/didClose",
+        "params": {
+            "textDocument": {
+                "uri": "file:///c:/project/test.cmm",
+            }
         }
     });
     build_msg(&content.to_string())

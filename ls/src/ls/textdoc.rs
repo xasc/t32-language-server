@@ -2,12 +2,15 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fs};
+
+use url::Url;
 
 use tree_sitter::{InputEdit, Point, Tree};
 
 use crate::{
-    protocol::{Position, Range, TextDocumentContentChangeEvent, TextDocumentItem},
+    ReturnCode,
+    protocol::{Position, Range, TextDocumentContentChangeEvent, TextDocumentItem, Uri},
     t32::{self, LANGUAGE_ID},
 };
 
@@ -68,6 +71,28 @@ impl From<TextDocumentItem> for TextDoc {
             text: item.text,
             lines,
         }
+    }
+}
+
+impl TryFrom<Url> for TextDoc {
+    type Error = ReturnCode;
+
+    fn try_from(item: Url) -> Result<Self, ReturnCode> {
+        let path = item.to_file_path().expect("Path must be valid.");
+
+        let text = match fs::read_to_string(path) {
+            Ok(contents) => contents,
+            Err(_) => return Err(ReturnCode::IoErr),
+        };
+        let lines = create_line_map_for_text(&text, None, None);
+
+        Ok(TextDoc {
+            uri: item.into(),
+            lang_id: LANGUAGE_ID.to_string(),
+            version: 0,
+            text,
+            lines,
+        })
     }
 }
 
@@ -440,6 +465,17 @@ pub fn update_doc(
         t32::parse(doc.text.as_bytes(), Some(&tree));
     }
     (doc, tree)
+}
+
+pub fn read_doc(r#in: Url) -> Result<(TextDoc, Tree), Uri> {
+    let uri = r#in.to_string();
+    let doc = match TextDoc::try_from(r#in) {
+        Ok(text) => text,
+        Err(_) => return Err(uri),
+    };
+    let tree = t32::parse(doc.text.as_bytes(), None);
+
+    Ok((doc, tree))
 }
 
 /// Clients only need to support UTF-16 encoding to character offsets, so

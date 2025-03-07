@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use std::process;
+use std::{process, thread, time};
 
 use serde_json::json;
 
@@ -132,6 +132,105 @@ fn exits_on_wrong_parent_pid() {
 }
 
 #[test]
+fn can_index_workspace() {
+    let pid = process::id();
+
+    let mut ls = utils::start_ls(&[&format!("--clientProcessId={}", pid.to_string())], false);
+    let mut stdin = ls.stdin.take().unwrap();
+
+    let init = utils::make_initialize_request_with_multi_root_workspace(1, pid);
+    utils::to_stdin(&mut stdin, &init);
+
+    let notif = utils::make_set_trace_notification(utils::TraceValue::Messages);
+    utils::to_stdin(&mut stdin, &notif);
+
+    thread::sleep(time::Duration::from_millis(1500));
+
+    utils::stop_ls(&mut ls, Some(&mut stdin), Some(2));
+    let output = ls.wait_with_output().expect("Cannot capture output");
+
+    assert_eq!(output.status.code(), Some(0));
+    assert!(
+        std::str::from_utf8(&output.stdout)
+            .unwrap()
+            .contains("samples/a/a.cmm")
+    );
+
+    let mut ls = utils::start_ls(&[&format!("--clientProcessId={}", pid.to_string())], false);
+    let mut stdin = ls.stdin.take().unwrap();
+
+    let init = utils::make_initialize_request_with_root_uri(2, pid);
+    utils::to_stdin(&mut stdin, &init);
+
+    let notif = utils::make_set_trace_notification(utils::TraceValue::Messages);
+    utils::to_stdin(&mut stdin, &notif);
+
+    thread::sleep(time::Duration::from_millis(1500));
+
+    utils::stop_ls(&mut ls, Some(&mut stdin), Some(3));
+    let output = ls.wait_with_output().expect("Cannot capture output");
+
+    assert_eq!(output.status.code(), Some(0));
+    assert!(
+        std::str::from_utf8(&output.stdout)
+            .unwrap()
+            .contains("samples/b/b.cmm")
+    );
+
+    let mut ls = utils::start_ls(&[&format!("--clientProcessId={}", pid.to_string())], false);
+    let mut stdin = ls.stdin.take().unwrap();
+
+    let init = utils::make_initialize_request_with_root_path(3, pid);
+    utils::to_stdin(&mut stdin, &init);
+
+    let notif = utils::make_set_trace_notification(utils::TraceValue::Messages);
+    utils::to_stdin(&mut stdin, &notif);
+
+    thread::sleep(time::Duration::from_millis(1500));
+
+    utils::stop_ls(&mut ls, Some(&mut stdin), Some(4));
+    let output = ls.wait_with_output().expect("Cannot capture output");
+
+    assert_eq!(output.status.code(), Some(0));
+    assert!(
+        std::str::from_utf8(&output.stdout)
+            .unwrap()
+            .contains("samples/a/d/d.cmmt")
+    );
+}
+
+#[test]
+fn reports_invalid_workspace_roots() {
+    let pid = process::id();
+
+    let mut ls = utils::start_ls(&[&format!("--clientProcessId={}", pid.to_string())], false);
+    let mut stdin = ls.stdin.take().unwrap();
+
+    let init = utils::make_initialize_request_with_invalid_multi_root_workspace(1, pid);
+    utils::to_stdin(&mut stdin, &init);
+
+    let notif = utils::make_set_trace_notification(utils::TraceValue::Messages);
+    utils::to_stdin(&mut stdin, &notif);
+
+    thread::sleep(time::Duration::from_millis(1500));
+
+    utils::stop_ls(&mut ls, Some(&mut stdin), Some(1));
+    let output = ls.wait_with_output().expect("Cannot capture output");
+
+    assert_eq!(output.status.code(), Some(0));
+    assert!(
+        std::str::from_utf8(&output.stdout)
+            .unwrap()
+            .contains("samples/c.cmm")
+    );
+    assert!(
+        std::str::from_utf8(&output.stdout)
+            .unwrap()
+            .contains("tests/__invalid__")
+    );
+}
+
+#[test]
 fn supports_docsync_did_open_notification() {
     let mut ls = utils::start_ls(
         &[&format!("--clientProcessId={}", process::id().to_string())],
@@ -165,8 +264,35 @@ fn supports_docsync_did_change_notification() {
     let notif = utils::make_did_open_text_doc_notification();
     utils::to_stdin(&mut stdin, &notif);
 
+    let notif = utils::make_did_close_text_doc_notification();
+    utils::to_stdin(&mut stdin, &notif);
+
+    thread::sleep(time::Duration::from_secs(1));
+
+    utils::stop_ls(&mut ls, Some(&mut stdin), Some(2));
+    let output = ls.wait_with_output().expect("Cannot capture output");
+
+    assert_eq!(output.status.code(), Some(0));
+}
+
+#[test]
+fn supports_docsync_did_close_notification() {
+    let mut ls = utils::start_ls(
+        &[&format!("--clientProcessId={}", process::id().to_string())],
+        true,
+    );
+    let mut stdin = ls.stdin.take().unwrap();
+
+    let notif = utils::make_set_trace_notification(utils::TraceValue::Messages);
+    utils::to_stdin(&mut stdin, &notif);
+
+    let notif = utils::make_did_open_text_doc_notification();
+    utils::to_stdin(&mut stdin, &notif);
+
     let notif = utils::make_did_change_text_doc_notification();
     utils::to_stdin(&mut stdin, &notif);
+
+    thread::sleep(time::Duration::from_secs(1));
 
     utils::stop_ls(&mut ls, Some(&mut stdin), Some(2));
     let output = ls.wait_with_output().expect("Cannot capture output");

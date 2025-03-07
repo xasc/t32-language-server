@@ -9,7 +9,7 @@ use std::{
 
 use crate::{
     ReturnCode,
-    protocol::{PositionEncodingKind, TraceValue},
+    protocol::{PositionEncodingKind, TraceValue, Uri, WorkspaceFolder},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -19,12 +19,18 @@ pub enum ChannelKind {
     Stdio,
 }
 
+#[derive(Clone, Debug)]
+pub enum Workspace {
+    Root(Option<Uri>),
+    Folders(Option<Vec<WorkspaceFolder>>),
+}
+
 pub struct Config {
     pub parent_pid: Option<u32>,
     pub pid_check_interval: Duration,
     pub channel: ChannelKind,
-    pub workspace_root: Option<String>,
-    pub workspace_folders: Vec<String>,
+    pub workspace: Workspace,
+    pub workspace_folders_supported: bool,
     pub trace_level: TraceValue,
     pub position_encoding: PositionEncodingKind,
 }
@@ -66,8 +72,8 @@ impl Config {
             parent_pid: Some(ppid.unwrap()),
             pid_check_interval: Duration::from_secs(5),
             channel: ChannelKind::Stdio,
-            workspace_root: None,
-            workspace_folders: Vec::new(),
+            workspace: Workspace::Root(None),
+            workspace_folders_supported: false,
             trace_level: TraceValue::Off,
             position_encoding: PositionEncodingKind::Utf16,
         })

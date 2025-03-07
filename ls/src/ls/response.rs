@@ -5,6 +5,7 @@
 use crate::protocol::{
     InitializeResult, NumberOrString, PositionEncodingKind, ResponseError, ServerCapabilities,
     ServerInfo, TextDocumentSyncKind, TextDocumentSyncOptions, TextDocumentSyncServerCapabilities,
+    WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
 };
 use serde::{Deserialize, Serialize};
 
@@ -79,7 +80,13 @@ impl ServerCapabilities {
             workspace_symbol_provider: None,
             inline_completion_provider: None,
             text_document: None,
-            workspace: None,
+            workspace: Some(WorkspaceServerCapabilities {
+                workspace_folders: Some(WorkspaceFoldersServerCapabilities {
+                    supported: Some(true),
+                    change_notifications: None,
+                }),
+                file_operations: None,
+            }),
             experimental: None,
         }
     }

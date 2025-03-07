@@ -7,7 +7,7 @@ use tree_sitter::Tree;
 
 use crate::{
     ReturnCode,
-    config::Config,
+    config::{Config, Workspace},
     ls::lsp::Message,
     ls::transport::StdioChannel,
     ls::{
@@ -19,18 +19,19 @@ use crate::{
         },
         response::{ErrorResponse, NullResponse, Response},
         tasks::{OngoingTask, Task, TaskDone, TaskSystem},
-        textdoc::{TextDoc, TextDocStatus, TextDocs, import_doc, update_doc},
+        textdoc::{TextDoc, TextDocStatus, TextDocs, import_doc, read_doc, update_doc},
+        workspace::locate_files,
     },
     protocol::{
         DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
         ErrorCodes, LogTraceParams, NumberOrString, ResponseError, SetTraceParams,
-        TextDocumentItem, TraceValue,
+        TextDocumentItem, TraceValue, Uri,
     },
-    t32::{LANGUAGE_ID, lang_id_supported},
+    t32::{LANGUAGE_ID, SUFFIXES, lang_id_supported},
 };
 
 pub fn handle_requests(channel: &mut StdioChannel, mut cfg: Config) -> Result<(), ReturnCode> {
-    let mut state = State {
+    let mut g = State {
         shutdown_request_recv: false,
         exit_requested: false,
         heartbeat: ProcHeartbeat::build(&cfg),
@@ -42,19 +43,27 @@ pub fn handle_requests(channel: &mut StdioChannel, mut cfg: Config) -> Result<()
         docs: TextDocs::build(),
     };
 
-    let mut incoming: Vec<Option<Message>> = Vec::new();
     let mut outgoing: Vec<Option<Message>> = Vec::new();
 
-    loop {
-        recv_incoming(channel, &mut state.heartbeat, &mut incoming)?;
-        recv_completed_tasks(&cfg, &mut state.tasks, &mut state.docs, &mut outgoing);
+    if match cfg.workspace {
+        Workspace::Root(Some(_)) | Workspace::Folders(Some(_)) => true,
+        _ => false,
+    } {
+        index_workspace(&mut g.tasks, &cfg.workspace, &mut outgoing)?;
+    }
 
-        schedule_tasks(&mut incoming, &mut state, &mut cfg, &mut outgoing)?;
+    let mut incoming: Vec<Option<Message>> = Vec::new();
+
+    loop {
+        recv_incoming(channel, &mut g.heartbeat, &mut incoming)?;
+        recv_completed_tasks(&cfg, &mut g.tasks, &mut g.docs, &mut outgoing);
+
+        schedule_tasks(&mut incoming, &mut g, &mut cfg, &mut outgoing)?;
 
         send_outgoing(channel, &mut outgoing);
 
-        if state.exit_requested {
-            return Err(if state.shutdown_request_recv {
+        if g.exit_requested {
+            return Err(if g.shutdown_request_recv {
                 ReturnCode::OkExit
             } else {
                 ReturnCode::ErrExit
@@ -210,6 +219,16 @@ fn recv_completed_tasks(
                 }
                 docs.update(doc, tree);
             }
+            TaskDone::WorkspaceFileScan(res) => match res {
+                Ok((doc, tree)) => {
+                    if cfg.trace_level != TraceValue::Off {
+                        outgoing.push(Some(trace_doc_change(&doc, &tree)));
+                    }
+                    docs.add(doc, tree, TextDocStatus::Closed);
+                }
+                Err(uri) => outgoing.push(Some(trace_doc_cannot_read(&uri))),
+            },
+            TaskDone::WorkspaceIndexScan(_) => unreachable!(),
         }
     }
 }
@@ -272,6 +291,10 @@ fn task_blocked(job: &Task, ongoing: &[OngoingTask]) -> bool {
         | Task::TextDocEdit(TextDoc { uri, .. }, ..) => ongoing.iter().any(|o| match o {
             OngoingTask::TextDocUpdate { uri: file } => file == uri,
         }),
+        Task::WorkspaceFileScan(url, ..) => ongoing.iter().any(|o| match o {
+            OngoingTask::TextDocUpdate { uri: file } => file == url.as_str(),
+        }),
+        Task::WorkspaceIndexScan(..) => false,
     }
 }
 
@@ -284,23 +307,69 @@ fn add_ongoing_task_if_strictly_ordered(job: &Task, ongoing: &mut Vec<OngoingTas
         | Task::TextDocEdit(TextDoc { uri, .. }, ..) => {
             OngoingTask::TextDocUpdate { uri: uri.clone() }
         }
+        Task::WorkspaceFileScan(url, ..) => OngoingTask::TextDocUpdate {
+            uri: url.to_string(),
+        },
+        Task::WorkspaceIndexScan(..) => return,
     };
     ongoing.push(t);
 }
 
 fn mark_ongoing_task_completed(job: &TaskDone, ongoing: &mut Vec<OngoingTask>) {
-    match job {
-        TaskDone::TextDocNew(doc, ..) | TaskDone::TextDocEdit(doc, ..) => {
-            let idx = ongoing
-                .iter()
-                .position(|t| match t {
-                    OngoingTask::TextDocUpdate { uri } => *uri == doc.uri,
-                })
-                .expect("Must be a registered task.");
+    let idx = match job {
+        TaskDone::TextDocNew(doc, ..)
+        | TaskDone::TextDocEdit(doc, ..)
+        | TaskDone::WorkspaceFileScan(Ok((doc, ..))) => find_ongoing_task(&doc.uri, ongoing),
+        TaskDone::WorkspaceFileScan(Err(uri)) => find_ongoing_task(uri, ongoing),
+        TaskDone::WorkspaceIndexScan(..) => return,
+    };
+    ongoing.remove(idx);
+}
 
-            ongoing.remove(idx);
-        }
+fn index_workspace(
+    tasks: &mut Tasks,
+    workspace: &Workspace,
+    outgoing: &mut Vec<Option<Message>>,
+) -> Result<(), ReturnCode> {
+    debug_assert!(tasks.ongoing.len() <= 0 && tasks.blocked.len() <= 0);
+
+    let discover = Task::WorkspaceIndexScan(workspace.clone(), &SUFFIXES, locate_files);
+    try_schedule(
+        &mut tasks.runner,
+        discover,
+        &mut tasks.ongoing,
+        &mut tasks.blocked,
+    )?;
+
+    let members = match tasks.runner.rx.recv() {
+        Ok(TaskDone::WorkspaceIndexScan(m)) => m,
+        Ok(_) => unreachable!("No other tasks must be pending."),
+        Err(_) => return Err(ReturnCode::UnavailableErr),
+    };
+
+    for file in members.files {
+        try_schedule(
+            &mut tasks.runner,
+            Task::WorkspaceFileScan(file, read_doc),
+            &mut tasks.ongoing,
+            &mut tasks.blocked,
+        )?;
     }
+
+    if members.missing_roots.len() > 0 {
+        outgoing.push(Some(trace_root_invalid(&members.missing_roots)));
+    }
+
+    Ok(())
+}
+
+fn find_ongoing_task(doc: &str, ongoing: &[OngoingTask]) -> usize {
+    ongoing
+        .iter()
+        .position(|t| match t {
+            OngoingTask::TextDocUpdate { uri } => uri == doc,
+        })
+        .expect("Must be a registered task.")
 }
 
 fn error_shutdown_seq(id: NumberOrString) -> Message {
@@ -357,6 +426,15 @@ fn error_textdoc_cannot_close(uri: &str) -> Message {
     }))
 }
 
+fn trace_doc_cannot_read(uri: &str) -> Message {
+    Message::Notification(Notification::LogTraceNotification(LogTraceNotification {
+        params: LogTraceParams {
+            message: format!("WARNING: File \"{}\" could not be read.", uri),
+            verbose: None,
+        },
+    }))
+}
+
 fn trace_doc_change(doc: &TextDoc, tree: &Tree) -> Message {
     Message::Notification(Notification::LogTraceNotification(LogTraceNotification {
         params: LogTraceParams {
@@ -371,6 +449,18 @@ fn trace_doc_change(doc: &TextDoc, tree: &Tree) -> Message {
                 })
                 .to_string(),
             ),
+        },
+    }))
+}
+
+fn trace_root_invalid(roots: &[Uri]) -> Message {
+    Message::Notification(Notification::LogTraceNotification(LogTraceNotification {
+        params: LogTraceParams {
+            message: format!(
+                "WARNING: Workspace root(s) \"{}\"do not exist.",
+                roots.join("\", \"")
+            ),
+            verbose: None,
         },
     }))
 }

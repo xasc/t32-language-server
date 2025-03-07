@@ -10,12 +10,15 @@ mod response;
 mod tasks;
 mod textdoc;
 mod transport;
+mod workspace;
 
 use std::time::{Duration, Instant};
 
+use url;
+
 use crate::{
     ReturnCode,
-    config::Config,
+    config::{Config, Workspace},
     ls::lsp::Message,
     ls::transport::StdioChannel,
     ls::{
@@ -85,7 +88,7 @@ pub fn serve(mut cfg: Config) -> ReturnCode {
     let InitializationStatus { msg, rc } = wait_for_initialize_req(&mut channel, heartbeat);
     match msg {
         Message::Request(Request::InitializeRequest(req)) => {
-            if let Err(error) = process_initialize_params(&req.params, &mut cfg) {
+            if let Err(error) = process_initialize_params(req.params, &mut cfg) {
                 channel.send_msg(Message::Response(Response::ErrorResponse(ErrorResponse {
                     id: Some(req.id),
                     error,
@@ -178,7 +181,7 @@ fn wait_for_initialize_req(
 }
 
 fn process_initialize_params(
-    params: &InitializeParams,
+    params: InitializeParams,
     cfg: &mut Config,
 ) -> Result<(), ResponseError> {
     if let Some(pid) = params.process_id {
@@ -201,6 +204,34 @@ fn process_initialize_params(
     if let Some(level) = &params.trace {
         cfg.trace_level = *level;
     }
+
+    // If the key `workspaceFolders` is present in `InitializeParams`, then we
+    // can infer that the client must support the `workspace.workspaceFolders`
+    // capability. We don't need to check for it separately.
+    if params.workspace_folders.is_some() {
+        cfg.workspace = Workspace::Folders(params.workspace_folders);
+    } else if params.root_uri.is_some() {
+        debug_assert!(url::Url::parse(params.root_uri.as_ref().unwrap()).is_ok());
+        cfg.workspace = Workspace::Root(params.root_uri);
+    } else if params.root_path.is_some() {
+        // This is not guaranteed to be an URI, so we try to convert it into
+        // one.
+        let dir = match url::Url::from_directory_path(params.root_path.as_ref().unwrap()) {
+            Ok(url) => url.to_string(),
+            Err(_) => params.root_path.unwrap(),
+        };
+        cfg.workspace = Workspace::Root(Some(dir));
+    }
+
+    // The workspace folder can be `null` if no folder was selected in the client.
+    // It is possible to query the current workspace folder selection with a
+    // `workspaceFolders` request. The client capabilities tell us if this is
+    // supported.
+    cfg.workspace_folders_supported = params
+        .capabilities
+        .workspace
+        .is_some_and(|ws| ws.workspace_folders.unwrap_or(false));
+
     Ok(())
 }
 

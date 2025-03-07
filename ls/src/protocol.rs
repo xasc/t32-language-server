@@ -9,7 +9,7 @@ use serde_repr::{Deserialize_repr, Serialize_repr};
 type DocumentUri = String;
 type DocumentSelector = Vec<DocumentFilter>;
 type ProgressToken = NumberOrString;
-type Uri = String;
+pub type Uri = String;
 
 pub enum ErrorCodes {
     ParseError = -32700,
@@ -591,25 +591,29 @@ pub struct ClientInfo {
     version: Option<String>,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub workspace: Option<WorkspaceClientCapabilities>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text_document: Option<TextDocumentClientCapabilities>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notebook_document: Option<NotebookDocumentClientCapabilities>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub window: Option<WindowClientCapabilities>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub general: Option<GeneralClientCapabilities>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub experimental: Option<Value>,
 }
@@ -618,47 +622,60 @@ pub struct ClientCapabilities {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceClientCapabilities {
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
-    apply_edit: Option<bool>,
+    pub apply_edit: Option<bool>,
+
+    #[allow(dead_code)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace_edit: Option<WorkspaceEditClientCapabilities>,
+
+    #[allow(dead_code)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub did_change_configuration: Option<DidChangeConfigurationClientCapabilities>,
+
+    #[allow(dead_code)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub did_change_watched_files: Option<DidChangeWatchedFilesClientCapabilities>,
+
+    #[allow(dead_code)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub symbol: Option<WorkspaceSymbolClientCapabilities>,
+
+    #[allow(dead_code)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execute_command: Option<ExecuteCommandClientCapabilities>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    workspace_edit: Option<WorkspaceEditClientCapabilities>,
+    pub workspace_folders: Option<bool>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
-    did_change_configuration: Option<DidChangeConfigurationClientCapabilities>,
+    pub configuration: Option<bool>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
-    did_change_watched_files: Option<DidChangeWatchedFilesClientCapabilities>,
+    pub semantic_tokens: Option<SemanticTokensWorkspaceClientCapabilities>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
-    symbol: Option<WorkspaceSymbolClientCapabilities>,
+    pub code_lens: Option<CodeLensWorkspaceClientCapabilities>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
-    execute_command: Option<ExecuteCommandClientCapabilities>,
+    pub file_operations: Option<FileOperationsWorkspaceClientCapabilities>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
-    workspace_folders: Option<bool>,
+    pub inline_value: Option<InlineValueWorkspaceClientCapabilities>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
-    configuration: Option<bool>,
+    pub inlay_hint: Option<InlayHintWorkspaceClientCapabilities>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
-    semantic_tokens: Option<SemanticTokensWorkspaceClientCapabilities>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    code_lens: Option<CodeLensWorkspaceClientCapabilities>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    file_operations: Option<FileOperationsWorkspaceClientCapabilities>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    inline_value: Option<InlineValueWorkspaceClientCapabilities>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    inlay_hint: Option<InlayHintWorkspaceClientCapabilities>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    diagnostics: Option<DiagnosticWorkspaceClientCapabilities>,
+    pub diagnostics: Option<DiagnosticWorkspaceClientCapabilities>,
 }
 
 #[allow(dead_code)]
@@ -1598,9 +1615,9 @@ pub struct MarkdownClientCapabilities {
     allowed_tags: Option<Vec<String>>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct WorkspaceFolder {
-    uri: Uri,
+    pub uri: Uri,
     name: String,
 }
 
@@ -2186,21 +2203,23 @@ pub struct TextDocumentDiagnosticServerCapabilities {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WorkspaceServerCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
-    workspace_folders: Option<WorkspaceFoldersServerCapabilities>,
+    pub workspace_folders: Option<WorkspaceFoldersServerCapabilities>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    file_operations: Option<WorkspaceFileOperations>,
+    pub file_operations: Option<WorkspaceFileOperations>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WorkspaceFoldersServerCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
-    supported: Option<bool>,
+    pub supported: Option<bool>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    change_notifications: Option<ChangeNotifications>,
+    pub change_notifications: Option<ChangeNotifications>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -2276,6 +2295,7 @@ pub struct ServerInfo {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ServerCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub position_encoding: Option<PositionEncodingKind>,

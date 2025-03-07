@@ -16,11 +16,13 @@ use std::{
 };
 
 use tree_sitter::Tree;
+use url::Url;
 
 use crate::{
     ReturnCode,
-    ls::textdoc::TextDoc,
-    protocol::{TextDocumentContentChangeEvent, TextDocumentItem},
+    config::Workspace,
+    ls::{textdoc::TextDoc, workspace::WorkspaceMembers},
+    protocol::{TextDocumentContentChangeEvent, TextDocumentItem, Uri},
 };
 
 pub struct TaskSystem {
@@ -45,13 +47,23 @@ pub enum Task {
         Vec<TextDocumentContentChangeEvent>,
         fn(TextDoc, Tree, Vec<TextDocumentContentChangeEvent>) -> (TextDoc, Tree),
     ),
+    WorkspaceIndexScan(
+        Workspace,
+        &'static [&'static str],
+        fn(&Workspace, &[&str]) -> WorkspaceMembers,
+    ),
+    WorkspaceFileScan(Url, fn(Url) -> Result<(TextDoc, Tree), Uri>),
 }
 
+#[derive(Debug)]
 pub enum TaskDone {
     TextDocNew(TextDoc, Tree),
     TextDocEdit(TextDoc, Tree),
+    WorkspaceIndexScan(WorkspaceMembers),
+    WorkspaceFileScan(Result<(TextDoc, Tree), Uri>),
 }
 
+#[derive(Debug)]
 pub enum OngoingTask {
     TextDocUpdate { uri: String },
 }
@@ -163,6 +175,10 @@ impl TaskSystem {
                 let (doc, tree) = update(doc, tree, changes);
                 TaskDone::TextDocEdit(doc, tree)
             }
+            Task::WorkspaceIndexScan(workspace, suffixes, locate) => {
+                TaskDone::WorkspaceIndexScan(locate(&workspace, suffixes))
+            }
+            Task::WorkspaceFileScan(uri, scan) => TaskDone::WorkspaceFileScan(scan(uri)),
         }
     }
 }
