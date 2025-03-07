@@ -120,6 +120,8 @@ impl TaskSystem {
 
                     num_jobs.fetch_add(1, Ordering::Relaxed);
                     enqueued.notify_one();
+
+                    self.slot += 1;
                     return Ok(());
                 }
             }
