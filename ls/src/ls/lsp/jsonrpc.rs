@@ -15,15 +15,17 @@ use crate::{
     ls::lsp::Message,
     ls::request::{
         DidChangeTextDocumentNotification, DidCloseTextDocumentNotification,
-        DidOpenTextDocumentNotification, ExitNotification, InitializeRequest,
-        InitializedNotification, LogTraceNotification, Notification, Request, SetTraceNotification,
-        ShutdownRequest,
+        DidOpenTextDocumentNotification, ExitNotification, GoToDefinitionRequest,
+        InitializeRequest, InitializedNotification, LogTraceNotification, Notification, Request,
+        SetTraceNotification, ShutdownRequest,
     },
-    ls::response::{ErrorResponse, InitializeResponse, NullResponse, Response},
+    ls::response::{
+        ErrorResponse, GoToDefinitionResponse, InitializeResponse, NullResponse, Response,
+    },
     protocol::{
-        DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-        ErrorCodes, InitializeParams, InitializedParams, NumberOrString, ResponseError,
-        SetTraceParams,
+        DefinitionParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
+        DidOpenTextDocumentParams, ErrorCodes, InitializeParams, InitializedParams, NumberOrString,
+        ResponseError, SetTraceParams,
     },
 };
 
@@ -295,6 +297,7 @@ pub fn serialize_msg(msg: Message) -> String {
 fn deserialize_request(msg: RequestMessage) -> Result<Message, ErrorResponse> {
     const INITIALIZE: &'static str = "initialize";
     const SHUTDOWN: &'static str = "shutdown";
+    const TEXTDOC_DEFINITION: &'static str = "textDocument/definition";
 
     match msg.method.as_str() {
         INITIALIZE => match deserialize_msg_params::<InitializeParams>(msg.params) {
@@ -309,6 +312,15 @@ fn deserialize_request(msg: RequestMessage) -> Result<Message, ErrorResponse> {
         SHUTDOWN => Ok(Message::Request(Request::ShutdownRequest(
             ShutdownRequest { id: msg.id },
         ))),
+        TEXTDOC_DEFINITION => match deserialize_msg_params::<DefinitionParams>(msg.params) {
+            Ok(params) => Ok(Message::Request(Request::GoToDefinition(
+                GoToDefinitionRequest { id: msg.id, params },
+            ))),
+            Err(err) => Err(ErrorResponse {
+                id: Some(msg.id),
+                error: err,
+            }),
+        },
         method => Err(ErrorResponse {
             id: Some(msg.id),
             error: error_type(method),
@@ -420,6 +432,11 @@ fn serialize_response(msg: Response) -> LineMessage {
     let (id, result, error): (Option<NumberOrString>, Option<Value>, Option<ResponseError>) =
         match msg {
             Response::ErrorResponse(ErrorResponse { id, error }) => (id, None, Some(error)),
+            Response::GoToDefinitionResponse(GoToDefinitionResponse { id, result }) => (
+                Some(id),
+                Some(serde_json::to_value(result).expect("Serialization must not fail.")),
+                None,
+            ),
             Response::InitializeResponse(InitializeResponse { id, result }) => (
                 Some(id),
                 Some(serde_json::to_value(result).expect("Serialization must not fail.")),
@@ -578,8 +595,8 @@ mod tests {
     use super::*;
 
     use crate::{
-        ls::response::{InitializeResponse, Response},
-        protocol::{self, LogTraceParams},
+        ls::response::{GoToDefinitionResponse, InitializeResponse, LocationResult, Response},
+        protocol::{self, Location, LocationLink, LogTraceParams, Position, Range},
     };
     use serde_json::json;
 
@@ -658,6 +675,28 @@ mod tests {
         let req = deserialize_msg(msg).expect("Should not fail.");
 
         assert!(matches!(req, Message::Request(Request::ShutdownRequest(_))));
+    }
+
+    #[test]
+    fn can_create_goto_definition_request() {
+        let msg = LineMessage::RequestMessage(RequestMessage {
+            jsonrpc: "2.0".to_string(),
+            id: protocol::NumberOrString::Number(1),
+            method: "textDocument/definition".to_string(),
+            params: Some(json!({
+                "textDocument": {
+                    "uri": "file:///project/test.cmm"
+                },
+                "position": {
+                    "line": 8,
+                    "character": 17
+                },
+            })),
+        });
+
+        let req = deserialize_msg(msg).expect("Should not fail.");
+
+        assert!(matches!(req, Message::Request(Request::GoToDefinition(_))));
     }
 
     #[test]
@@ -767,6 +806,100 @@ mod tests {
         })));
 
         assert_eq!(msg, expected);
+    }
+
+    #[test]
+    fn can_create_goto_definition_response() {
+        let expected = "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":[{\"originSelectionRange\":{\"end\":{\"character\":12,\"line\":9},\"start\":{\"character\":23,\"line\":8}},\"targetRange\":{\"end\":{\"character\":1,\"line\":3},\"start\":{\"character\":4,\"line\":0}},\"targetSelectionRange\":{\"end\":{\"character\":0,\"line\":2},\"start\":{\"character\":0,\"line\":1}},\"targetUri\":\"file:///project/test.cmm\"}]}";
+
+        let response = GoToDefinitionResponse {
+            id: NumberOrString::Number(1),
+            result: Some(LocationResult::ExtMeta(vec![LocationLink {
+                origin_selection_range: Some(Range {
+                    start: Position {
+                        line: 8,
+                        character: 23,
+                    },
+                    end: Position {
+                        line: 9,
+                        character: 12,
+                    },
+                }),
+                target_uri: "file:///project/test.cmm".to_string(),
+                target_range: Range {
+                    start: Position {
+                        line: 0,
+                        character: 4,
+                    },
+                    end: Position {
+                        line: 3,
+                        character: 1,
+                    },
+                },
+                target_selection_range: Range {
+                    start: Position {
+                        line: 1,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 2,
+                        character: 0,
+                    },
+                },
+            }])),
+        };
+        let msg = serialize_msg(Message::Response(Response::GoToDefinitionResponse(
+            response,
+        )));
+        assert_eq!(msg, expected);
+
+        let expected = "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"range\":{\"end\":{\"character\":0,\"line\":2},\"start\":{\"character\":0,\"line\":1}},\"uri\":\"file:///project/test.cmm\"}}";
+
+        let response = GoToDefinitionResponse {
+            id: NumberOrString::Number(2),
+            result: Some(LocationResult::Single(Location {
+                uri: "file:///project/test.cmm".to_string(),
+                range: Range {
+                    start: Position {
+                        line: 1,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 2,
+                        character: 0,
+                    },
+                },
+            })),
+        };
+
+        let msg = serialize_msg(Message::Response(Response::GoToDefinitionResponse(
+            response,
+        )));
+        assert_eq!(msg, expected);
+
+        let expected = "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":[{\"range\":{\"end\":{\"character\":17,\"line\":102},\"start\":{\"character\":4,\"line\":81}},\"uri\":\"file:///project/test.cmm\"}]}";
+
+        let response = GoToDefinitionResponse {
+            id: NumberOrString::Number(2),
+            result: Some(LocationResult::Multi(vec![Location {
+                uri: "file:///project/test.cmm".to_string(),
+                range: Range {
+                    start: Position {
+                        line: 81,
+                        character: 4,
+                    },
+                    end: Position {
+                        line: 102,
+                        character: 17,
+                    },
+                },
+            }])),
+        };
+
+        let msg = serialize_msg(Message::Response(Response::GoToDefinitionResponse(
+            response,
+        )));
+        assert_eq!(msg, expected.to_string());
     }
 
     #[test]

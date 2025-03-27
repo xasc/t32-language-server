@@ -138,6 +138,35 @@ impl TextDoc {
         edit
     }
 
+    pub fn to_byte_offset(&self, spot: &Position) -> usize {
+        let spot = normalize_position(spot, &self.lines, &self.text);
+        self.get_byte_offset_at(&spot)
+    }
+
+    pub fn to_position(&self, offset: usize) -> Position {
+        if offset >= self.text.len() {
+            return Position {
+                line: self.lines.byte_offsets.len() as u32,
+                character: 0,
+            };
+        }
+        self.get_character_offset_at(offset)
+    }
+
+    pub fn to_range(&self, start: usize, end: usize) -> Range {
+        let span: (usize, usize);
+        if start <= end {
+            span = (start, end);
+        } else {
+            span = (end, start);
+        }
+
+        Range {
+            start: self.to_position(span.0),
+            end: self.to_position(span.1),
+        }
+    }
+
     fn get_byte_offset_at(&self, spot: &Position) -> usize {
         if spot.line >= self.lines.byte_offsets.len() as u32 {
             return self.text.len();
@@ -150,14 +179,47 @@ impl TextDoc {
 
         let mut num_utf16_code_units = 0;
         for ch in self.text[offset..].chars() {
-            offset += ch.len_utf8();
-            num_utf16_code_units += ch.len_utf16();
-
             if num_utf16_code_units >= spot.character as usize {
                 break;
             }
+            offset += ch.len_utf8();
+            num_utf16_code_units += ch.len_utf16();
         }
         offset
+    }
+
+    fn get_character_offset_at(&self, spot: usize) -> Position {
+        debug_assert!(spot < self.text.len());
+
+        let line = self.lines.get_line_with_offset(spot);
+        if line >= self.lines.byte_offsets.len() {
+            return Position {
+                line: line as u32,
+                character: 0,
+            };
+        }
+
+        let mut offset = self.lines.byte_offsets[line];
+        if spot == offset {
+            return Position {
+                line: line as u32,
+                character: 0,
+            };
+        }
+
+        let mut num_utf16_code_units: usize = 0;
+
+        for ch in self.text[offset..].chars() {
+            if offset >= spot {
+                break;
+            }
+            offset += ch.len_utf8();
+            num_utf16_code_units += ch.len_utf16();
+        }
+        Position {
+            line: line as u32,
+            character: num_utf16_code_units as u32,
+        }
     }
 
     /// Tree-sitter measures columns in bytes.
@@ -397,6 +459,7 @@ impl TextDocs {
         }
     }
 
+    #[allow(dead_code)]
     pub fn get_doc(&self, uri: &str) -> Option<&TextDoc> {
         match self.registry.get(uri) {
             Some(idx) if idx.0 == TextDocStatus::Open => self.docs.open[idx.1].as_ref(),
@@ -405,6 +468,7 @@ impl TextDocs {
         }
     }
 
+    #[allow(dead_code)]
     pub fn get_tree(&self, uri: &str) -> Option<&Tree> {
         match self.registry.get(uri) {
             Some(idx) if idx.0 == TextDocStatus::Open => self.trees.open[idx.1].as_ref(),
@@ -1096,6 +1160,42 @@ mod test {
         assert_eq!(
             doc.text,
             "Lorem Ipsum#am rem aperiam,\neaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo."
+        );
+    }
+
+    #[test]
+    fn can_calculate_position() {
+        let text = "Line 1A\nLine 2B\nLine 3C";
+        let lines = create_line_map_for_text(&text, None, None);
+
+        let doc = TextDoc {
+            uri: "file:///C:/doc.rs".to_string(),
+            lang_id: LANGUAGE_ID.to_string(),
+            version: 1,
+            text: text.to_string(),
+            lines,
+        };
+
+        assert_eq!(
+            doc.to_position(3),
+            Position {
+                line: 0,
+                character: 3
+            }
+        );
+        assert_eq!(
+            doc.to_position(12),
+            Position {
+                line: 1,
+                character: 4
+            }
+        );
+        assert_eq!(
+            doc.to_position(5000),
+            Position {
+                line: 3,
+                character: 0
+            }
         );
     }
 

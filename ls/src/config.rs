@@ -33,6 +33,11 @@ pub struct Config {
     pub workspace_folders_supported: bool,
     pub trace_level: TraceValue,
     pub position_encoding: PositionEncodingKind,
+    pub location_links: LocationLinkSupport,
+}
+
+pub struct LocationLinkSupport {
+    pub definitions_supported: bool,
 }
 
 impl Config {
@@ -76,6 +81,9 @@ impl Config {
             workspace_folders_supported: false,
             trace_level: TraceValue::Off,
             position_encoding: PositionEncodingKind::Utf16,
+            location_links: LocationLinkSupport {
+                definitions_supported: false,
+            },
         })
     }
 

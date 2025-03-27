@@ -4,3 +4,7 @@
 
 PRINT "This is A"
 
+PRIVATE &private_macro
+
+&private_macro="1"
+

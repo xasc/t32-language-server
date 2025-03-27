@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+mod language;
 mod lsp;
 mod mainloop;
 mod proc;
@@ -231,6 +232,13 @@ fn process_initialize_params(
         .capabilities
         .workspace
         .is_some_and(|ws| ws.workspace_folders.unwrap_or(false));
+
+    // Check whether the client support `LocationLink` in the response results.
+    cfg.location_links.definitions_supported =
+        params.capabilities.text_document.is_some_and(|td| {
+            td.definition
+                .is_some_and(|def| def.link_support.unwrap_or(false))
+        });
 
     Ok(())
 }

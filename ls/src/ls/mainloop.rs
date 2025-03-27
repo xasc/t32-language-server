@@ -8,24 +8,25 @@ use tree_sitter::Tree;
 use crate::{
     ReturnCode,
     config::{Config, Workspace},
+    ls::language::find_definition,
     ls::lsp::Message,
     ls::transport::StdioChannel,
     ls::{
         ProcHeartbeat, State, Tasks, log_notif, read_msg,
         request::{
             DidChangeTextDocumentNotification, DidCloseTextDocumentNotification,
-            DidOpenTextDocumentNotification, LogTraceNotification, Notification, Request,
-            SetTraceNotification,
+            DidOpenTextDocumentNotification, GoToDefinitionRequest, LogTraceNotification,
+            Notification, Request, SetTraceNotification,
         },
-        response::{ErrorResponse, NullResponse, Response},
+        response::{ErrorResponse, GoToDefinitionResponse, LocationResult, NullResponse, Response},
         tasks::{OngoingTask, Task, TaskDone, TaskSystem},
         textdoc::{TextDoc, TextDocStatus, TextDocs, import_doc, read_doc, update_doc},
         workspace::locate_files,
     },
     protocol::{
-        DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-        ErrorCodes, LogTraceParams, NumberOrString, ResponseError, SetTraceParams,
-        TextDocumentItem, TraceValue, Uri,
+        DefinitionParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
+        DidOpenTextDocumentParams, ErrorCodes, LogTraceParams, NumberOrString, ResponseError,
+        SetTraceParams, TextDocumentItem, TraceValue, Uri,
     },
     t32::{LANGUAGE_ID, SUFFIXES, lang_id_supported},
 };
@@ -134,6 +135,9 @@ fn schedule_tasks(
             })) => {
                 cfg.trace_level = value;
             }
+            Message::Request(Request::GoToDefinition(GoToDefinitionRequest { id, params })) => {
+                process_goto_definition_req(id, params, g, cfg.trace_level, outgoing)?;
+            }
             Message::Request(Request::ShutdownRequest(req)) => {
                 g.shutdown_request_recv = true;
                 outgoing.push(Some(Message::Response(Response::NullResponse(
@@ -207,6 +211,15 @@ fn recv_completed_tasks(
         mark_ongoing_task_completed(&done, &mut ts.ongoing);
 
         match done {
+            TaskDone::GoToDefinitionExtMeta(id, loc) => {
+                let result = match loc {
+                    Some(link) => Some(LocationResult::ExtMeta(vec![link])),
+                    None => None,
+                };
+                outgoing.push(Some(Message::Response(Response::GoToDefinitionResponse(
+                    GoToDefinitionResponse { id, result },
+                ))));
+            }
             TaskDone::TextDocNew(doc, tree) => {
                 if cfg.trace_level != TraceValue::Off {
                     outgoing.push(Some(trace_doc_change(&doc, &tree)));
@@ -282,13 +295,52 @@ fn process_doc_close_notif(uri: &str, docs: &mut TextDocs, outgoing: &mut Vec<Op
     docs.close(uri);
 }
 
+fn process_goto_definition_req(
+    id: NumberOrString,
+    params: DefinitionParams,
+    g: &mut State,
+    trace_level: TraceValue,
+    outgoing: &mut Vec<Option<Message>>,
+) -> Result<(), ReturnCode> {
+    let (doc, tree) = match g.docs.get_doc_and_tree(&params.text_document.uri) {
+        Some((doc, tree)) => (doc, tree),
+        None => {
+            if trace_level != TraceValue::Off {
+                outgoing.push(Some(trace_doc_unknown(&params.text_document.uri)));
+            }
+            outgoing.push(Some(Message::Response(Response::NullResponse(
+                NullResponse { id },
+            ))));
+            return Ok(());
+        }
+    };
+
+    try_schedule(
+        &mut g.tasks.runner,
+        Task::GoToDefinitionExtMeta(
+            id,
+            doc.clone(),
+            tree.clone(),
+            params.position,
+            find_definition,
+        ),
+        &mut g.tasks.ongoing,
+        &mut g.tasks.blocked,
+    )?;
+    Ok(())
+}
+
 /// Some requests like document updates can only be processed one at a time.
-/// This functions checks whether there is an ongoing tasks that would block
+/// This functions checks whether there is an ongoing task that would block
 /// the scheduling of the new one.
+/// Document lookup operations like *Go to Definition* should use the latest
+/// document version, so we delay the corresponding task until the document
+/// update has been completed.
 fn task_blocked(job: &Task, ongoing: &[OngoingTask]) -> bool {
     match job {
-        Task::TextDocNew(TextDocumentItem { uri, .. }, ..)
-        | Task::TextDocEdit(TextDoc { uri, .. }, ..) => ongoing.iter().any(|o| match o {
+        Task::GoToDefinitionExtMeta(_, TextDoc { uri, .. }, ..)
+        | Task::TextDocEdit(TextDoc { uri, .. }, ..)
+        | Task::TextDocNew(TextDocumentItem { uri, .. }, ..) => ongoing.iter().any(|o| match o {
             OngoingTask::TextDocUpdate { uri: file } => file == uri,
         }),
         Task::WorkspaceFileScan(url, ..) => ongoing.iter().any(|o| match o {
@@ -310,18 +362,18 @@ fn add_ongoing_task_if_strictly_ordered(job: &Task, ongoing: &mut Vec<OngoingTas
         Task::WorkspaceFileScan(url, ..) => OngoingTask::TextDocUpdate {
             uri: url.to_string(),
         },
-        Task::WorkspaceIndexScan(..) => return,
+        Task::GoToDefinitionExtMeta(..) | Task::WorkspaceIndexScan(..) => return,
     };
     ongoing.push(t);
 }
 
 fn mark_ongoing_task_completed(job: &TaskDone, ongoing: &mut Vec<OngoingTask>) {
     let idx = match job {
-        TaskDone::TextDocNew(doc, ..)
-        | TaskDone::TextDocEdit(doc, ..)
+        TaskDone::TextDocEdit(doc, ..)
+        | TaskDone::TextDocNew(doc, ..)
         | TaskDone::WorkspaceFileScan(Ok((doc, ..))) => find_ongoing_task(&doc.uri, ongoing),
         TaskDone::WorkspaceFileScan(Err(uri)) => find_ongoing_task(uri, ongoing),
-        TaskDone::WorkspaceIndexScan(..) => return,
+        TaskDone::GoToDefinitionExtMeta(..) | TaskDone::WorkspaceIndexScan(..) => return,
     };
     ongoing.remove(idx);
 }
@@ -460,6 +512,15 @@ fn trace_root_invalid(roots: &[Uri]) -> Message {
                 "WARNING: Workspace root(s) \"{}\"do not exist.",
                 roots.join("\", \"")
             ),
+            verbose: None,
+        },
+    }))
+}
+
+fn trace_doc_unknown(uri: &str) -> Message {
+    Message::Notification(Notification::LogTraceNotification(LogTraceNotification {
+        params: LogTraceParams {
+            message: format!("WARNING: File \"{}\" is not known.", uri),
             verbose: None,
         },
     }))

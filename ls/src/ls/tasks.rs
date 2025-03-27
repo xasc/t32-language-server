@@ -22,7 +22,10 @@ use crate::{
     ReturnCode,
     config::Workspace,
     ls::{textdoc::TextDoc, workspace::WorkspaceMembers},
-    protocol::{TextDocumentContentChangeEvent, TextDocumentItem, Uri},
+    protocol::{
+        LocationLink, NumberOrString, Position, TextDocumentContentChangeEvent, TextDocumentItem,
+        Uri,
+    },
 };
 
 pub struct TaskSystem {
@@ -40,6 +43,13 @@ pub struct JobQueue {
 
 #[derive(Debug, Clone)]
 pub enum Task {
+    GoToDefinitionExtMeta(
+        NumberOrString,
+        TextDoc,
+        Tree,
+        Position,
+        fn(TextDoc, Tree, Position) -> Option<LocationLink>,
+    ),
     TextDocNew(TextDocumentItem, fn(TextDocumentItem) -> (TextDoc, Tree)),
     TextDocEdit(
         TextDoc,
@@ -57,6 +67,7 @@ pub enum Task {
 
 #[derive(Debug)]
 pub enum TaskDone {
+    GoToDefinitionExtMeta(NumberOrString, Option<LocationLink>),
     TextDocNew(TextDoc, Tree),
     TextDocEdit(TextDoc, Tree),
     WorkspaceIndexScan(WorkspaceMembers),
@@ -169,6 +180,9 @@ impl TaskSystem {
 
     fn execute(job: Task) -> TaskDone {
         match job {
+            Task::GoToDefinitionExtMeta(id, doc, tree, loc, find) => {
+                TaskDone::GoToDefinitionExtMeta(id, find(doc, tree, loc))
+            }
             Task::TextDocNew(doc, transform) => {
                 let (doc, tree) = transform(doc);
                 TaskDone::TextDocNew(doc, tree)

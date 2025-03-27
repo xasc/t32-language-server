@@ -3,9 +3,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use std::{
-    env, fs,
+    env,
     io::Write,
-    path::{self, Path},
+    path,
     process::{self, Child, ChildStdin, Command, Stdio},
     time::{Duration, Instant},
 };
@@ -13,6 +13,7 @@ use std::{
 use serde_json::json;
 use url::Url;
 
+#[allow(dead_code)]
 #[derive(PartialEq)]
 pub enum TraceValue {
     Messages,
@@ -20,6 +21,7 @@ pub enum TraceValue {
     Off,
 }
 
+#[allow(dead_code)]
 pub fn start_ls(args: &[&str], try_initialize: bool) -> Child {
     let mut params = vec!["run", "--quiet", "--"];
     params.extend_from_slice(&args);
@@ -43,6 +45,7 @@ pub fn start_ls(args: &[&str], try_initialize: bool) -> Child {
     ls
 }
 
+#[allow(dead_code)]
 pub fn stop_ls(proc: &mut Child, stdin: Option<&mut ChildStdin>, try_shutdown: Option<isize>) {
     if let Some(cin) = stdin {
         if let Some(id) = try_shutdown {
@@ -64,6 +67,7 @@ pub fn stop_ls(proc: &mut Child, stdin: Option<&mut ChildStdin>, try_shutdown: O
     }
 }
 
+#[allow(dead_code)]
 pub fn make_initialize_request(id: isize, pid: u32) -> String {
     let content = json!({
         "jsonrpc": "2.0",
@@ -77,6 +81,7 @@ pub fn make_initialize_request(id: isize, pid: u32) -> String {
     build_msg(&content.to_string())
 }
 
+#[allow(dead_code)]
 pub fn make_initialize_request_with_multi_root_workspace(id: isize, pid: u32) -> String {
     let dir = env::current_dir().unwrap().join("tests").join("samples");
     let workspace: Url = Url::from_directory_path(path::absolute(dir).unwrap()).unwrap();
@@ -98,6 +103,7 @@ pub fn make_initialize_request_with_multi_root_workspace(id: isize, pid: u32) ->
     build_msg(&content.to_string())
 }
 
+#[allow(dead_code)]
 pub fn make_initialize_request_with_invalid_multi_root_workspace(id: isize, pid: u32) -> String {
     let dir = env::current_dir().unwrap().join("tests").join("samples");
     let workspace: Url = Url::from_directory_path(path::absolute(dir.clone()).unwrap()).unwrap();
@@ -132,6 +138,7 @@ pub fn make_initialize_request_with_invalid_multi_root_workspace(id: isize, pid:
     build_msg(&content.to_string())
 }
 
+#[allow(dead_code)]
 pub fn make_initialize_request_with_root_uri(id: isize, pid: u32) -> String {
     let dir = env::current_dir().unwrap().join("tests").join("samples");
     let workspace: Url = Url::from_directory_path(path::absolute(dir.clone()).unwrap()).unwrap();
@@ -150,6 +157,7 @@ pub fn make_initialize_request_with_root_uri(id: isize, pid: u32) -> String {
     build_msg(&content.to_string())
 }
 
+#[allow(dead_code)]
 pub fn make_initialize_request_with_root_path(id: isize, pid: u32) -> String {
     let dir = env::current_dir().unwrap().join("tests").join("samples");
 
@@ -167,6 +175,7 @@ pub fn make_initialize_request_with_root_path(id: isize, pid: u32) -> String {
     build_msg(&content.to_string())
 }
 
+#[allow(dead_code)]
 fn make_exit_notification() -> String {
     let content = json!({
         "jsonrpc": "2.0",
@@ -175,6 +184,7 @@ fn make_exit_notification() -> String {
     build_msg(&content.to_string())
 }
 
+#[allow(dead_code)]
 fn make_shutdown_request(id: isize) -> String {
     let content = json!({
         "jsonrpc": "2.0",
@@ -184,6 +194,7 @@ fn make_shutdown_request(id: isize) -> String {
     build_msg(&content.to_string())
 }
 
+#[allow(dead_code)]
 pub fn make_did_open_text_doc_notification() -> String {
     let content = json!({
         "jsonrpc": "2.0",
@@ -200,6 +211,7 @@ pub fn make_did_open_text_doc_notification() -> String {
     build_msg(&content.to_string())
 }
 
+#[allow(dead_code)]
 pub fn make_did_change_text_doc_notification() -> String {
     let content = json!({
         "jsonrpc": "2.0",
@@ -227,6 +239,7 @@ pub fn make_did_change_text_doc_notification() -> String {
     build_msg(&content.to_string())
 }
 
+#[allow(dead_code)]
 pub fn make_did_close_text_doc_notification() -> String {
     let content = json!({
         "jsonrpc": "2.0",
@@ -240,6 +253,7 @@ pub fn make_did_close_text_doc_notification() -> String {
     build_msg(&content.to_string())
 }
 
+#[allow(dead_code)]
 pub fn make_set_trace_notification(level: TraceValue) -> String {
     let content = json!({
         "jsonrpc": "2.0",

@@ -5,13 +5,15 @@
 use std::fmt;
 
 use crate::protocol::{
-    DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    InitializeParams, InitializedParams, LogTraceParams, NumberOrString, SetTraceParams,
+    DefinitionParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
+    DidOpenTextDocumentParams, InitializeParams, InitializedParams, LogTraceParams, NumberOrString,
+    SetTraceParams,
 };
 
 // Requests from client to server.
 #[derive(Debug)]
 pub enum Request {
+    GoToDefinition(GoToDefinitionRequest),
     InitializeRequest(InitializeRequest),
     ShutdownRequest(ShutdownRequest),
 }
@@ -46,6 +48,12 @@ pub struct DidOpenTextDocumentNotification {
 pub struct ExitNotification {}
 
 #[derive(Debug)]
+pub struct GoToDefinitionRequest {
+    pub id: NumberOrString,
+    pub params: DefinitionParams,
+}
+
+#[derive(Debug)]
 pub struct InitializedNotification {
     #[allow(dead_code)]
     pub params: InitializedParams,
@@ -75,6 +83,7 @@ pub struct ShutdownRequest {
 impl Request {
     pub fn get_id(&self) -> Option<&NumberOrString> {
         match self {
+            Request::GoToDefinition(GoToDefinitionRequest { id, .. }) => Some(id),
             Request::InitializeRequest(InitializeRequest { id, .. }) => Some(id),
             Request::ShutdownRequest(ShutdownRequest { id }) => Some(id),
         }

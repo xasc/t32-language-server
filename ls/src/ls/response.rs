@@ -3,8 +3,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use crate::protocol::{
-    InitializeResult, NumberOrString, PositionEncodingKind, ResponseError, ServerCapabilities,
-    ServerInfo, TextDocumentSyncKind, TextDocumentSyncOptions, TextDocumentSyncServerCapabilities,
+    DefinitionOptions, DefinitionProvider, InitializeResult, Location, LocationLink,
+    NumberOrString, PositionEncodingKind, ResponseError, ServerCapabilities, ServerInfo,
+    TextDocumentSyncKind, TextDocumentSyncOptions, TextDocumentSyncServerCapabilities,
     WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
 };
 use serde::{Deserialize, Serialize};
@@ -13,8 +14,15 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Deserialize, Serialize)]
 pub enum Response {
     ErrorResponse(ErrorResponse),
+    GoToDefinitionResponse(GoToDefinitionResponse),
     InitializeResponse(InitializeResponse),
     NullResponse(NullResponse),
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct GoToDefinitionResponse {
+    pub id: NumberOrString,
+    pub result: Option<LocationResult>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -32,6 +40,14 @@ pub struct InitializeResponse {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct NullResponse {
     pub id: NumberOrString,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum LocationResult {
+    Single(Location),
+    Multi(Vec<Location>),
+    ExtMeta(Vec<LocationLink>),
 }
 
 impl ServerCapabilities {
@@ -52,7 +68,9 @@ impl ServerCapabilities {
             hover_provider: None,
             signature_help_provider: None,
             declaration_provider: None,
-            definition_provider: None,
+            definition_provider: Some(DefinitionProvider::DefinitionOptions(DefinitionOptions {
+                work_done_progress: None,
+            })),
             type_definition_provider: None,
             implementation_provider: None,
             references_provider: None,

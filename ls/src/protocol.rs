@@ -597,7 +597,6 @@ pub struct ClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub workspace: Option<WorkspaceClientCapabilities>,
 
-    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text_document: Option<TextDocumentClientCapabilities>,
 
@@ -842,103 +841,133 @@ pub struct DiagnosticWorkspaceClientCapabilities {
     refresh_support: Option<bool>,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TextDocumentClientCapabilities {
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     synchronization: Option<TextDocumentSyncClientCapabilities>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     filters: Option<TextDocumentFilterClientCapabilities>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     completion: Option<CompletionClientCapabilities>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     hover: Option<HoverClientCapabilities>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     signature_help: Option<SignatureHelpClientCapabilities>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     declaration: Option<DeclarationClientCapabilities>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    definition: Option<DefinitionClientCapabilities>,
+    pub definition: Option<DefinitionClientCapabilities>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     type_definition: Option<TypeDefinitionClientCapabilities>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     implementation: Option<ImplementationClientCapabilities>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     references: Option<ReferenceClientCapabilities>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     document_highlight: Option<DocumentHighlightClientCapabilities>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     document_symbol: Option<DocumentSymbolClientCapabilities>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     code_action: Option<CodeActionClientCapabilities>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     code_lens: Option<CodeLensClientCapabilities>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     document_link: Option<DocumentLinkClientCapabilities>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     color_provider: Option<DocumentColorClientCapabilities>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     formatting: Option<DocumentFormattingClientCapabilities>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     range_formatting: Option<DocumentRangeFormattingClientCapabilities>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     on_type_formatting: Option<DocumentOnTypeFormattingClientCapabilities>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     rename: Option<RenameClientCapabilities>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     publish_diagnostics: Option<PublishDiagnosticsClientCapabilities>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     folding_range: Option<FoldingRangeClientCapabilities>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     selection_range: Option<SelectionRangeClientCapabilities>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     linked_editing_range: Option<LinkedEditingRangeClientCapabilities>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     call_hierarchy: Option<CallHierarchyClientCapabilities>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     semantic_tokens: Option<SemanticTokensClientCapabilities>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     moniker: Option<MonikerClientCapabilities>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     type_hierarchy: Option<TypeHierarchyClientCapabilities>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     inline_value: Option<InlineValueClientCapabilities>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     inlay_hint: Option<InlayHintClientCapabilities>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     diagnostic: Option<DiagnosticClientCapabilities>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     inline_completion: Option<InlineCompletionClientCapabilities>,
 }
@@ -1134,7 +1163,7 @@ pub struct DefinitionClientCapabilities {
     dynamic_registration: Option<bool>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    link_support: Option<bool>,
+    pub link_support: Option<bool>,
 }
 
 #[allow(dead_code)]
@@ -1807,7 +1836,7 @@ pub struct DocumentFilter {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct DefinitionOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
-    work_done_progress: Option<bool>,
+    pub work_done_progress: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -2467,14 +2496,44 @@ pub struct TextDocumentContentChangeEvent {
     pub text: String,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Range {
     pub start: Position,
     pub end: Position,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Position {
     pub line: u32,
     pub character: u32,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DefinitionParams {
+    pub text_document: TextDocumentIdentifier,
+    pub position: Position,
+
+    #[allow(dead_code)]
+    pub work_done_token: Option<WorkDoneProgressParams>,
+
+    #[allow(dead_code)]
+    pub partial_result_token: Option<NumberOrString>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Location {
+    pub uri: DocumentUri,
+    pub range: Range,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocationLink {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub origin_selection_range: Option<Range>,
+
+    pub target_uri: DocumentUri,
+    pub target_range: Range,
+    pub target_selection_range: Range,
 }
