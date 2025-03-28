@@ -2,6 +2,8 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use std::ops::Range;
+
 use tree_sitter::{Tree, TreeCursor};
 
 use crate::{
@@ -18,14 +20,23 @@ pub fn find_definition(doc: TextDoc, tree: Tree, position: Position) -> Option<L
     let lang = tree.language();
     let allowed_kinds = get_goto_ref_ids(&lang);
 
-    let origin = find_selected_node(&tree, offset, &allowed_kinds)?;
+    let origin = find_deepest_node(&tree, offset, &allowed_kinds)?;
     let origin_range = origin.node().range();
 
     let (target_range, target_selection_range) = match id_into_node(&lang, origin.node().kind_id())
     {
         NodeKind::Macro => {
             if let Some(macro_def) = goto_macro_definition(&doc.text, &tree, origin) {
-                (macro_def.definition, macro_def.r#macro)
+                if let Some(docstring) = macro_def.docstring {
+                    let start: Range<usize> = Range {
+                        start: docstring.start,
+                        end: macro_def.definition.end,
+                    };
+
+                    (start, macro_def.r#macro)
+                } else {
+                    (macro_def.definition, macro_def.r#macro)
+                }
             } else {
                 return None;
             }
@@ -44,24 +55,26 @@ pub fn find_definition(doc: TextDoc, tree: Tree, position: Position) -> Option<L
     })
 }
 
-fn find_selected_node<'a>(
+fn find_deepest_node<'a>(
     tree: &'a Tree,
     offset: usize,
     allowed_kinds: &[u16],
 ) -> Option<TreeCursor<'a>> {
     let mut cursor = tree.walk();
+    let mut sel: Option<TreeCursor> = None;
+
     while let Some(_) = cursor.goto_first_child_for_byte(offset) {
         let node = cursor.node();
         if !node.byte_range().contains(&offset) {
-            return None;
+            break;
         }
 
         let id = node.kind_id();
         if let Some(_) = allowed_kinds.iter().find(|k| **k == id) {
-            return Some(cursor);
+            sel = Some(cursor.clone());
         }
     }
-    None
+    sel
 }
 
 #[cfg(test)]
@@ -131,6 +144,70 @@ mod tests {
                     end: Position {
                         line: 6,
                         character: 22,
+                    },
+                },
+            })
+        ));
+    }
+
+    #[test]
+    fn can_macro_definition_with_docstring() {
+        let file =
+            Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
+                .unwrap();
+        let doc = TextDoc::try_from(file).expect("Path must be valid.");
+
+        let tree = t32::parse(doc.text.as_bytes(), None);
+
+        let loc = find_definition(
+            doc,
+            tree,
+            Position {
+                line: 22,
+                character: 21,
+            },
+        );
+
+        let file = env::current_dir()
+            .unwrap()
+            .join("tests")
+            .join("samples")
+            .join("a")
+            .join("a.cmm");
+        let _uri: Url = Url::from_file_path(path::absolute(file).unwrap()).unwrap();
+
+        assert!(matches!(
+            loc,
+            Some(LocationLink {
+                origin_selection_range: Some(Range {
+                    start: Position {
+                        line: 22,
+                        character: 13,
+                    },
+                    end: Position {
+                        line: 22,
+                        character: 26,
+                    },
+                }),
+                target_uri: _uri,
+                target_range: Range {
+                    start: Position {
+                        line: 15,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 19,
+                        character: 0,
+                    },
+                },
+                target_selection_range: Range {
+                    start: Position {
+                        line: 18,
+                        character: 12,
+                    },
+                    end: Position {
+                        line: 18,
+                        character: 25,
                     },
                 },
             })

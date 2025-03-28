@@ -2,13 +2,14 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use tree_sitter::Language;
+use tree_sitter::{Language, Range};
 
 #[derive(Debug, Clone, Copy)]
 pub enum NodeKind {
     Unknown,
     Block,
     CommandExpression,
+    Comment,
     Identifier,
     IfBlock,
     LabeledExpression,
@@ -37,6 +38,7 @@ const SCOPE_OPENERS: [NodeKind; 6] = [
 ];
 
 pub const NODE_BLOCK: &'static str = "block";
+pub const NODE_COMMENT: &'static str = "comment";
 pub const NODE_COMMAND_EXPRESSION: &'static str = "command_expression";
 pub const NODE_IDENTIFIER: &'static str = "identifier";
 pub const NODE_IF_BLOCK: &'static str = "if_block";
@@ -59,6 +61,7 @@ pub fn node_into_id(lang: &Language, node: NodeKind) -> u16 {
             NodeKind::Macro => NODE_MACRO,
             NodeKind::MacroDefinition => NODE_MACRO_DEFINITION,
             NodeKind::CommandExpression => NODE_COMMAND_EXPRESSION,
+            NodeKind::Comment => NODE_COMMENT,
             NodeKind::RepeatBlock => NODE_REPEAT_BLOCK,
             NodeKind::Script => NODE_SCRIPT,
             NodeKind::SubroutineBlock => NODE_SUBROUTINE_BLOCK,
@@ -75,6 +78,7 @@ pub fn id_into_node(lang: &Language, id: u16) -> NodeKind {
         Some(name) => match name {
             NODE_BLOCK => NodeKind::Block,
             NODE_COMMAND_EXPRESSION => NodeKind::CommandExpression,
+            NODE_COMMENT => NodeKind::Comment,
             NODE_IDENTIFIER => NodeKind::Identifier,
             NODE_IF_BLOCK => NodeKind::IfBlock,
             NODE_LABELED_EXPRESSION => NodeKind::LabeledExpression,
@@ -96,6 +100,7 @@ pub fn name_into_node(name: &str) -> NodeKind {
     match name {
         NODE_BLOCK => NodeKind::Block,
         NODE_COMMAND_EXPRESSION => NodeKind::CommandExpression,
+        NODE_COMMENT => NodeKind::Comment,
         NODE_IF_BLOCK => NodeKind::IfBlock,
         NODE_MACRO => NodeKind::Macro,
         NODE_MACRO_DEFINITION => NodeKind::MacroDefinition,
@@ -114,4 +119,12 @@ pub fn get_scope_opener_ids(lang: &Language) -> [u16; 6] {
         ids[ii] = node_into_id(&lang, node);
     }
     ids
+}
+
+pub fn start_on_adjacent_lines(a: &Range, b: &Range) -> bool {
+    if a.start_point.row < b.start_point.row {
+        a.end_point.row == b.start_point.row
+    } else {
+        b.end_point.row == a.start_point.row
+    }
 }

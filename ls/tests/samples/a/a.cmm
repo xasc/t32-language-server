@@ -8,3 +8,17 @@ PRIVATE &private_macro
 
 &private_macro="1"
 
+
+IF &private_macro
+(
+    // No docstring
+
+    // Docstring
+    // Part A
+    // Part B
+    PRIVATE &nested_macro
+
+    &nested_macro = 0x0--0x100
+
+    Data.Set &nested_macro 1.
+)
