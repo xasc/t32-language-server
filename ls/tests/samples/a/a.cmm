@@ -22,3 +22,20 @@ IF &private_macro
 
     Data.Set &nested_macro 1.
 )
+
+; First subroutine
+SUBROUTINE subA
+(
+    ENTRY &a
+
+    RETURN
+)
+
+subB:
+(
+    ENTRY &a &b
+
+)
+
+GLOBAL &global_macro
+LOCAL &local_macro

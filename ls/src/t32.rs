@@ -9,7 +9,9 @@ mod ast;
 mod expressions;
 
 pub use ast::{NodeKind, id_into_node};
-pub use expressions::MacroDefinition;
+pub use expressions::{MacroDefinition, MacroDefinitions, Subroutine};
+
+use expressions::{find_all_global_macro_definitions, find_all_subroutines, find_macro_definition};
 
 /// Use same language ID as [PRACTICE extension for Visual Studio
 /// Code](https://marketplace.visualstudio.com/items?itemName=lauterbach.practice) for Visual
@@ -56,5 +58,13 @@ pub fn goto_macro_definition(
     if r#macro.node().end_byte() >= text.len() {
         return None;
     }
-    expressions::find_macro_definition(text, tree, r#macro)
+    find_macro_definition(text, tree, r#macro)
+}
+
+pub fn find_global_macro_definitions(text: &str, tree: &Tree) -> MacroDefinitions {
+    find_all_global_macro_definitions(text, tree)
+}
+
+pub fn find_subroutines(text: &str, tree: &Tree) -> Option<Vec<Subroutine>> {
+    find_all_subroutines(text, tree)
 }

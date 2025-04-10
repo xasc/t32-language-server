@@ -220,24 +220,24 @@ fn recv_completed_tasks(
                     GoToDefinitionResponse { id, result },
                 ))));
             }
-            TaskDone::TextDocNew(doc, tree) => {
+            TaskDone::TextDocNew(doc, tree, globals) => {
                 if cfg.trace_level != TraceValue::Off {
                     outgoing.push(Some(trace_doc_change(&doc, &tree)));
                 }
-                docs.add(doc, tree, TextDocStatus::Open);
+                docs.add(doc, tree, globals, TextDocStatus::Open);
             }
-            TaskDone::TextDocEdit(doc, tree) => {
+            TaskDone::TextDocEdit(doc, tree, _globals) => {
                 if cfg.trace_level != TraceValue::Off {
                     outgoing.push(Some(trace_doc_change(&doc, &tree)));
                 }
                 docs.update(doc, tree);
             }
             TaskDone::WorkspaceFileScan(res) => match res {
-                Ok((doc, tree)) => {
+                Ok((doc, tree, globals)) => {
                     if cfg.trace_level != TraceValue::Off {
                         outgoing.push(Some(trace_doc_change(&doc, &tree)));
                     }
-                    docs.add(doc, tree, TextDocStatus::Closed);
+                    docs.add(doc, tree, globals, TextDocStatus::Closed);
                 }
                 Err(uri) => outgoing.push(Some(trace_doc_cannot_read(&uri))),
             },

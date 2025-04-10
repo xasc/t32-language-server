@@ -151,7 +151,7 @@ mod tests {
     }
 
     #[test]
-    fn can_macro_definition_with_docstring() {
+    fn can_find_macro_definition_with_docstring() {
         let file =
             Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
                 .unwrap();

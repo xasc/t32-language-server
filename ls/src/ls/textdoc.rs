@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use std::{collections::BTreeMap, fs};
+use std::{collections::HashMap, fs};
 
 use url::Url;
 
@@ -11,7 +11,10 @@ use tree_sitter::{InputEdit, Point, Tree};
 use crate::{
     ReturnCode,
     protocol::{Position, Range, TextDocumentContentChangeEvent, TextDocumentItem, Uri},
-    t32::{self, LANGUAGE_ID},
+    t32::{
+        self, LANGUAGE_ID, MacroDefinitions, Subroutine, find_global_macro_definitions,
+        find_subroutines,
+    },
 };
 
 #[derive(Debug, PartialEq)]
@@ -37,10 +40,20 @@ struct TreeStore {
     closed: Vec<Option<Tree>>,
 }
 
+#[allow(dead_code)]
+struct GlobalsStore {
+    open: Vec<Option<Globals>>,
+    closed: Vec<Option<Globals>>,
+}
+
 pub struct TextDocs {
     docs: DocStore,
     trees: TreeStore,
-    registry: BTreeMap<String, DocIndex>,
+
+    #[allow(dead_code)]
+    globals: GlobalsStore,
+
+    registry: HashMap<String, DocIndex>,
     free_list: FreeLists,
 }
 
@@ -58,6 +71,13 @@ pub struct LineMap {
     byte_offsets: Vec<usize>,
     max_utf16_char_offset: Vec<Option<u32>>,
     num_bytes: usize,
+}
+
+#[allow(dead_code)]
+#[derive(Debug)]
+pub struct Globals {
+    macros: MacroDefinitions,
+    subroutines: Option<Vec<Subroutine>>,
 }
 
 impl From<TextDocumentItem> for TextDoc {
@@ -317,7 +337,11 @@ impl TextDocs {
                 open: Vec::new(),
                 closed: Vec::new(),
             },
-            registry: BTreeMap::new(),
+            globals: GlobalsStore {
+                open: Vec::new(),
+                closed: Vec::new(),
+            },
+            registry: HashMap::new(),
             free_list: FreeLists {
                 open: Vec::new(),
                 closed: Vec::new(),
@@ -325,7 +349,7 @@ impl TextDocs {
         }
     }
 
-    pub fn add(&mut self, doc: TextDoc, tree: Tree, status: TextDocStatus) {
+    pub fn add(&mut self, doc: TextDoc, tree: Tree, _globals: Globals, status: TextDocStatus) {
         if let Some(val) = self.registry.get(&doc.uri) {
             if val.0 == status {
                 match status {
@@ -510,28 +534,49 @@ impl TextDocs {
     }
 }
 
-pub fn import_doc(r#in: TextDocumentItem) -> (TextDoc, Tree) {
+pub fn import_doc(r#in: TextDocumentItem) -> (TextDoc, Tree, Globals) {
     let doc = TextDoc::from(r#in);
     let tree = t32::parse(doc.text.as_bytes(), None);
 
-    (doc, tree)
+    let macros = find_global_macro_definitions(&doc.text, &tree);
+    let subroutines = find_subroutines(&doc.text, &tree);
+
+    (
+        doc,
+        tree,
+        Globals {
+            macros,
+            subroutines,
+        },
+    )
 }
 
 pub fn update_doc(
     mut doc: TextDoc,
     mut tree: Tree,
     changes: Vec<TextDocumentContentChangeEvent>,
-) -> (TextDoc, Tree) {
+) -> (TextDoc, Tree, Globals) {
     for change in changes {
         let edits = doc.update(change.range, &change.text);
 
         tree.edit(&edits);
         t32::parse(doc.text.as_bytes(), Some(&tree));
     }
-    (doc, tree)
+
+    let macros = find_global_macro_definitions(&doc.text, &tree);
+    let subroutines = find_subroutines(&doc.text, &tree);
+
+    (
+        doc,
+        tree,
+        Globals {
+            macros,
+            subroutines,
+        },
+    )
 }
 
-pub fn read_doc(r#in: Url) -> Result<(TextDoc, Tree), Uri> {
+pub fn read_doc(r#in: Url) -> Result<(TextDoc, Tree, Globals), Uri> {
     let uri = r#in.to_string();
     let doc = match TextDoc::try_from(r#in) {
         Ok(text) => text,
@@ -539,7 +584,17 @@ pub fn read_doc(r#in: Url) -> Result<(TextDoc, Tree), Uri> {
     };
     let tree = t32::parse(doc.text.as_bytes(), None);
 
-    Ok((doc, tree))
+    let macros = find_global_macro_definitions(&doc.text, &tree);
+    let subroutines = find_subroutines(&doc.text, &tree);
+
+    Ok((
+        doc,
+        tree,
+        Globals {
+            macros,
+            subroutines,
+        },
+    ))
 }
 
 /// Clients only need to support UTF-16 encoding to character offsets, so
@@ -718,9 +773,11 @@ fn text_ends_with_eol(lines: &LineMap) -> bool {
 
 #[cfg(test)]
 mod test {
+    use std::path;
+
     use super::*;
 
-    fn create_doc(uri: &str) -> (TextDoc, Tree) {
+    fn create_doc(uri: &str) -> (TextDoc, Tree, Globals) {
         let text = "PRINT \"Hello, World!\"\n";
         let lines = create_line_map_for_text(&text, None, None);
         let doc = TextDoc {
@@ -732,7 +789,17 @@ mod test {
         };
         let tree = t32::parse(text.as_bytes(), None);
 
-        (doc, tree)
+        let macros = find_global_macro_definitions(&doc.text, &tree);
+        let subroutines = find_subroutines(&doc.text, &tree);
+
+        (
+            doc,
+            tree,
+            Globals {
+                macros,
+                subroutines,
+            },
+        )
     }
 
     #[test]
@@ -1204,16 +1271,16 @@ mod test {
         let mut docs = TextDocs::build();
 
         let uri_a = "file:///a.cmm";
-        let (doc, tree) = create_doc(uri_a);
+        let (doc, tree, globals) = create_doc(uri_a);
 
-        docs.add(doc, tree, TextDocStatus::Open);
+        docs.add(doc, tree, globals, TextDocStatus::Open);
 
         assert!(docs.is_open(uri_a));
 
         let uri_b = "file:///b.cmm";
-        let (doc, tree) = create_doc(uri_b);
+        let (doc, tree, globals) = create_doc(uri_b);
 
-        docs.add(doc, tree, TextDocStatus::Open);
+        docs.add(doc, tree, globals, TextDocStatus::Open);
 
         assert!(docs.is_open(uri_b));
         assert!(docs.free_list.open.is_empty());
@@ -1226,17 +1293,17 @@ mod test {
         assert!(docs.free_list.closed.is_empty());
 
         let uri_a = "file:///a.cmm";
-        let (doc, tree) = create_doc(uri_a);
+        let (doc, tree, globals) = create_doc(uri_a);
 
-        docs.add(doc, tree, TextDocStatus::Open);
+        docs.add(doc, tree, globals, TextDocStatus::Open);
 
         assert!(!docs.free_list.open.is_empty());
         assert!(!docs.free_list.closed.is_empty());
 
         let uri_b = "file:///b.cmm";
-        let (doc, tree) = create_doc(uri_b);
+        let (doc, tree, globals) = create_doc(uri_b);
 
-        docs.add(doc, tree, TextDocStatus::Open);
+        docs.add(doc, tree, globals, TextDocStatus::Open);
 
         assert!(docs.free_list.open.is_empty());
         assert!(!docs.free_list.closed.is_empty());
@@ -1247,9 +1314,9 @@ mod test {
         let mut docs = TextDocs::build();
 
         let uri_a = "file:///test.cmm";
-        let (doc, tree) = create_doc(uri_a);
+        let (doc, tree, globals) = create_doc(uri_a);
 
-        docs.add(doc, tree, TextDocStatus::Open);
+        docs.add(doc, tree, globals, TextDocStatus::Open);
 
         assert!(docs.free_list.closed.is_empty());
 
@@ -1257,5 +1324,79 @@ mod test {
 
         assert!(!docs.free_list.open.is_empty());
         assert!(!docs.is_open(uri_a));
+    }
+
+    #[test]
+    fn can_find_subroutines() {
+        let file =
+            Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
+                .unwrap();
+
+        let (doc, _, Globals { subroutines, .. }) = read_doc(file).expect("Must not fail.");
+
+        assert!(!subroutines.clone().is_none_or(|s| s.is_empty()));
+
+        for name in ["subA", "subB"].iter() {
+            assert!(
+                subroutines
+                    .as_ref()
+                    .unwrap()
+                    .iter()
+                    .find_map(|s| (doc.text[s.name.clone()] == **name).then_some(()))
+                    .is_some()
+            );
+        }
+    }
+
+    #[test]
+    fn can_find_global_macros() {
+        let file =
+            Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
+                .unwrap();
+
+        let (
+            doc,
+            _,
+            Globals {
+                macros: MacroDefinitions { globals, .. },
+                ..
+            },
+        ) = read_doc(file).expect("Must not fail.");
+
+        assert!(!globals.clone().is_none_or(|s| s.is_empty()));
+        assert!(
+            globals
+                .as_ref()
+                .unwrap()
+                .iter()
+                .find_map(|s| (doc.text[s.r#macro.clone()] == *"&global_macro").then_some(()))
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn can_find_local_macros() {
+        let file =
+            Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
+                .unwrap();
+
+        let (
+            doc,
+            _,
+            Globals {
+                macros: MacroDefinitions { locals, .. },
+                ..
+            },
+        ) = read_doc(file).expect("Must not fail.");
+
+        assert!(!locals.clone().is_none_or(|s| s.is_empty()));
+        assert!(
+            locals
+                .as_ref()
+                .unwrap()
+                .iter()
+                .find_map(|s| (doc.text[s.clone()] == *"&local_macro").then_some(()))
+                .is_some()
+        );
     }
 }

@@ -21,7 +21,10 @@ use url::Url;
 use crate::{
     ReturnCode,
     config::Workspace,
-    ls::{textdoc::TextDoc, workspace::WorkspaceMembers},
+    ls::{
+        textdoc::{Globals, TextDoc},
+        workspace::WorkspaceMembers,
+    },
     protocol::{
         LocationLink, NumberOrString, Position, TextDocumentContentChangeEvent, TextDocumentItem,
         Uri,
@@ -50,28 +53,31 @@ pub enum Task {
         Position,
         fn(TextDoc, Tree, Position) -> Option<LocationLink>,
     ),
-    TextDocNew(TextDocumentItem, fn(TextDocumentItem) -> (TextDoc, Tree)),
+    TextDocNew(
+        TextDocumentItem,
+        fn(TextDocumentItem) -> (TextDoc, Tree, Globals),
+    ),
     TextDocEdit(
         TextDoc,
         Tree,
         Vec<TextDocumentContentChangeEvent>,
-        fn(TextDoc, Tree, Vec<TextDocumentContentChangeEvent>) -> (TextDoc, Tree),
+        fn(TextDoc, Tree, Vec<TextDocumentContentChangeEvent>) -> (TextDoc, Tree, Globals),
     ),
     WorkspaceIndexScan(
         Workspace,
         &'static [&'static str],
         fn(&Workspace, &[&str]) -> WorkspaceMembers,
     ),
-    WorkspaceFileScan(Url, fn(Url) -> Result<(TextDoc, Tree), Uri>),
+    WorkspaceFileScan(Url, fn(Url) -> Result<(TextDoc, Tree, Globals), Uri>),
 }
 
 #[derive(Debug)]
 pub enum TaskDone {
     GoToDefinitionExtMeta(NumberOrString, Option<LocationLink>),
-    TextDocNew(TextDoc, Tree),
-    TextDocEdit(TextDoc, Tree),
+    TextDocNew(TextDoc, Tree, Globals),
+    TextDocEdit(TextDoc, Tree, Globals),
     WorkspaceIndexScan(WorkspaceMembers),
-    WorkspaceFileScan(Result<(TextDoc, Tree), Uri>),
+    WorkspaceFileScan(Result<(TextDoc, Tree, Globals), Uri>),
 }
 
 #[derive(Debug)]
@@ -184,12 +190,12 @@ impl TaskSystem {
                 TaskDone::GoToDefinitionExtMeta(id, find(doc, tree, loc))
             }
             Task::TextDocNew(doc, transform) => {
-                let (doc, tree) = transform(doc);
-                TaskDone::TextDocNew(doc, tree)
+                let (doc, tree, globals) = transform(doc);
+                TaskDone::TextDocNew(doc, tree, globals)
             }
             Task::TextDocEdit(doc, tree, changes, update) => {
-                let (doc, tree) = update(doc, tree, changes);
-                TaskDone::TextDocEdit(doc, tree)
+                let (doc, tree, globals) = update(doc, tree, changes);
+                TaskDone::TextDocEdit(doc, tree, globals)
             }
             Task::WorkspaceIndexScan(workspace, suffixes, locate) => {
                 TaskDone::WorkspaceIndexScan(locate(&workspace, suffixes))

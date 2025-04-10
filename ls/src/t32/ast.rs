@@ -28,7 +28,7 @@ pub const GOTO_REF_SOURCES: [NodeKind; 3] = [
     NodeKind::SubroutineCallExpression,
 ];
 
-const SCOPE_OPENERS: [NodeKind; 6] = [
+const BLOCK_OPENERS: [NodeKind; 6] = [
     NodeKind::Block,
     NodeKind::IfBlock,
     NodeKind::WhileBlock,
@@ -36,6 +36,8 @@ const SCOPE_OPENERS: [NodeKind; 6] = [
     NodeKind::LabeledExpression,
     NodeKind::RepeatBlock,
 ];
+
+const SUBROUTINES: [NodeKind; 2] = [NodeKind::LabeledExpression, NodeKind::SubroutineBlock];
 
 pub const NODE_BLOCK: &'static str = "block";
 pub const NODE_COMMENT: &'static str = "comment";
@@ -101,6 +103,7 @@ pub fn name_into_node(name: &str) -> NodeKind {
         NODE_BLOCK => NodeKind::Block,
         NODE_COMMAND_EXPRESSION => NodeKind::CommandExpression,
         NODE_COMMENT => NodeKind::Comment,
+        NODE_IDENTIFIER => NodeKind::Identifier,
         NODE_IF_BLOCK => NodeKind::IfBlock,
         NODE_MACRO => NodeKind::Macro,
         NODE_MACRO_DEFINITION => NodeKind::MacroDefinition,
@@ -113,9 +116,17 @@ pub fn name_into_node(name: &str) -> NodeKind {
     }
 }
 
-pub fn get_scope_opener_ids(lang: &Language) -> [u16; 6] {
+pub fn get_block_opener_ids(lang: &Language) -> [u16; 6] {
     let mut ids = [0u16; 6];
-    for (ii, &node) in SCOPE_OPENERS.iter().enumerate() {
+    for (ii, &node) in BLOCK_OPENERS.iter().enumerate() {
+        ids[ii] = node_into_id(&lang, node);
+    }
+    ids
+}
+
+pub fn get_subroutine_ids(lang: &Language) -> [u16; 2] {
+    let mut ids = [0u16; 2];
+    for (ii, &node) in SUBROUTINES.iter().enumerate() {
         ids[ii] = node_into_id(&lang, node);
     }
     ids
