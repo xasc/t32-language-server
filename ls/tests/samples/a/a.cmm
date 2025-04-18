@@ -39,3 +39,8 @@ subB:
 
 GLOBAL &global_macro
 LOCAL &local_macro
+
+GOSUB subA
+
+// This is a subroutine call
+GOSUB subB

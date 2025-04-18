@@ -37,7 +37,7 @@ const BLOCK_OPENERS: [NodeKind; 6] = [
     NodeKind::RepeatBlock,
 ];
 
-const SUBROUTINES: [NodeKind; 2] = [NodeKind::LabeledExpression, NodeKind::SubroutineBlock];
+pub const KEYWORDS_SCRIPT_CALL: [&'static str; 2] = ["DO", "RUN"];
 
 pub const NODE_BLOCK: &'static str = "block";
 pub const NODE_COMMENT: &'static str = "comment";
@@ -52,6 +52,8 @@ pub const NODE_SCRIPT: &'static str = "script";
 pub const NODE_SUBROUTINE_BLOCK: &'static str = "subroutine_block";
 pub const NODE_SUBROUTINE_CALL_EXPRESSION: &'static str = "subroutine_call_expression";
 pub const NODE_WHILE_BLOCK: &'static str = "while_block";
+
+const SUBROUTINES: [NodeKind; 2] = [NodeKind::LabeledExpression, NodeKind::SubroutineBlock];
 
 pub fn node_into_id(lang: &Language, node: NodeKind) -> u16 {
     lang.id_for_node_kind(
@@ -130,6 +132,14 @@ pub fn get_subroutine_ids(lang: &Language) -> [u16; 2] {
         ids[ii] = node_into_id(&lang, node);
     }
     ids
+}
+
+pub fn get_subroutine_call_id(lang: &Language) -> u16 {
+    node_into_id(lang, NodeKind::SubroutineCallExpression)
+}
+
+pub fn get_command_expression_id(lang: &Language) -> u16 {
+    node_into_id(lang, NodeKind::CommandExpression)
 }
 
 pub fn start_on_adjacent_lines(a: &Range, b: &Range) -> bool {

@@ -9,12 +9,17 @@ use tree_sitter::{Tree, TreeCursor};
 use crate::{
     ls::textdoc::TextDoc,
     protocol::{LocationLink, Position},
-    t32::{NodeKind, get_goto_ref_ids, goto_macro_definition, id_into_node},
+    t32::{Globals, NodeKind, get_goto_ref_ids, goto_macro_definition, id_into_node},
 };
 
 /// Retrieves definitions for `(macro)`, `(subroutine_call_expression)`, and
 /// `(command_expression)` nodes.
-pub fn find_definition(doc: TextDoc, tree: Tree, position: Position) -> Option<LocationLink> {
+pub fn find_definition(
+    doc: TextDoc,
+    tree: Tree,
+    globals: Globals,
+    position: Position,
+) -> Option<LocationLink> {
     let offset = doc.to_byte_offset(&position);
 
     let lang = tree.language();
@@ -26,7 +31,7 @@ pub fn find_definition(doc: TextDoc, tree: Tree, position: Position) -> Option<L
     let (target_range, target_selection_range) = match id_into_node(&lang, origin.node().kind_id())
     {
         NodeKind::Macro => {
-            if let Some(macro_def) = goto_macro_definition(&doc.text, &tree, origin) {
+            if let Some(macro_def) = goto_macro_definition(&doc.text, &tree, &globals, origin) {
                 if let Some(docstring) = macro_def.docstring {
                     let start: Range<usize> = Range {
                         start: docstring.start,
@@ -95,9 +100,18 @@ mod tests {
 
         let tree = t32::parse(doc.text.as_bytes(), None);
 
+        let macros = t32::find_global_macro_definitions(&doc.text, &tree);
+        let subroutines = t32::find_subroutines(&doc.text, &tree);
+        let calls = t32::find_call_expressions(&doc.text, &tree);
+
         let loc = find_definition(
             doc,
             tree,
+            Globals {
+                macros,
+                subroutines,
+                calls,
+            },
             Position {
                 line: 8,
                 character: 0,
@@ -159,9 +173,18 @@ mod tests {
 
         let tree = t32::parse(doc.text.as_bytes(), None);
 
+        let macros = t32::find_global_macro_definitions(&doc.text, &tree);
+        let subroutines = t32::find_subroutines(&doc.text, &tree);
+        let calls = t32::find_call_expressions(&doc.text, &tree);
+
         let loc = find_definition(
             doc,
             tree,
+            Globals {
+                macros,
+                subroutines,
+                calls,
+            },
             Position {
                 line: 22,
                 character: 21,

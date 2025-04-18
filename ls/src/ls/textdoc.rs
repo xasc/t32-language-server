@@ -12,7 +12,7 @@ use crate::{
     ReturnCode,
     protocol::{Position, Range, TextDocumentContentChangeEvent, TextDocumentItem, Uri},
     t32::{
-        self, LANGUAGE_ID, MacroDefinitions, Subroutine, find_global_macro_definitions,
+        self, Globals, LANGUAGE_ID, find_call_expressions, find_global_macro_definitions,
         find_subroutines,
     },
 };
@@ -24,6 +24,17 @@ pub enum TextDocStatus {
 }
 
 struct DocIndex(TextDocStatus, usize);
+
+pub struct TextDocs {
+    docs: DocStore,
+    trees: TreeStore,
+
+    #[allow(dead_code)]
+    globals: GlobalsStore,
+
+    registry: HashMap<String, DocIndex>,
+    free_list: FreeLists,
+}
 
 struct FreeLists {
     open: Vec<usize>,
@@ -46,17 +57,6 @@ struct GlobalsStore {
     closed: Vec<Option<Globals>>,
 }
 
-pub struct TextDocs {
-    docs: DocStore,
-    trees: TreeStore,
-
-    #[allow(dead_code)]
-    globals: GlobalsStore,
-
-    registry: HashMap<String, DocIndex>,
-    free_list: FreeLists,
-}
-
 #[derive(Clone, Debug)]
 pub struct TextDoc {
     pub uri: String,
@@ -71,13 +71,6 @@ pub struct LineMap {
     byte_offsets: Vec<usize>,
     max_utf16_char_offset: Vec<Option<u32>>,
     num_bytes: usize,
-}
-
-#[allow(dead_code)]
-#[derive(Debug)]
-pub struct Globals {
-    macros: MacroDefinitions,
-    subroutines: Option<Vec<Subroutine>>,
 }
 
 impl From<TextDocumentItem> for TextDoc {
@@ -349,7 +342,7 @@ impl TextDocs {
         }
     }
 
-    pub fn add(&mut self, doc: TextDoc, tree: Tree, _globals: Globals, status: TextDocStatus) {
+    pub fn add(&mut self, doc: TextDoc, tree: Tree, globals: Globals, status: TextDocStatus) {
         if let Some(val) = self.registry.get(&doc.uri) {
             if val.0 == status {
                 match status {
@@ -361,10 +354,12 @@ impl TextDocs {
 
                         self.docs.open[val.1] = Some(doc);
                         self.trees.open[val.1] = Some(tree);
+                        self.globals.open[val.1] = Some(globals);
                     }
                     TextDocStatus::Closed => {
                         self.docs.closed[val.1] = Some(doc);
                         self.trees.closed[val.1] = Some(tree);
+                        self.globals.closed[val.1] = Some(globals);
                     }
                 }
                 return;
@@ -373,12 +368,14 @@ impl TextDocs {
                     TextDocStatus::Open => {
                         self.docs.open[val.1] = None;
                         self.trees.open[val.1] = None;
+                        self.globals.open[val.1] = None;
 
                         self.free_list.open.push(val.1);
                     }
                     TextDocStatus::Closed => {
                         self.docs.closed[val.1] = None;
                         self.trees.closed[val.1] = None;
+                        self.globals.closed[val.1] = None;
 
                         self.free_list.closed.push(val.1);
                     }
@@ -395,6 +392,7 @@ impl TextDocs {
 
                     self.docs.open.push(Some(doc));
                     self.trees.open.push(Some(tree));
+                    self.globals.open.push(Some(globals));
 
                     self.registry.insert(uri, DocIndex(status, len));
                 } else {
@@ -402,6 +400,7 @@ impl TextDocs {
 
                     self.docs.open[slot] = Some(doc);
                     self.trees.open[slot] = Some(tree);
+                    self.globals.open[slot] = Some(globals);
 
                     self.registry.insert(uri, DocIndex(status, slot));
                 }
@@ -412,6 +411,7 @@ impl TextDocs {
 
                     self.docs.closed.push(Some(doc));
                     self.trees.closed.push(Some(tree));
+                    self.globals.closed.push(Some(globals));
 
                     self.registry.insert(uri, DocIndex(status, len));
                 } else {
@@ -419,6 +419,7 @@ impl TextDocs {
 
                     self.docs.closed[slot] = Some(doc);
                     self.trees.closed[slot] = Some(tree);
+                    self.globals.closed[slot] = Some(globals);
 
                     self.registry.insert(uri, DocIndex(status, slot));
                 }
@@ -426,7 +427,7 @@ impl TextDocs {
         }
     }
 
-    pub fn update(&mut self, doc: TextDoc, tree: Tree) {
+    pub fn update(&mut self, doc: TextDoc, tree: Tree, globals: Globals) {
         if let Some(val) = self.registry.get(&doc.uri) {
             debug_assert_eq!(val.0, TextDocStatus::Open);
 
@@ -436,12 +437,14 @@ impl TextDocs {
 
                     self.docs.open[val.1] = Some(doc);
                     self.trees.open[val.1] = Some(tree);
+                    self.globals.open[val.1] = Some(globals);
                 }
                 TextDocStatus::Closed => {
                     debug_assert_eq!(self.docs.open[val.1].as_ref().unwrap().uri, doc.uri);
 
                     self.docs.closed[val.1] = Some(doc);
                     self.trees.closed[val.1] = Some(tree);
+                    self.globals.closed[val.1] = Some(globals);
                 }
             }
             return;
@@ -460,6 +463,7 @@ impl TextDocs {
 
         let doc = self.docs.open[idx].take().unwrap();
         let tree = self.trees.open[idx].take().unwrap();
+        let globals = self.globals.open[idx].take().unwrap();
 
         self.free_list.open.push(idx);
         self.registry.remove(uri);
@@ -469,6 +473,7 @@ impl TextDocs {
 
             self.docs.closed.push(Some(doc));
             self.trees.closed.push(Some(tree));
+            self.globals.closed.push(Some(globals));
 
             self.registry
                 .insert(uri.to_string(), DocIndex(TextDocStatus::Closed, len));
@@ -477,6 +482,7 @@ impl TextDocs {
 
             self.docs.closed[slot] = Some(doc);
             self.trees.closed[slot] = Some(tree);
+            self.globals.closed[slot] = Some(globals);
 
             self.registry
                 .insert(uri.to_string(), DocIndex(TextDocStatus::Closed, slot));
@@ -501,13 +507,23 @@ impl TextDocs {
         }
     }
 
-    pub fn get_doc_and_tree(&self, uri: &str) -> Option<(&TextDoc, &Tree)> {
+    #[allow(dead_code)]
+    pub fn get_globals(&self, uri: &str) -> Option<&Globals> {
+        match self.registry.get(uri) {
+            Some(idx) if idx.0 == TextDocStatus::Open => self.globals.open[idx.1].as_ref(),
+            Some(idx) => self.globals.closed[idx.1].as_ref(),
+            None => None,
+        }
+    }
+
+    pub fn get_doc_data(&self, uri: &str) -> Option<(&TextDoc, &Tree, &Globals)> {
         match self.registry.get(uri) {
             Some(idx) if idx.0 == TextDocStatus::Open => {
                 if self.docs.open[idx.1].is_none() || self.trees.open[idx.1].is_none() {
                     Some((
                         &self.docs.open[idx.1].as_ref().unwrap(),
                         &self.trees.open[idx.1].as_ref().unwrap(),
+                        &self.globals.open[idx.1].as_ref().unwrap(),
                     ))
                 } else {
                     None
@@ -518,6 +534,7 @@ impl TextDocs {
                     Some((
                         &self.docs.open[idx.1].as_ref().unwrap(),
                         &self.trees.open[idx.1].as_ref().unwrap(),
+                        &self.globals.open[idx.1].as_ref().unwrap(),
                     ))
                 } else {
                     None
@@ -540,6 +557,7 @@ pub fn import_doc(r#in: TextDocumentItem) -> (TextDoc, Tree, Globals) {
 
     let macros = find_global_macro_definitions(&doc.text, &tree);
     let subroutines = find_subroutines(&doc.text, &tree);
+    let calls = find_call_expressions(&doc.text, &tree);
 
     (
         doc,
@@ -547,6 +565,7 @@ pub fn import_doc(r#in: TextDocumentItem) -> (TextDoc, Tree, Globals) {
         Globals {
             macros,
             subroutines,
+            calls,
         },
     )
 }
@@ -565,6 +584,7 @@ pub fn update_doc(
 
     let macros = find_global_macro_definitions(&doc.text, &tree);
     let subroutines = find_subroutines(&doc.text, &tree);
+    let calls = find_call_expressions(&doc.text, &tree);
 
     (
         doc,
@@ -572,6 +592,7 @@ pub fn update_doc(
         Globals {
             macros,
             subroutines,
+            calls,
         },
     )
 }
@@ -586,6 +607,7 @@ pub fn read_doc(r#in: Url) -> Result<(TextDoc, Tree, Globals), Uri> {
 
     let macros = find_global_macro_definitions(&doc.text, &tree);
     let subroutines = find_subroutines(&doc.text, &tree);
+    let calls = find_call_expressions(&doc.text, &tree);
 
     Ok((
         doc,
@@ -593,6 +615,7 @@ pub fn read_doc(r#in: Url) -> Result<(TextDoc, Tree, Globals), Uri> {
         Globals {
             macros,
             subroutines,
+            calls,
         },
     ))
 }
@@ -777,6 +800,8 @@ mod test {
 
     use super::*;
 
+    use crate::t32::{CallExpressions, MacroDefinitions};
+
     fn create_doc(uri: &str) -> (TextDoc, Tree, Globals) {
         let text = "PRINT \"Hello, World!\"\n";
         let lines = create_line_map_for_text(&text, None, None);
@@ -791,6 +816,10 @@ mod test {
 
         let macros = find_global_macro_definitions(&doc.text, &tree);
         let subroutines = find_subroutines(&doc.text, &tree);
+        let calls = CallExpressions {
+            subroutines: None,
+            scripts: None,
+        };
 
         (
             doc,
@@ -798,6 +827,7 @@ mod test {
             Globals {
                 macros,
                 subroutines,
+                calls,
             },
         )
     }
@@ -1396,6 +1426,32 @@ mod test {
                 .unwrap()
                 .iter()
                 .find_map(|s| (doc.text[s.clone()] == *"&local_macro").then_some(()))
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn can_find_subroutine_calls() {
+        let file =
+            Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
+                .unwrap();
+
+        let (
+            doc,
+            _,
+            Globals {
+                calls: CallExpressions { subroutines, .. },
+                ..
+            },
+        ) = read_doc(file).expect("Must not fail.");
+
+        assert!(!subroutines.clone().is_none_or(|s| s.is_empty()));
+        assert!(
+            subroutines
+                .as_ref()
+                .unwrap()
+                .iter()
+                .find_map(|s| (doc.text[s.target.clone()] == *"subA").then_some(()))
                 .is_some()
         );
     }

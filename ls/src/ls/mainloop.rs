@@ -226,11 +226,11 @@ fn recv_completed_tasks(
                 }
                 docs.add(doc, tree, globals, TextDocStatus::Open);
             }
-            TaskDone::TextDocEdit(doc, tree, _globals) => {
+            TaskDone::TextDocEdit(doc, tree, globals) => {
                 if cfg.trace_level != TraceValue::Off {
                     outgoing.push(Some(trace_doc_change(&doc, &tree)));
                 }
-                docs.update(doc, tree);
+                docs.update(doc, tree, globals);
             }
             TaskDone::WorkspaceFileScan(res) => match res {
                 Ok((doc, tree, globals)) => {
@@ -273,7 +273,7 @@ fn process_doc_change_notif(
         return Ok(());
     }
 
-    let (doc, tree) = docs.get_doc_and_tree(&params.text_document.uri).unwrap();
+    let (doc, tree, ..) = docs.get_doc_data(&params.text_document.uri).unwrap();
 
     let doc = TextDoc {
         version: params.text_document.version,
@@ -302,8 +302,8 @@ fn process_goto_definition_req(
     trace_level: TraceValue,
     outgoing: &mut Vec<Option<Message>>,
 ) -> Result<(), ReturnCode> {
-    let (doc, tree) = match g.docs.get_doc_and_tree(&params.text_document.uri) {
-        Some((doc, tree)) => (doc, tree),
+    let (doc, tree, globals) = match g.docs.get_doc_data(&params.text_document.uri) {
+        Some((doc, tree, globals)) => (doc, tree, globals),
         None => {
             if trace_level != TraceValue::Off {
                 outgoing.push(Some(trace_doc_unknown(&params.text_document.uri)));
@@ -321,6 +321,7 @@ fn process_goto_definition_req(
             id,
             doc.clone(),
             tree.clone(),
+            globals.clone(),
             params.position,
             find_definition,
         ),

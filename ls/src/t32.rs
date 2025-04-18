@@ -9,9 +9,20 @@ mod ast;
 mod expressions;
 
 pub use ast::{NodeKind, id_into_node};
-pub use expressions::{MacroDefinition, MacroDefinitions, Subroutine};
+pub use expressions::{CallExpressions, MacroDefinition, MacroDefinitions, Subroutine};
 
-use expressions::{find_all_global_macro_definitions, find_all_subroutines, find_macro_definition};
+use expressions::{
+    find_all_call_expressions, find_all_global_macro_definitions, find_all_subroutines,
+    find_macro_definition,
+};
+
+#[allow(dead_code)]
+#[derive(Clone, Debug)]
+pub struct Globals {
+    pub macros: MacroDefinitions,
+    pub subroutines: Option<Vec<Subroutine>>,
+    pub calls: CallExpressions,
+}
 
 /// Use same language ID as [PRACTICE extension for Visual Studio
 /// Code](https://marketplace.visualstudio.com/items?itemName=lauterbach.practice) for Visual
@@ -47,6 +58,7 @@ pub fn get_goto_ref_ids(lang: &Language) -> [u16; 3] {
 pub fn goto_macro_definition(
     text: &str,
     tree: &Tree,
+    globals: &Globals,
     r#macro: TreeCursor,
 ) -> Option<MacroDefinition> {
     let lang = tree.language();
@@ -58,7 +70,7 @@ pub fn goto_macro_definition(
     if r#macro.node().end_byte() >= text.len() {
         return None;
     }
-    find_macro_definition(text, tree, r#macro)
+    find_macro_definition(text, tree, globals, r#macro)
 }
 
 pub fn find_global_macro_definitions(text: &str, tree: &Tree) -> MacroDefinitions {
@@ -67,4 +79,8 @@ pub fn find_global_macro_definitions(text: &str, tree: &Tree) -> MacroDefinition
 
 pub fn find_subroutines(text: &str, tree: &Tree) -> Option<Vec<Subroutine>> {
     find_all_subroutines(text, tree)
+}
+
+pub fn find_call_expressions(text: &str, tree: &Tree) -> CallExpressions {
+    find_all_call_expressions(text, tree)
 }

@@ -21,14 +21,12 @@ use url::Url;
 use crate::{
     ReturnCode,
     config::Workspace,
-    ls::{
-        textdoc::{Globals, TextDoc},
-        workspace::WorkspaceMembers,
-    },
+    ls::{textdoc::TextDoc, workspace::WorkspaceMembers},
     protocol::{
         LocationLink, NumberOrString, Position, TextDocumentContentChangeEvent, TextDocumentItem,
         Uri,
     },
+    t32::Globals,
 };
 
 pub struct TaskSystem {
@@ -50,8 +48,9 @@ pub enum Task {
         NumberOrString,
         TextDoc,
         Tree,
+        Globals,
         Position,
-        fn(TextDoc, Tree, Position) -> Option<LocationLink>,
+        fn(TextDoc, Tree, Globals, Position) -> Option<LocationLink>,
     ),
     TextDocNew(
         TextDocumentItem,
@@ -186,8 +185,8 @@ impl TaskSystem {
 
     fn execute(job: Task) -> TaskDone {
         match job {
-            Task::GoToDefinitionExtMeta(id, doc, tree, loc, find) => {
-                TaskDone::GoToDefinitionExtMeta(id, find(doc, tree, loc))
+            Task::GoToDefinitionExtMeta(id, doc, tree, globals, loc, find) => {
+                TaskDone::GoToDefinitionExtMeta(id, find(doc, tree, globals, loc))
             }
             Task::TextDocNew(doc, transform) => {
                 let (doc, tree, globals) = transform(doc);

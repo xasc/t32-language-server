@@ -7,15 +7,15 @@ use std::ops::Range;
 use tree_sitter::{Range as TRange, Tree, TreeCursor};
 
 use crate::t32::{
-    NodeKind,
-    ast::{get_block_opener_ids, get_subroutine_ids, node_into_id, start_on_adjacent_lines},
+    Globals, NodeKind,
+    ast::{
+        KEYWORDS_SCRIPT_CALL, get_block_opener_ids, get_command_expression_id,
+        get_subroutine_call_id, get_subroutine_ids, node_into_id, start_on_adjacent_lines,
+    },
 };
 
 #[derive(Clone, Debug)]
 pub struct MacroDefinition {
-    #[allow(dead_code)]
-    pub scope: MacroScope,
-
     pub definition: Range<usize>,
     pub r#macro: Range<usize>,
     pub docstring: Option<Range<usize>>,
@@ -31,9 +31,24 @@ pub struct Subroutine {
 
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
+pub struct CallExpression {
+    pub target: Range<usize>,
+    pub call: Range<usize>,
+    pub docstring: Option<Range<usize>>,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug)]
 pub struct MacroDefinitions {
     pub locals: Option<Vec<Range<usize>>>,
     pub globals: Option<Vec<MacroDefinition>>,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug)]
+pub struct CallExpressions {
+    pub subroutines: Option<Vec<CallExpression>>,
+    pub scripts: Option<Vec<CallExpression>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -54,8 +69,25 @@ impl MacroDefinitions {
             g if g.len() <= 0 => None,
             g => Some(g),
         };
-
         MacroDefinitions { locals, globals }
+    }
+}
+
+impl CallExpressions {
+    pub fn build(subroutines: Vec<CallExpression>, scripts: Vec<CallExpression>) -> Self {
+        let subroutines: Option<Vec<CallExpression>> = match subroutines {
+            call if call.len() <= 0 => None,
+            call => Some(call),
+        };
+
+        let scripts: Option<Vec<CallExpression>> = match scripts {
+            call if call.len() <= 0 => None,
+            call => Some(call),
+        };
+        CallExpressions {
+            subroutines,
+            scripts,
+        }
     }
 }
 
@@ -73,6 +105,7 @@ impl From<&str> for MacroScope {
 pub fn find_macro_definition(
     text: &str,
     tree: &Tree,
+    _globals: &Globals,
     r#macro: TreeCursor,
 ) -> Option<MacroDefinition> {
     let node = r#macro.node();
@@ -85,9 +118,7 @@ pub fn find_macro_definition(
     if !cursor.goto_first_child() {
         return None;
     }
-
-    let definition = find_macro_def_in_main_body(text, &node.byte_range(), name, tree);
-    definition
+    find_macro_def_in_main_body(text, &node.byte_range(), name, tree)
 }
 
 pub fn find_all_global_macro_definitions(text: &str, tree: &Tree) -> MacroDefinitions {
@@ -185,6 +216,70 @@ pub fn find_all_subroutines(_text: &str, tree: &Tree) -> Option<Vec<Subroutine>>
     }
 }
 
+pub fn find_all_call_expressions(text: &str, tree: &Tree) -> CallExpressions {
+    let mut cursor = tree.walk();
+
+    let mut subroutines: Vec<CallExpression> = Vec::new();
+    let mut scripts: Vec<CallExpression> = Vec::new();
+
+    if !cursor.goto_first_child() {
+        return CallExpressions::build(subroutines, scripts);
+    }
+
+    let lang = tree.language();
+
+    let subroutine_call = get_subroutine_call_id(&lang);
+    let script_call = get_command_expression_id(&lang);
+    let block_openers = get_block_opener_ids(&lang);
+
+    'outer: loop {
+        let node = cursor.node();
+        let id = node.kind_id();
+
+        if id == subroutine_call {
+            let call = extract_subroutine_call(&mut cursor);
+            debug_assert_eq!(cursor.node().kind_id(), get_subroutine_call_id(&lang));
+
+            if call.is_some() {
+                let mut call = call.unwrap();
+
+                let docstring = find_docstring(tree, &mut cursor);
+                if docstring.is_some() {
+                    call.docstring = docstring;
+                }
+                subroutines.push(call);
+            }
+            debug_assert_eq!(cursor.node().kind_id(), get_subroutine_call_id(&lang));
+        } else if id == script_call {
+            let call = extract_script_call(text, &mut cursor);
+            debug_assert_eq!(cursor.node().kind_id(), get_command_expression_id(&lang));
+
+            if call.is_some() {
+                let mut call = call.unwrap();
+
+                let docstring = find_docstring(tree, &mut cursor);
+                if docstring.is_some() {
+                    call.docstring = docstring;
+                }
+                scripts.push(call);
+            }
+            debug_assert_eq!(cursor.node().kind_id(), get_command_expression_id(&lang));
+        } else if block_openers.contains(&id) {
+            if cursor.goto_first_child() {
+                continue;
+            }
+        }
+
+        while !cursor.goto_next_sibling() {
+            if !cursor.goto_parent() {
+                break 'outer;
+            }
+        }
+    }
+
+    CallExpressions::build(subroutines, scripts)
+}
+
 pub fn find_macro_def_in_main_body(
     text: &str,
     origin: &Range<usize>,
@@ -249,7 +344,6 @@ fn defines_macro(text: &str, def: &mut TreeCursor, name: &str) -> Option<MacroDe
         def.node().kind_id(),
         node_into_id(&def.node().language(), NodeKind::Identifier)
     );
-    let scope = MacroScope::from(&text[def.node().byte_range()]);
 
     while def.goto_next_sibling() {
         let r#macro = def.node();
@@ -266,7 +360,6 @@ fn defines_macro(text: &str, def: &mut TreeCursor, name: &str) -> Option<MacroDe
         if &text[range] == name {
             def.goto_parent();
             return Some(MacroDefinition {
-                scope,
                 definition: def.node().byte_range(),
                 r#macro: r#macro.byte_range(),
                 docstring: None,
@@ -350,7 +443,6 @@ fn extract_global_macro_defs(
             break;
         }
         globals.push(MacroDefinition {
-            scope: MacroScope::Global,
             definition: def.byte_range(),
             r#macro: r#macro.byte_range(),
             docstring: None,
@@ -390,23 +482,100 @@ fn extract_subroutine_def(cursor: &mut TreeCursor) -> Option<Subroutine> {
     })
 }
 
-fn find_macro_scope(text: &str, def: &mut TreeCursor) -> Option<MacroScope> {
+fn extract_subroutine_call(cursor: &mut TreeCursor) -> Option<CallExpression> {
+    let call = cursor.node();
+
     debug_assert_eq!(
-        def.node().kind_id(),
-        node_into_id(&def.node().language(), NodeKind::MacroDefinition)
+        call.kind_id(),
+        get_subroutine_call_id(&cursor.node().language())
     );
 
-    if !def.goto_first_child() {
+    if !cursor.goto_first_child() {
         return None;
     }
 
     debug_assert_eq!(
-        def.node().kind_id(),
-        node_into_id(&def.node().language(), NodeKind::Identifier)
+        cursor.node().kind_id(),
+        node_into_id(&cursor.node().language(), NodeKind::Identifier)
     );
-    let scope = Some(MacroScope::from(&text[def.node().byte_range()]));
 
-    def.goto_parent();
+    if !cursor.goto_next_sibling() {
+        cursor.goto_parent();
+        return None;
+    }
+
+    let target = cursor.node();
+    debug_assert_eq!(
+        target.kind_id(),
+        node_into_id(&cursor.node().language(), NodeKind::Identifier)
+    );
+
+    cursor.goto_parent();
+
+    Some(CallExpression {
+        target: target.byte_range(),
+        call: call.byte_range(),
+        docstring: None,
+    })
+}
+
+fn extract_script_call(text: &str, cursor: &mut TreeCursor) -> Option<CallExpression> {
+    let call = cursor.node();
+
+    debug_assert_eq!(
+        call.kind_id(),
+        get_command_expression_id(&cursor.node().language())
+    );
+
+    if !cursor.goto_first_child() {
+        return None;
+    }
+
+    debug_assert_eq!(
+        cursor.node().kind_id(),
+        node_into_id(&cursor.node().language(), NodeKind::Identifier)
+    );
+
+    let command = text[cursor.node().byte_range()].split(".").last()?;
+    if !(KEYWORDS_SCRIPT_CALL
+        .iter()
+        .any(|k| k.eq_ignore_ascii_case(command))
+        && cursor.goto_next_sibling())
+    {
+        cursor.goto_parent();
+        return None;
+    }
+
+    let mut target = cursor.node().byte_range();
+    while cursor.goto_next_sibling() {
+        target.end = cursor.node().end_byte();
+    }
+    cursor.goto_parent();
+
+    Some(CallExpression {
+        target,
+        call: call.byte_range(),
+        docstring: None,
+    })
+}
+
+fn find_macro_scope(text: &str, cursor: &mut TreeCursor) -> Option<MacroScope> {
+    debug_assert_eq!(
+        cursor.node().kind_id(),
+        node_into_id(&cursor.node().language(), NodeKind::MacroDefinition)
+    );
+
+    if !cursor.goto_first_child() {
+        return None;
+    }
+
+    debug_assert_eq!(
+        cursor.node().kind_id(),
+        node_into_id(&cursor.node().language(), NodeKind::Identifier)
+    );
+    let scope = Some(MacroScope::from(&text[cursor.node().byte_range()]));
+
+    cursor.goto_parent();
     scope
 }
 
