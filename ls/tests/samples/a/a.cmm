@@ -44,3 +44,8 @@ GOSUB subA
 
 // This is a subroutine call
 GOSUB subB
+
+DO ../b/b.cmm
+
+// This is subscript call
+RUN ../c.cmm

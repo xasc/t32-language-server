@@ -1454,5 +1454,61 @@ mod test {
                 .find_map(|s| (doc.text[s.target.clone()] == *"subA").then_some(()))
                 .is_some()
         );
+        assert!(
+            subroutines
+                .as_ref()
+                .unwrap()
+                .iter()
+                .find_map(|s| (s.docstring.is_some()
+                    && doc.text[s.docstring.as_ref().unwrap().clone()]
+                        == *"// This is a subroutine call\n")
+                    .then_some(()))
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn can_find_script_calls() {
+        let file =
+            Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
+                .unwrap();
+
+        let (
+            doc,
+            _,
+            Globals {
+                calls: CallExpressions { scripts, .. },
+                ..
+            },
+        ) = read_doc(file).expect("Must not fail.");
+
+        assert!(!scripts.clone().is_none_or(|s| s.is_empty()));
+        assert!(
+            scripts
+                .as_ref()
+                .unwrap()
+                .iter()
+                .find_map(|s| (doc.text[s.target.clone()] == *"../b/b.cmm").then_some(()))
+                .is_some()
+        );
+        assert!(
+            scripts
+                .as_ref()
+                .unwrap()
+                .iter()
+                .find_map(|s| (doc.text[s.target.clone()] == *"../c.cmm").then_some(()))
+                .is_some()
+        );
+        assert!(
+            scripts
+                .as_ref()
+                .unwrap()
+                .iter()
+                .find_map(|s| (s.docstring.is_some()
+                    && doc.text[s.docstring.as_ref().unwrap().clone()]
+                        == *"// This is subscript call\n")
+                    .then_some(()))
+                .is_some()
+        );
     }
 }
