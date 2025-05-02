@@ -10,9 +10,10 @@ use tree_sitter::{InputEdit, Point, Tree};
 
 use crate::{
     ReturnCode,
+    ls::workspace::FileIndex,
     protocol::{Position, Range, TextDocumentContentChangeEvent, TextDocumentItem, Uri},
     t32::{
-        self, Globals, LANGUAGE_ID, find_call_expressions, find_global_macro_definitions,
+        self, LANGUAGE_ID, Waypoints, find_call_expressions, find_global_macro_definitions,
         find_subroutines,
     },
 };
@@ -30,10 +31,13 @@ pub struct TextDocs {
     trees: TreeStore,
 
     #[allow(dead_code)]
-    globals: GlobalsStore,
+    t32: WaypointStore,
 
-    registry: HashMap<String, DocIndex>,
+    registry: HashMap<Uri, DocIndex>,
     free_list: FreeLists,
+
+    #[allow(dead_code)]
+    file_idx: FileIndex,
 }
 
 struct FreeLists {
@@ -52,14 +56,14 @@ struct TreeStore {
 }
 
 #[allow(dead_code)]
-struct GlobalsStore {
-    open: Vec<Option<Globals>>,
-    closed: Vec<Option<Globals>>,
+struct WaypointStore {
+    open: Vec<Option<Waypoints>>,
+    closed: Vec<Option<Waypoints>>,
 }
 
 #[derive(Clone, Debug)]
 pub struct TextDoc {
-    pub uri: String,
+    pub uri: Uri,
     pub lang_id: String,
     pub text: String,
     pub version: i64,
@@ -320,7 +324,7 @@ impl LineMap {
 }
 
 impl TextDocs {
-    pub fn build() -> Self {
+    pub fn build(files: FileIndex) -> Self {
         TextDocs {
             docs: DocStore {
                 open: Vec::new(),
@@ -330,7 +334,7 @@ impl TextDocs {
                 open: Vec::new(),
                 closed: Vec::new(),
             },
-            globals: GlobalsStore {
+            t32: WaypointStore {
                 open: Vec::new(),
                 closed: Vec::new(),
             },
@@ -339,10 +343,11 @@ impl TextDocs {
                 open: Vec::new(),
                 closed: Vec::new(),
             },
+            file_idx: files,
         }
     }
 
-    pub fn add(&mut self, doc: TextDoc, tree: Tree, globals: Globals, status: TextDocStatus) {
+    pub fn add(&mut self, doc: TextDoc, tree: Tree, expr: Waypoints, status: TextDocStatus) {
         if let Some(val) = self.registry.get(&doc.uri) {
             if val.0 == status {
                 match status {
@@ -354,12 +359,12 @@ impl TextDocs {
 
                         self.docs.open[val.1] = Some(doc);
                         self.trees.open[val.1] = Some(tree);
-                        self.globals.open[val.1] = Some(globals);
+                        self.t32.open[val.1] = Some(expr);
                     }
                     TextDocStatus::Closed => {
                         self.docs.closed[val.1] = Some(doc);
                         self.trees.closed[val.1] = Some(tree);
-                        self.globals.closed[val.1] = Some(globals);
+                        self.t32.closed[val.1] = Some(expr);
                     }
                 }
                 return;
@@ -368,14 +373,14 @@ impl TextDocs {
                     TextDocStatus::Open => {
                         self.docs.open[val.1] = None;
                         self.trees.open[val.1] = None;
-                        self.globals.open[val.1] = None;
+                        self.t32.open[val.1] = None;
 
                         self.free_list.open.push(val.1);
                     }
                     TextDocStatus::Closed => {
                         self.docs.closed[val.1] = None;
                         self.trees.closed[val.1] = None;
-                        self.globals.closed[val.1] = None;
+                        self.t32.closed[val.1] = None;
 
                         self.free_list.closed.push(val.1);
                     }
@@ -392,7 +397,7 @@ impl TextDocs {
 
                     self.docs.open.push(Some(doc));
                     self.trees.open.push(Some(tree));
-                    self.globals.open.push(Some(globals));
+                    self.t32.open.push(Some(expr));
 
                     self.registry.insert(uri, DocIndex(status, len));
                 } else {
@@ -400,7 +405,7 @@ impl TextDocs {
 
                     self.docs.open[slot] = Some(doc);
                     self.trees.open[slot] = Some(tree);
-                    self.globals.open[slot] = Some(globals);
+                    self.t32.open[slot] = Some(expr);
 
                     self.registry.insert(uri, DocIndex(status, slot));
                 }
@@ -411,7 +416,7 @@ impl TextDocs {
 
                     self.docs.closed.push(Some(doc));
                     self.trees.closed.push(Some(tree));
-                    self.globals.closed.push(Some(globals));
+                    self.t32.closed.push(Some(expr));
 
                     self.registry.insert(uri, DocIndex(status, len));
                 } else {
@@ -419,7 +424,7 @@ impl TextDocs {
 
                     self.docs.closed[slot] = Some(doc);
                     self.trees.closed[slot] = Some(tree);
-                    self.globals.closed[slot] = Some(globals);
+                    self.t32.closed[slot] = Some(expr);
 
                     self.registry.insert(uri, DocIndex(status, slot));
                 }
@@ -427,7 +432,7 @@ impl TextDocs {
         }
     }
 
-    pub fn update(&mut self, doc: TextDoc, tree: Tree, globals: Globals) {
+    pub fn update(&mut self, doc: TextDoc, tree: Tree, expr: Waypoints) {
         if let Some(val) = self.registry.get(&doc.uri) {
             debug_assert_eq!(val.0, TextDocStatus::Open);
 
@@ -437,14 +442,14 @@ impl TextDocs {
 
                     self.docs.open[val.1] = Some(doc);
                     self.trees.open[val.1] = Some(tree);
-                    self.globals.open[val.1] = Some(globals);
+                    self.t32.open[val.1] = Some(expr);
                 }
                 TextDocStatus::Closed => {
                     debug_assert_eq!(self.docs.open[val.1].as_ref().unwrap().uri, doc.uri);
 
                     self.docs.closed[val.1] = Some(doc);
                     self.trees.closed[val.1] = Some(tree);
-                    self.globals.closed[val.1] = Some(globals);
+                    self.t32.closed[val.1] = Some(expr);
                 }
             }
             return;
@@ -463,7 +468,7 @@ impl TextDocs {
 
         let doc = self.docs.open[idx].take().unwrap();
         let tree = self.trees.open[idx].take().unwrap();
-        let globals = self.globals.open[idx].take().unwrap();
+        let globals = self.t32.open[idx].take().unwrap();
 
         self.free_list.open.push(idx);
         self.registry.remove(uri);
@@ -473,7 +478,7 @@ impl TextDocs {
 
             self.docs.closed.push(Some(doc));
             self.trees.closed.push(Some(tree));
-            self.globals.closed.push(Some(globals));
+            self.t32.closed.push(Some(globals));
 
             self.registry
                 .insert(uri.to_string(), DocIndex(TextDocStatus::Closed, len));
@@ -482,7 +487,7 @@ impl TextDocs {
 
             self.docs.closed[slot] = Some(doc);
             self.trees.closed[slot] = Some(tree);
-            self.globals.closed[slot] = Some(globals);
+            self.t32.closed[slot] = Some(globals);
 
             self.registry
                 .insert(uri.to_string(), DocIndex(TextDocStatus::Closed, slot));
@@ -508,22 +513,22 @@ impl TextDocs {
     }
 
     #[allow(dead_code)]
-    pub fn get_globals(&self, uri: &str) -> Option<&Globals> {
+    pub fn get_waypoints(&self, uri: &str) -> Option<&Waypoints> {
         match self.registry.get(uri) {
-            Some(idx) if idx.0 == TextDocStatus::Open => self.globals.open[idx.1].as_ref(),
-            Some(idx) => self.globals.closed[idx.1].as_ref(),
+            Some(idx) if idx.0 == TextDocStatus::Open => self.t32.open[idx.1].as_ref(),
+            Some(idx) => self.t32.closed[idx.1].as_ref(),
             None => None,
         }
     }
 
-    pub fn get_doc_data(&self, uri: &str) -> Option<(&TextDoc, &Tree, &Globals)> {
+    pub fn get_doc_data(&self, uri: &str) -> Option<(&TextDoc, &Tree, &Waypoints)> {
         match self.registry.get(uri) {
             Some(idx) if idx.0 == TextDocStatus::Open => {
                 if self.docs.open[idx.1].is_none() || self.trees.open[idx.1].is_none() {
                     Some((
                         &self.docs.open[idx.1].as_ref().unwrap(),
                         &self.trees.open[idx.1].as_ref().unwrap(),
-                        &self.globals.open[idx.1].as_ref().unwrap(),
+                        &self.t32.open[idx.1].as_ref().unwrap(),
                     ))
                 } else {
                     None
@@ -534,7 +539,7 @@ impl TextDocs {
                     Some((
                         &self.docs.open[idx.1].as_ref().unwrap(),
                         &self.trees.open[idx.1].as_ref().unwrap(),
-                        &self.globals.open[idx.1].as_ref().unwrap(),
+                        &self.t32.open[idx.1].as_ref().unwrap(),
                     ))
                 } else {
                     None
@@ -551,7 +556,7 @@ impl TextDocs {
     }
 }
 
-pub fn import_doc(r#in: TextDocumentItem) -> (TextDoc, Tree, Globals) {
+pub fn import_doc(r#in: TextDocumentItem) -> (TextDoc, Tree, Waypoints) {
     let doc = TextDoc::from(r#in);
     let tree = t32::parse(doc.text.as_bytes(), None);
 
@@ -562,7 +567,7 @@ pub fn import_doc(r#in: TextDocumentItem) -> (TextDoc, Tree, Globals) {
     (
         doc,
         tree,
-        Globals {
+        Waypoints {
             macros,
             subroutines,
             calls,
@@ -574,7 +579,7 @@ pub fn update_doc(
     mut doc: TextDoc,
     mut tree: Tree,
     changes: Vec<TextDocumentContentChangeEvent>,
-) -> (TextDoc, Tree, Globals) {
+) -> (TextDoc, Tree, Waypoints) {
     for change in changes {
         let edits = doc.update(change.range, &change.text);
 
@@ -589,7 +594,7 @@ pub fn update_doc(
     (
         doc,
         tree,
-        Globals {
+        Waypoints {
             macros,
             subroutines,
             calls,
@@ -597,7 +602,7 @@ pub fn update_doc(
     )
 }
 
-pub fn read_doc(r#in: Url) -> Result<(TextDoc, Tree, Globals), Uri> {
+pub fn read_doc(r#in: Url) -> Result<(TextDoc, Tree, Waypoints), Uri> {
     let uri = r#in.to_string();
     let doc = match TextDoc::try_from(r#in) {
         Ok(text) => text,
@@ -612,7 +617,7 @@ pub fn read_doc(r#in: Url) -> Result<(TextDoc, Tree, Globals), Uri> {
     Ok((
         doc,
         tree,
-        Globals {
+        Waypoints {
             macros,
             subroutines,
             calls,
@@ -802,7 +807,7 @@ mod test {
 
     use crate::t32::{CallExpressions, MacroDefinitions};
 
-    fn create_doc(uri: &str) -> (TextDoc, Tree, Globals) {
+    fn create_doc(uri: &str) -> (TextDoc, Tree, Waypoints) {
         let text = "PRINT \"Hello, World!\"\n";
         let lines = create_line_map_for_text(&text, None, None);
         let doc = TextDoc {
@@ -824,7 +829,7 @@ mod test {
         (
             doc,
             tree,
-            Globals {
+            Waypoints {
                 macros,
                 subroutines,
                 calls,
@@ -1298,7 +1303,7 @@ mod test {
 
     #[test]
     fn can_open_documents() {
-        let mut docs = TextDocs::build();
+        let mut docs = TextDocs::build(FileIndex::build());
 
         let uri_a = "file:///a.cmm";
         let (doc, tree, globals) = create_doc(uri_a);
@@ -1341,7 +1346,7 @@ mod test {
 
     #[test]
     fn can_close_documents() {
-        let mut docs = TextDocs::build();
+        let mut docs = TextDocs::build(FileIndex::build());
 
         let uri_a = "file:///test.cmm";
         let (doc, tree, globals) = create_doc(uri_a);
@@ -1362,7 +1367,7 @@ mod test {
             Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
                 .unwrap();
 
-        let (doc, _, Globals { subroutines, .. }) = read_doc(file).expect("Must not fail.");
+        let (doc, _, Waypoints { subroutines, .. }) = read_doc(file).expect("Must not fail.");
 
         assert!(!subroutines.clone().is_none_or(|s| s.is_empty()));
 
@@ -1387,7 +1392,7 @@ mod test {
         let (
             doc,
             _,
-            Globals {
+            Waypoints {
                 macros: MacroDefinitions { globals, .. },
                 ..
             },
@@ -1413,7 +1418,7 @@ mod test {
         let (
             doc,
             _,
-            Globals {
+            Waypoints {
                 macros: MacroDefinitions { locals, .. },
                 ..
             },
@@ -1439,7 +1444,7 @@ mod test {
         let (
             doc,
             _,
-            Globals {
+            Waypoints {
                 calls: CallExpressions { subroutines, .. },
                 ..
             },
@@ -1476,36 +1481,39 @@ mod test {
         let (
             doc,
             _,
-            Globals {
+            Waypoints {
                 calls: CallExpressions { scripts, .. },
                 ..
             },
         ) = read_doc(file).expect("Must not fail.");
 
-        assert!(!scripts.clone().is_none_or(|s| s.is_empty()));
+        assert!(!scripts.clone().is_none_or(|s| s.locations.is_empty()));
         assert!(
             scripts
                 .as_ref()
                 .unwrap()
+                .locations
                 .iter()
-                .find_map(|s| (doc.text[s.target.clone()] == *"../b/b.cmm").then_some(()))
+                .find_map(|c| (doc.text[c.target.clone()] == *"../b/b.cmm").then_some(()))
                 .is_some()
         );
         assert!(
             scripts
                 .as_ref()
                 .unwrap()
+                .locations
                 .iter()
-                .find_map(|s| (doc.text[s.target.clone()] == *"../c.cmm").then_some(()))
+                .find_map(|c| (doc.text[c.target.clone()] == *"../c.cmm").then_some(()))
                 .is_some()
         );
         assert!(
             scripts
                 .as_ref()
                 .unwrap()
+                .locations
                 .iter()
-                .find_map(|s| (s.docstring.is_some()
-                    && doc.text[s.docstring.as_ref().unwrap().clone()]
+                .find_map(|c| (c.docstring.is_some()
+                    && doc.text[c.docstring.as_ref().unwrap().clone()]
                         == *"// This is subscript call\n")
                     .then_some(()))
                 .is_some()

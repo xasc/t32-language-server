@@ -144,7 +144,7 @@ fn can_index_workspace() {
     let notif = utils::make_set_trace_notification(utils::TraceValue::Messages);
     utils::to_stdin(&mut stdin, &notif);
 
-    thread::sleep(time::Duration::from_millis(1500));
+    thread::sleep(time::Duration::from_millis(2000));
 
     utils::stop_ls(&mut ls, Some(&mut stdin), Some(2));
     let output = ls.wait_with_output().expect("Cannot capture output");
@@ -165,7 +165,7 @@ fn can_index_workspace() {
     let notif = utils::make_set_trace_notification(utils::TraceValue::Messages);
     utils::to_stdin(&mut stdin, &notif);
 
-    thread::sleep(time::Duration::from_millis(1500));
+    thread::sleep(time::Duration::from_millis(2000));
 
     utils::stop_ls(&mut ls, Some(&mut stdin), Some(3));
     let output = ls.wait_with_output().expect("Cannot capture output");
@@ -186,7 +186,7 @@ fn can_index_workspace() {
     let notif = utils::make_set_trace_notification(utils::TraceValue::Messages);
     utils::to_stdin(&mut stdin, &notif);
 
-    thread::sleep(time::Duration::from_millis(1500));
+    thread::sleep(time::Duration::from_millis(2000));
 
     utils::stop_ls(&mut ls, Some(&mut stdin), Some(4));
     let output = ls.wait_with_output().expect("Cannot capture output");
@@ -212,7 +212,7 @@ fn reports_invalid_workspace_roots() {
     let notif = utils::make_set_trace_notification(utils::TraceValue::Messages);
     utils::to_stdin(&mut stdin, &notif);
 
-    thread::sleep(time::Duration::from_millis(1500));
+    thread::sleep(time::Duration::from_millis(2000));
 
     utils::stop_ls(&mut ls, Some(&mut stdin), Some(1));
     let output = ls.wait_with_output().expect("Cannot capture output");

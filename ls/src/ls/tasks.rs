@@ -12,7 +12,7 @@ use std::{
         atomic::{AtomicBool, AtomicU32, Ordering},
         mpsc::{Receiver, Sender, channel},
     },
-    thread::{JoinHandle, available_parallelism, spawn},
+    thread::{Builder, JoinHandle, available_parallelism},
 };
 
 use tree_sitter::Tree;
@@ -21,12 +21,15 @@ use url::Url;
 use crate::{
     ReturnCode,
     config::Workspace,
-    ls::{textdoc::TextDoc, workspace::WorkspaceMembers},
+    ls::{
+        textdoc::TextDoc,
+        workspace::{FileIndex, WorkspaceMembers},
+    },
     protocol::{
         LocationLink, NumberOrString, Position, TextDocumentContentChangeEvent, TextDocumentItem,
         Uri,
     },
-    t32::Globals,
+    t32::Waypoints,
 };
 
 pub struct TaskSystem {
@@ -48,35 +51,37 @@ pub enum Task {
         NumberOrString,
         TextDoc,
         Tree,
-        Globals,
+        Waypoints,
         Position,
-        fn(TextDoc, Tree, Globals, Position) -> Option<LocationLink>,
+        fn(TextDoc, Tree, Waypoints, Position) -> Option<LocationLink>,
     ),
     TextDocNew(
         TextDocumentItem,
-        fn(TextDocumentItem) -> (TextDoc, Tree, Globals),
+        fn(TextDocumentItem) -> (TextDoc, Tree, Waypoints),
     ),
     TextDocEdit(
         TextDoc,
         Tree,
         Vec<TextDocumentContentChangeEvent>,
-        fn(TextDoc, Tree, Vec<TextDocumentContentChangeEvent>) -> (TextDoc, Tree, Globals),
+        fn(TextDoc, Tree, Vec<TextDocumentContentChangeEvent>) -> (TextDoc, Tree, Waypoints),
     ),
     WorkspaceIndexScan(
         Workspace,
         &'static [&'static str],
         fn(&Workspace, &[&str]) -> WorkspaceMembers,
     ),
-    WorkspaceFileScan(Url, fn(Url) -> Result<(TextDoc, Tree, Globals), Uri>),
+    WorkspaceFileScan(Url, fn(Url) -> Result<(TextDoc, Tree, Waypoints), Uri>),
+    WorkspaceFileIndexNew(Vec<Url>, fn(Vec<Url>) -> FileIndex),
 }
 
 #[derive(Debug)]
 pub enum TaskDone {
     GoToDefinitionExtMeta(NumberOrString, Option<LocationLink>),
-    TextDocNew(TextDoc, Tree, Globals),
-    TextDocEdit(TextDoc, Tree, Globals),
+    TextDocNew(TextDoc, Tree, Waypoints),
+    TextDocEdit(TextDoc, Tree, Waypoints),
     WorkspaceIndexScan(WorkspaceMembers),
-    WorkspaceFileScan(Result<(TextDoc, Tree, Globals), Uri>),
+    WorkspaceFileScan(Result<(TextDoc, Tree, Waypoints), Uri>),
+    WorkspaceFileIndexNew(FileIndex),
 }
 
 #[derive(Debug)]
@@ -113,7 +118,14 @@ impl TaskSystem {
             let q = queues.clone();
             let ch = tx.clone();
 
-            threads.push(Some(spawn(move || Self::run(ii, s, w, q, ch))));
+            let builder = Builder::new();
+
+            threads.push(Some(
+                builder
+                    .name(format!("Worker #{}", ii))
+                    .spawn(move || Self::run(ii, s, w, q, ch))
+                    .expect("Worker thread creation must work."),
+            ));
         }
 
         TaskSystem {
@@ -200,6 +212,9 @@ impl TaskSystem {
                 TaskDone::WorkspaceIndexScan(locate(&workspace, suffixes))
             }
             Task::WorkspaceFileScan(uri, scan) => TaskDone::WorkspaceFileScan(scan(uri)),
+            Task::WorkspaceFileIndexNew(files, index) => {
+                TaskDone::WorkspaceFileIndexNew(index(files))
+            }
         }
     }
 }

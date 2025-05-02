@@ -80,54 +80,60 @@ impl StdioChannel {
 
         let mut cin = listener.stdout.take().unwrap();
 
-        let worker = thread::spawn(move || {
-            let mut buf: [u8; Decoder::CAPACITY] = [0; Decoder::CAPACITY];
-            let mut decoder = Decoder::build();
+        let builder = thread::Builder::new();
 
-            let idle = time::Duration::from_millis(10);
+        let worker = builder
+            .name("Transport Channel".to_string())
+            .spawn(move || {
+                let mut buf: [u8; Decoder::CAPACITY] = [0; Decoder::CAPACITY];
+                let mut decoder = Decoder::build();
 
-            loop {
-                match Self::read_stdin(&mut cin, &mut buf, &mut decoder) {
-                    Ok(0) => {
-                        if let Err(_) = tx.send(RecvMessage::Heartbeat) {
-                            return;
-                        }
-                        thread::sleep(idle);
-                        continue;
-                    }
-                    Ok(_) => (),
-                    Err(err) => {
-                        if let Err(_) = tx.send(RecvMessage::Err(err)) {
-                            return;
-                        }
-                        thread::sleep(idle);
-                        continue;
-                    }
-                };
+                let idle = time::Duration::from_millis(10);
 
                 loop {
-                    match lsp::parse(&mut decoder.state, &mut decoder.rest, &mut decoder.tokens) {
-                        Ok(None) => {
+                    match Self::read_stdin(&mut cin, &mut buf, &mut decoder) {
+                        Ok(0) => {
                             if let Err(_) = tx.send(RecvMessage::Heartbeat) {
                                 return;
                             }
-                            break;
+                            thread::sleep(idle);
+                            continue;
                         }
-                        Ok(Some(req)) => {
-                            if let Err(_) = tx.send(RecvMessage::Msg(req)) {
-                                return;
-                            }
-                        }
+                        Ok(_) => (),
                         Err(err) => {
                             if let Err(_) = tx.send(RecvMessage::Err(err)) {
                                 return;
                             }
-                            break;
+                            thread::sleep(idle);
+                            continue;
+                        }
+                    };
+
+                    loop {
+                        match lsp::parse(&mut decoder.state, &mut decoder.rest, &mut decoder.tokens)
+                        {
+                            Ok(None) => {
+                                if let Err(_) = tx.send(RecvMessage::Heartbeat) {
+                                    return;
+                                }
+                                break;
+                            }
+                            Ok(Some(req)) => {
+                                if let Err(_) = tx.send(RecvMessage::Msg(req)) {
+                                    return;
+                                }
+                            }
+                            Err(err) => {
+                                if let Err(_) = tx.send(RecvMessage::Err(err)) {
+                                    return;
+                                }
+                                break;
+                            }
                         }
                     }
                 }
-            }
-        });
+            })
+            .expect("Thread creation must work.");
 
         Ok(StdioChannel {
             worker: Some(worker),

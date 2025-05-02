@@ -3,18 +3,36 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use std::{
+    collections::HashMap,
+    ffi::OsStr,
     fs,
     path::{Path, PathBuf},
 };
 
 use url::Url;
 
-use crate::{ReturnCode, config::Workspace, protocol::Uri};
+use crate::{ReturnCode, config::Workspace, protocol::Uri, t32::SUFFIXES};
 
 #[derive(Debug)]
 pub struct WorkspaceMembers {
     pub files: Vec<Url>,
     pub missing_roots: Vec<Uri>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug)]
+pub struct FileIndex {
+    pub by_filename: HashMap<String, Url>,
+    pub by_path: Option<(Vec<PathBuf>, Vec<Url>)>,
+}
+
+impl FileIndex {
+    pub fn build() -> Self {
+        FileIndex {
+            by_filename: HashMap::new(),
+            by_path: None,
+        }
+    }
 }
 
 pub fn locate_files(workspace: &Workspace, suffixes: &[&str]) -> WorkspaceMembers {
@@ -64,6 +82,71 @@ pub fn locate_files(workspace: &Workspace, suffixes: &[&str]) -> WorkspaceMember
     }
 }
 
+pub fn index_files(files: Vec<Url>) -> FileIndex {
+    let mut unique_names: HashMap<String, Url> = HashMap::new();
+    let mut conflicts: ((Vec<String>, Vec<PathBuf>), Vec<Url>) =
+        ((Vec::new(), Vec::new()), Vec::new());
+
+    for uri in files.into_iter() {
+        let script = uri.to_file_path();
+        if script.is_err() {
+            continue;
+        }
+        let script = script.unwrap();
+
+        let filename = script.file_name();
+        if filename.is_none() {
+            continue;
+        }
+
+        let filename = filename.unwrap().to_str();
+        if filename.is_none() {
+            continue;
+        }
+
+        let filename = filename.unwrap().to_string();
+        debug_assert!(
+            SUFFIXES
+                .iter()
+                .find_map(|s| (*s == script.extension().unwrap().to_str().unwrap()).then_some(s))
+                .is_some()
+        );
+
+        if unique_names.contains_key(&filename) {
+            let conflict = unique_names.remove(&filename).unwrap();
+
+            conflicts.0.0.push(filename.clone());
+            conflicts.0.1.push(conflict.to_file_path().unwrap());
+            conflicts.1.push(conflict);
+
+            conflicts.0.0.push(filename);
+            conflicts.0.1.push(script);
+            conflicts.1.push(uri);
+        } else if conflicts.0.0.contains(&filename) {
+            conflicts.0.0.push(filename);
+            conflicts.0.1.push(script);
+            conflicts.1.push(uri);
+        } else {
+            unique_names.insert(filename, uri);
+        }
+    }
+
+    if conflicts.1.is_empty() {
+        FileIndex {
+            by_filename: unique_names,
+            by_path: None,
+        }
+    } else {
+        let ((filenames, filepaths), uris) = conflicts;
+        let resolution = resolve_path_conflicts(filenames, filepaths, uris);
+
+        FileIndex {
+            by_filename: unique_names,
+            by_path: Some(resolution),
+        }
+    }
+}
+
 fn convert_uri_into_path(uri: &str) -> Result<PathBuf, ReturnCode> {
     // If it is not a valid URI, then it might be plain path.
     // A direct path lookup might therefore be successful.
@@ -99,4 +182,62 @@ fn walk_dir(root: &Path, suffixes: &[&str], files: &mut Vec<Url>) {
             }
         }
     }
+}
+
+fn resolve_path_conflicts(
+    filenames: Vec<String>,
+    filepaths: Vec<PathBuf>,
+    uris: Vec<Url>,
+) -> (Vec<PathBuf>, Vec<Url>) {
+    debug_assert!(
+        filenames.len() == filepaths.len() && filenames.len() == uris.len() && filenames.len() > 0
+    );
+
+    let len = uris.len();
+    let mut resolution: (Vec<PathBuf>, Vec<Url>) =
+        (Vec::with_capacity(len), Vec::with_capacity(len));
+
+    for ((filename, filepath), uri) in filenames.iter().zip(filepaths.iter()).zip(uris.into_iter())
+    {
+        resolution.0.push(find_shortest_unique_path_suffix(
+            filename,
+            filepath,
+            (&filenames, &filepaths),
+        ));
+        resolution.1.push(uri);
+    }
+    resolution
+}
+
+fn find_shortest_unique_path_suffix(
+    filename: &str,
+    filepath: &Path,
+    conflicts: (&Vec<String>, &Vec<PathBuf>),
+) -> PathBuf {
+    let mut num: usize = 0;
+    for (name, path) in conflicts.0.iter().zip(conflicts.1.iter()) {
+        if name != filename || path == filepath {
+            continue;
+        }
+
+        for (ii, (a, b)) in path.iter().rev().zip(filepath.iter().rev()).enumerate() {
+            num = num.max(ii + 1);
+
+            if a != b {
+                break;
+            }
+        }
+    }
+    debug_assert!(num > 0);
+
+    let parts: Vec<&OsStr> = filepath.iter().collect();
+
+    let mut suffix = PathBuf::with_capacity(num);
+    let begin = parts.len() - num;
+
+    suffix.push(parts[begin]);
+    for part in parts[(begin + 1)..].iter() {
+        suffix.push(part)
+    }
+    suffix
 }

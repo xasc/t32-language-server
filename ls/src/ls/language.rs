@@ -9,7 +9,7 @@ use tree_sitter::{Tree, TreeCursor};
 use crate::{
     ls::textdoc::TextDoc,
     protocol::{LocationLink, Position},
-    t32::{Globals, NodeKind, get_goto_ref_ids, goto_macro_definition, id_into_node},
+    t32::{NodeKind, Waypoints, get_goto_ref_ids, goto_macro_definition, id_into_node},
 };
 
 /// Retrieves definitions for `(macro)`, `(subroutine_call_expression)`, and
@@ -17,7 +17,7 @@ use crate::{
 pub fn find_definition(
     doc: TextDoc,
     tree: Tree,
-    globals: Globals,
+    t32: Waypoints,
     position: Position,
 ) -> Option<LocationLink> {
     let offset = doc.to_byte_offset(&position);
@@ -31,7 +31,7 @@ pub fn find_definition(
     let (target_range, target_selection_range) = match id_into_node(&lang, origin.node().kind_id())
     {
         NodeKind::Macro => {
-            if let Some(macro_def) = goto_macro_definition(&doc.text, &tree, &globals, origin) {
+            if let Some(macro_def) = goto_macro_definition(&doc.text, &tree, &t32, origin) {
                 if let Some(docstring) = macro_def.docstring {
                     let start: Range<usize> = Range {
                         start: docstring.start,
@@ -107,7 +107,7 @@ mod tests {
         let loc = find_definition(
             doc,
             tree,
-            Globals {
+            Waypoints {
                 macros,
                 subroutines,
                 calls,
@@ -180,7 +180,7 @@ mod tests {
         let loc = find_definition(
             doc,
             tree,
-            Globals {
+            Waypoints {
                 macros,
                 subroutines,
                 calls,

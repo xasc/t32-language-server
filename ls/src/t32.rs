@@ -18,7 +18,7 @@ use expressions::{
 
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
-pub struct Globals {
+pub struct Waypoints {
     pub macros: MacroDefinitions,
     pub subroutines: Option<Vec<Subroutine>>,
     pub calls: CallExpressions,
@@ -58,7 +58,7 @@ pub fn get_goto_ref_ids(lang: &Language) -> [u16; 3] {
 pub fn goto_macro_definition(
     text: &str,
     tree: &Tree,
-    globals: &Globals,
+    _waypoints: &Waypoints,
     r#macro: TreeCursor,
 ) -> Option<MacroDefinition> {
     let lang = tree.language();
@@ -70,7 +70,7 @@ pub fn goto_macro_definition(
     if r#macro.node().end_byte() >= text.len() {
         return None;
     }
-    find_macro_definition(text, tree, globals, r#macro)
+    find_macro_definition(text, tree, r#macro)
 }
 
 pub fn find_global_macro_definitions(text: &str, tree: &Tree) -> MacroDefinitions {

@@ -6,11 +6,14 @@ use std::ops::Range;
 
 use tree_sitter::{Range as TRange, Tree, TreeCursor};
 
-use crate::t32::{
-    Globals, NodeKind,
-    ast::{
-        KEYWORDS_SCRIPT_CALL, get_block_opener_ids, get_command_expression_id,
-        get_subroutine_call_id, get_subroutine_ids, node_into_id, start_on_adjacent_lines,
+use crate::{
+    protocol::Uri,
+    t32::{
+        NodeKind,
+        ast::{
+            KEYWORDS_SCRIPT_CALL, get_block_opener_ids, get_command_expression_id,
+            get_subroutine_call_id, get_subroutine_ids, node_into_id, start_on_adjacent_lines,
+        },
     },
 };
 
@@ -48,7 +51,14 @@ pub struct MacroDefinitions {
 #[derive(Clone, Debug)]
 pub struct CallExpressions {
     pub subroutines: Option<Vec<CallExpression>>,
-    pub scripts: Option<Vec<CallExpression>>,
+    pub scripts: Option<SubscriptCalls>,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug)]
+pub struct SubscriptCalls {
+    pub locations: Vec<CallExpression>,
+    pub targets: Vec<Option<Uri>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -80,9 +90,17 @@ impl CallExpressions {
             call => Some(call),
         };
 
-        let scripts: Option<Vec<CallExpression>> = match scripts {
-            call if call.len() <= 0 => None,
-            call => Some(call),
+        let scripts: Option<SubscriptCalls> = match scripts {
+            calls if calls.len() <= 0 => None,
+            calls => {
+                let mut targets: Vec<Option<Uri>> = Vec::with_capacity(calls.len());
+                targets.resize(calls.len(), None);
+
+                Some(SubscriptCalls {
+                    locations: calls,
+                    targets,
+                })
+            }
         };
         CallExpressions {
             subroutines,
@@ -105,7 +123,6 @@ impl From<&str> for MacroScope {
 pub fn find_macro_definition(
     text: &str,
     tree: &Tree,
-    _globals: &Globals,
     r#macro: TreeCursor,
 ) -> Option<MacroDefinition> {
     let node = r#macro.node();
