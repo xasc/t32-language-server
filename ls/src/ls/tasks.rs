@@ -29,7 +29,7 @@ use crate::{
         LocationLink, NumberOrString, Position, TextDocumentContentChangeEvent, TextDocumentItem,
         Uri,
     },
-    t32::Waypoints,
+    t32::LangExpressions,
 };
 
 pub struct TaskSystem {
@@ -51,36 +51,47 @@ pub enum Task {
         NumberOrString,
         TextDoc,
         Tree,
-        Waypoints,
+        LangExpressions,
         Position,
-        fn(TextDoc, Tree, Waypoints, Position) -> Option<LocationLink>,
+        fn(TextDoc, Tree, LangExpressions, Position) -> Option<LocationLink>,
     ),
     TextDocNew(
         TextDocumentItem,
-        fn(TextDocumentItem) -> (TextDoc, Tree, Waypoints),
+        FileIndex,
+        fn(TextDocumentItem, FileIndex) -> (TextDoc, Tree, LangExpressions),
     ),
     TextDocEdit(
         TextDoc,
         Tree,
+        FileIndex,
         Vec<TextDocumentContentChangeEvent>,
-        fn(TextDoc, Tree, Vec<TextDocumentContentChangeEvent>) -> (TextDoc, Tree, Waypoints),
+        fn(
+            TextDoc,
+            Tree,
+            FileIndex,
+            Vec<TextDocumentContentChangeEvent>,
+        ) -> (TextDoc, Tree, LangExpressions),
     ),
     WorkspaceIndexScan(
         Workspace,
         &'static [&'static str],
         fn(&Workspace, &[&str]) -> WorkspaceMembers,
     ),
-    WorkspaceFileScan(Url, fn(Url) -> Result<(TextDoc, Tree, Waypoints), Uri>),
+    WorkspaceFileScan(
+        Url,
+        FileIndex,
+        fn(Url, FileIndex) -> Result<(TextDoc, Tree, LangExpressions), Uri>,
+    ),
     WorkspaceFileIndexNew(Vec<Url>, fn(Vec<Url>) -> FileIndex),
 }
 
 #[derive(Debug)]
 pub enum TaskDone {
     GoToDefinitionExtMeta(NumberOrString, Option<LocationLink>),
-    TextDocNew(TextDoc, Tree, Waypoints),
-    TextDocEdit(TextDoc, Tree, Waypoints),
+    TextDocNew(TextDoc, Tree, LangExpressions),
+    TextDocEdit(TextDoc, Tree, LangExpressions),
     WorkspaceIndexScan(WorkspaceMembers),
-    WorkspaceFileScan(Result<(TextDoc, Tree, Waypoints), Uri>),
+    WorkspaceFileScan(Result<(TextDoc, Tree, LangExpressions), Uri>),
     WorkspaceFileIndexNew(FileIndex),
 }
 
@@ -200,18 +211,20 @@ impl TaskSystem {
             Task::GoToDefinitionExtMeta(id, doc, tree, globals, loc, find) => {
                 TaskDone::GoToDefinitionExtMeta(id, find(doc, tree, globals, loc))
             }
-            Task::TextDocNew(doc, transform) => {
-                let (doc, tree, globals) = transform(doc);
+            Task::TextDocNew(doc, files, transform) => {
+                let (doc, tree, globals) = transform(doc, files);
                 TaskDone::TextDocNew(doc, tree, globals)
             }
-            Task::TextDocEdit(doc, tree, changes, update) => {
-                let (doc, tree, globals) = update(doc, tree, changes);
+            Task::TextDocEdit(doc, tree, files, changes, update) => {
+                let (doc, tree, globals) = update(doc, tree, files, changes);
                 TaskDone::TextDocEdit(doc, tree, globals)
             }
             Task::WorkspaceIndexScan(workspace, suffixes, locate) => {
                 TaskDone::WorkspaceIndexScan(locate(&workspace, suffixes))
             }
-            Task::WorkspaceFileScan(uri, scan) => TaskDone::WorkspaceFileScan(scan(uri)),
+            Task::WorkspaceFileScan(uri, files, scan) => {
+                TaskDone::WorkspaceFileScan(scan(uri, files))
+            }
             Task::WorkspaceFileIndexNew(files, index) => {
                 TaskDone::WorkspaceFileIndexNew(index(files))
             }

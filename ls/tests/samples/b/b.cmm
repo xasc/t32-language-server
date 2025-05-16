@@ -3,3 +3,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 PRINT "This is B"
+
+// This subscript call has only one valid candidate:
+//   samples/a → samples/same.cmm
+//   samples/a/d → samples/a/same.cmm
+DO ../same.cmm

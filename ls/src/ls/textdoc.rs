@@ -13,8 +13,9 @@ use crate::{
     ls::workspace::FileIndex,
     protocol::{Position, Range, TextDocumentContentChangeEvent, TextDocumentItem, Uri},
     t32::{
-        self, LANGUAGE_ID, Waypoints, find_call_expressions, find_global_macro_definitions,
-        find_subroutines,
+        self, CallExpression, CallExpressions, CallLocations, LANGUAGE_ID, LangExpressions,
+        SubscriptCalls, find_call_expressions, find_global_macro_definitions, find_subroutines,
+        resolve_subscript_call_targets,
     },
 };
 
@@ -29,15 +30,13 @@ struct DocIndex(TextDocStatus, usize);
 pub struct TextDocs {
     docs: DocStore,
     trees: TreeStore,
+    file_idx: FileIndex,
 
     #[allow(dead_code)]
     t32: WaypointStore,
 
     registry: HashMap<Uri, DocIndex>,
     free_list: FreeLists,
-
-    #[allow(dead_code)]
-    file_idx: FileIndex,
 }
 
 struct FreeLists {
@@ -57,8 +56,8 @@ struct TreeStore {
 
 #[allow(dead_code)]
 struct WaypointStore {
-    open: Vec<Option<Waypoints>>,
-    closed: Vec<Option<Waypoints>>,
+    open: Vec<Option<LangExpressions>>,
+    closed: Vec<Option<LangExpressions>>,
 }
 
 #[derive(Clone, Debug)]
@@ -324,7 +323,7 @@ impl LineMap {
 }
 
 impl TextDocs {
-    pub fn build(files: FileIndex) -> Self {
+    pub fn new(files: FileIndex) -> Self {
         TextDocs {
             docs: DocStore {
                 open: Vec::new(),
@@ -347,7 +346,7 @@ impl TextDocs {
         }
     }
 
-    pub fn add(&mut self, doc: TextDoc, tree: Tree, expr: Waypoints, status: TextDocStatus) {
+    pub fn add(&mut self, doc: TextDoc, tree: Tree, expr: LangExpressions, status: TextDocStatus) {
         if let Some(val) = self.registry.get(&doc.uri) {
             if val.0 == status {
                 match status {
@@ -432,7 +431,7 @@ impl TextDocs {
         }
     }
 
-    pub fn update(&mut self, doc: TextDoc, tree: Tree, expr: Waypoints) {
+    pub fn update(&mut self, doc: TextDoc, tree: Tree, expr: LangExpressions) {
         if let Some(val) = self.registry.get(&doc.uri) {
             debug_assert_eq!(val.0, TextDocStatus::Open);
 
@@ -513,7 +512,7 @@ impl TextDocs {
     }
 
     #[allow(dead_code)]
-    pub fn get_waypoints(&self, uri: &str) -> Option<&Waypoints> {
+    pub fn get_waypoints(&self, uri: &str) -> Option<&LangExpressions> {
         match self.registry.get(uri) {
             Some(idx) if idx.0 == TextDocStatus::Open => self.t32.open[idx.1].as_ref(),
             Some(idx) => self.t32.closed[idx.1].as_ref(),
@@ -521,7 +520,11 @@ impl TextDocs {
         }
     }
 
-    pub fn get_doc_data(&self, uri: &str) -> Option<(&TextDoc, &Tree, &Waypoints)> {
+    pub fn get_file_idx(&self) -> &FileIndex {
+        &self.file_idx
+    }
+
+    pub fn get_doc_data(&self, uri: &str) -> Option<(&TextDoc, &Tree, &LangExpressions)> {
         match self.registry.get(uri) {
             Some(idx) if idx.0 == TextDocStatus::Open => {
                 if self.docs.open[idx.1].is_none() || self.trees.open[idx.1].is_none() {
@@ -556,18 +559,18 @@ impl TextDocs {
     }
 }
 
-pub fn import_doc(r#in: TextDocumentItem) -> (TextDoc, Tree, Waypoints) {
+pub fn import_doc(r#in: TextDocumentItem, files: FileIndex) -> (TextDoc, Tree, LangExpressions) {
     let doc = TextDoc::from(r#in);
     let tree = t32::parse(doc.text.as_bytes(), None);
 
     let macros = find_global_macro_definitions(&doc.text, &tree);
     let subroutines = find_subroutines(&doc.text, &tree);
-    let calls = find_call_expressions(&doc.text, &tree);
+    let calls = resolve_call_expressions(&doc.text, &tree, &files);
 
     (
         doc,
         tree,
-        Waypoints {
+        LangExpressions {
             macros,
             subroutines,
             calls,
@@ -578,8 +581,9 @@ pub fn import_doc(r#in: TextDocumentItem) -> (TextDoc, Tree, Waypoints) {
 pub fn update_doc(
     mut doc: TextDoc,
     mut tree: Tree,
+    files: FileIndex,
     changes: Vec<TextDocumentContentChangeEvent>,
-) -> (TextDoc, Tree, Waypoints) {
+) -> (TextDoc, Tree, LangExpressions) {
     for change in changes {
         let edits = doc.update(change.range, &change.text);
 
@@ -589,12 +593,12 @@ pub fn update_doc(
 
     let macros = find_global_macro_definitions(&doc.text, &tree);
     let subroutines = find_subroutines(&doc.text, &tree);
-    let calls = find_call_expressions(&doc.text, &tree);
+    let calls = resolve_call_expressions(&doc.text, &tree, &files);
 
     (
         doc,
         tree,
-        Waypoints {
+        LangExpressions {
             macros,
             subroutines,
             calls,
@@ -602,7 +606,7 @@ pub fn update_doc(
     )
 }
 
-pub fn read_doc(r#in: Url) -> Result<(TextDoc, Tree, Waypoints), Uri> {
+pub fn read_doc(r#in: Url, files: FileIndex) -> Result<(TextDoc, Tree, LangExpressions), Uri> {
     let uri = r#in.to_string();
     let doc = match TextDoc::try_from(r#in) {
         Ok(text) => text,
@@ -612,17 +616,51 @@ pub fn read_doc(r#in: Url) -> Result<(TextDoc, Tree, Waypoints), Uri> {
 
     let macros = find_global_macro_definitions(&doc.text, &tree);
     let subroutines = find_subroutines(&doc.text, &tree);
-    let calls = find_call_expressions(&doc.text, &tree);
+    let calls = resolve_call_expressions(&doc.text, &tree, &files);
 
     Ok((
         doc,
         tree,
-        Waypoints {
+        LangExpressions {
             macros,
             subroutines,
             calls,
         },
     ))
+}
+
+pub fn resolve_call_expressions(text: &str, tree: &Tree, files: &FileIndex) -> CallExpressions {
+    let CallLocations {
+        subroutines,
+        scripts,
+    } = find_call_expressions(text, &tree);
+
+    let subscripts: Option<SubscriptCalls>;
+    if scripts.is_some() {
+        let scripts = scripts.unwrap();
+
+        let mut locations: Vec<CallExpression> = Vec::with_capacity(scripts.len());
+        let mut targets: Vec<Option<Uri>> = Vec::with_capacity(scripts.len());
+
+        for expr in scripts.into_iter() {
+            if let Some(calls) =
+                resolve_subscript_call_targets(text, &tree, expr.target.start, files)
+            {
+                for call in calls.into_iter() {
+                    locations.push(expr.clone());
+                    targets.push(Some(call));
+                }
+            } else {
+                locations.push(expr);
+                targets.push(None);
+            }
+        }
+        debug_assert_eq!(targets.len(), locations.len());
+        subscripts = Some(SubscriptCalls::build(locations, targets));
+    } else {
+        subscripts = None;
+    }
+    CallExpressions::build(subroutines, subscripts)
 }
 
 /// Clients only need to support UTF-16 encoding to character offsets, so
@@ -805,9 +843,12 @@ mod test {
 
     use super::*;
 
-    use crate::t32::{CallExpressions, MacroDefinitions};
+    use crate::{
+        ls::workspace::index_files,
+        t32::{CallExpressions, MacroDefinitions},
+    };
 
-    fn create_doc(uri: &str) -> (TextDoc, Tree, Waypoints) {
+    fn create_doc(uri: &str) -> (TextDoc, Tree, LangExpressions) {
         let text = "PRINT \"Hello, World!\"\n";
         let lines = create_line_map_for_text(&text, None, None);
         let doc = TextDoc {
@@ -829,12 +870,60 @@ mod test {
         (
             doc,
             tree,
-            Waypoints {
+            LangExpressions {
                 macros,
                 subroutines,
                 calls,
             },
         )
+    }
+
+    fn assert_file_in_subscript_calls(file: &str, subscripts: &SubscriptCalls) {
+        assert!(
+            subscripts
+                .targets
+                .iter()
+                .find_map(|dst| dst.clone().is_some_and(|d| d == file).then_some(()))
+                .is_some()
+        );
+    }
+
+    fn assert_file_not_in_subscript_calls(file: &str, subscripts: &SubscriptCalls) {
+        assert!(
+            subscripts
+                .targets
+                .iter()
+                .find_map(|dst| dst.clone().is_some_and(|d| d == file).then_some(()))
+                .is_none()
+        );
+    }
+
+    fn create_file_idx() -> FileIndex {
+        let files: Vec<Url> = vec![
+            Url::from_file_path(path::absolute("tests/samples/c.cmm").expect("File must exist."))
+                .unwrap(),
+            Url::from_file_path(
+                path::absolute("tests/samples/same.cmm").expect("File must exist."),
+            )
+            .unwrap(),
+            Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
+                .unwrap(),
+            Url::from_file_path(
+                path::absolute("tests/samples/a/same.cmm").expect("File must exist."),
+            )
+            .unwrap(),
+            Url::from_file_path(
+                path::absolute("tests/samples/a/d/d.cmmt").expect("File must exist."),
+            )
+            .unwrap(),
+            Url::from_file_path(path::absolute("tests/samples/b/b.cmm").expect("File must exist."))
+                .unwrap(),
+            Url::from_file_path(
+                path::absolute("tests/samples/b/same.cmm").expect("File must exist."),
+            )
+            .unwrap(),
+        ];
+        index_files(files)
     }
 
     #[test]
@@ -1303,7 +1392,7 @@ mod test {
 
     #[test]
     fn can_open_documents() {
-        let mut docs = TextDocs::build(FileIndex::build());
+        let mut docs = TextDocs::new(FileIndex::new());
 
         let uri_a = "file:///a.cmm";
         let (doc, tree, globals) = create_doc(uri_a);
@@ -1346,7 +1435,7 @@ mod test {
 
     #[test]
     fn can_close_documents() {
-        let mut docs = TextDocs::build(FileIndex::build());
+        let mut docs = TextDocs::new(FileIndex::new());
 
         let uri_a = "file:///test.cmm";
         let (doc, tree, globals) = create_doc(uri_a);
@@ -1363,11 +1452,14 @@ mod test {
 
     #[test]
     fn can_find_subroutines() {
+        let file_idx = FileIndex::new();
+
         let file =
             Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
                 .unwrap();
 
-        let (doc, _, Waypoints { subroutines, .. }) = read_doc(file).expect("Must not fail.");
+        let (doc, _, LangExpressions { subroutines, .. }) =
+            read_doc(file, file_idx).expect("Must not fail.");
 
         assert!(!subroutines.clone().is_none_or(|s| s.is_empty()));
 
@@ -1385,6 +1477,8 @@ mod test {
 
     #[test]
     fn can_find_global_macros() {
+        let file_idx = FileIndex::new();
+
         let file =
             Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
                 .unwrap();
@@ -1392,11 +1486,11 @@ mod test {
         let (
             doc,
             _,
-            Waypoints {
+            LangExpressions {
                 macros: MacroDefinitions { globals, .. },
                 ..
             },
-        ) = read_doc(file).expect("Must not fail.");
+        ) = read_doc(file, file_idx).expect("Must not fail.");
 
         assert!(!globals.clone().is_none_or(|s| s.is_empty()));
         assert!(
@@ -1411,6 +1505,8 @@ mod test {
 
     #[test]
     fn can_find_local_macros() {
+        let file_idx = FileIndex::new();
+
         let file =
             Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
                 .unwrap();
@@ -1418,11 +1514,11 @@ mod test {
         let (
             doc,
             _,
-            Waypoints {
+            LangExpressions {
                 macros: MacroDefinitions { locals, .. },
                 ..
             },
-        ) = read_doc(file).expect("Must not fail.");
+        ) = read_doc(file, file_idx).expect("Must not fail.");
 
         assert!(!locals.clone().is_none_or(|s| s.is_empty()));
         assert!(
@@ -1437,6 +1533,8 @@ mod test {
 
     #[test]
     fn can_find_subroutine_calls() {
+        let file_idx = FileIndex::new();
+
         let file =
             Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
                 .unwrap();
@@ -1444,11 +1542,11 @@ mod test {
         let (
             doc,
             _,
-            Waypoints {
+            LangExpressions {
                 calls: CallExpressions { subroutines, .. },
                 ..
             },
-        ) = read_doc(file).expect("Must not fail.");
+        ) = read_doc(file, file_idx).expect("Must not fail.");
 
         assert!(!subroutines.clone().is_none_or(|s| s.is_empty()));
         assert!(
@@ -1474,6 +1572,8 @@ mod test {
 
     #[test]
     fn can_find_script_calls() {
+        let file_idx = FileIndex::new();
+
         let file =
             Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
                 .unwrap();
@@ -1481,11 +1581,11 @@ mod test {
         let (
             doc,
             _,
-            Waypoints {
+            LangExpressions {
                 calls: CallExpressions { scripts, .. },
                 ..
             },
-        ) = read_doc(file).expect("Must not fail.");
+        ) = read_doc(file, file_idx).expect("Must not fail.");
 
         assert!(!scripts.clone().is_none_or(|s| s.locations.is_empty()));
         assert!(
@@ -1518,5 +1618,148 @@ mod test {
                     .then_some(()))
                 .is_some()
         );
+    }
+
+    #[test]
+    fn can_resolve_script_call_targets() {
+        let file_idx = create_file_idx();
+        let file =
+            Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
+                .unwrap();
+
+        let (
+            _doc,
+            _tree,
+            LangExpressions {
+                calls: CallExpressions { scripts, .. },
+                ..
+            },
+        ) = read_doc(file, file_idx).expect("Must not fail.");
+
+        assert!(scripts.is_some());
+
+        let target =
+            Url::from_file_path(path::absolute("tests/samples/b/b.cmm").expect("File must exist."))
+                .unwrap()
+                .to_string();
+
+        assert_file_in_subscript_calls(&target, scripts.as_ref().unwrap());
+
+        let target =
+            Url::from_file_path(path::absolute("tests/samples/c.cmm").expect("File must exist."))
+                .unwrap()
+                .to_string();
+
+        assert_file_in_subscript_calls(&target, scripts.as_ref().unwrap());
+
+        let missing = Url::from_file_path(
+            path::absolute("tests/samples/a/d/d.cmm").expect("File must exist."),
+        )
+        .unwrap()
+        .to_string();
+
+        assert_file_not_in_subscript_calls(&missing, scripts.as_ref().unwrap());
+    }
+
+    #[test]
+    fn can_resolve_ambiguous_script_call_targets() {
+        let file_idx = create_file_idx();
+        let file =
+            Url::from_file_path(path::absolute("tests/samples/c.cmm").expect("File must exist."))
+                .unwrap();
+
+        let (
+            _doc,
+            _tree,
+            LangExpressions {
+                calls: CallExpressions { scripts, .. },
+                ..
+            },
+        ) = read_doc(file, file_idx).expect("Must not fail.");
+
+        assert!(scripts.is_some());
+
+        let target = Url::from_file_path(
+            path::absolute("tests/samples/same.cmm").expect("File must exist."),
+        )
+        .unwrap()
+        .to_string();
+
+        assert_file_in_subscript_calls(&target, scripts.as_ref().unwrap());
+
+        let target = Url::from_file_path(
+            path::absolute("tests/samples/a/same.cmm").expect("File must exist."),
+        )
+        .unwrap()
+        .to_string();
+
+        assert_file_in_subscript_calls(&target, scripts.as_ref().unwrap());
+
+        let target = Url::from_file_path(
+            path::absolute("tests/samples/b/same.cmm").expect("File must exist."),
+        )
+        .unwrap()
+        .to_string();
+
+        assert_file_in_subscript_calls(&target, scripts.as_ref().unwrap());
+    }
+
+    #[test]
+    fn can_resolve_script_call_targets_with_relative_path() {
+        let file_idx = create_file_idx();
+        let file =
+            Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
+                .unwrap();
+
+        let (
+            _doc,
+            _tree,
+            LangExpressions {
+                calls: CallExpressions { scripts, .. },
+                ..
+            },
+        ) = read_doc(file, file_idx).expect("Must not fail.");
+
+        assert!(scripts.is_some());
+
+        let target = Url::from_file_path(
+            path::absolute("tests/samples/b/b.cmm").expect("File must exist."),
+        )
+        .unwrap()
+        .to_string();
+
+        assert_file_in_subscript_calls(&target, scripts.as_ref().unwrap());
+
+        let file_idx = create_file_idx();
+        let file =
+            Url::from_file_path(path::absolute("tests/samples/b/b.cmm").expect("File must exist."))
+                .unwrap();
+
+        let (
+            _doc,
+            _tree,
+            LangExpressions {
+                calls: CallExpressions { scripts, .. },
+                ..
+            },
+        ) = read_doc(file, file_idx).expect("Must not fail.");
+
+        assert!(scripts.is_some());
+
+        let target = Url::from_file_path(
+            path::absolute("tests/samples/a/same.cmm").expect("File must exist."),
+        )
+        .unwrap()
+        .to_string();
+
+        assert_file_in_subscript_calls(&target, scripts.as_ref().unwrap());
+
+        let missing = Url::from_file_path(
+            path::absolute("tests/samples/a/b/same.cmm").expect("File must exist."),
+        )
+        .unwrap()
+        .to_string();
+
+        assert_file_not_in_subscript_calls(&missing, scripts.as_ref().unwrap());
     }
 }

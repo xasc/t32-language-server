@@ -9,7 +9,7 @@ use tree_sitter::{Tree, TreeCursor};
 use crate::{
     ls::textdoc::TextDoc,
     protocol::{LocationLink, Position},
-    t32::{NodeKind, Waypoints, get_goto_ref_ids, goto_macro_definition, id_into_node},
+    t32::{LangExpressions, NodeKind, get_goto_ref_ids, goto_macro_definition, id_into_node},
 };
 
 /// Retrieves definitions for `(macro)`, `(subroutine_call_expression)`, and
@@ -17,7 +17,7 @@ use crate::{
 pub fn find_definition(
     doc: TextDoc,
     tree: Tree,
-    t32: Waypoints,
+    t32: LangExpressions,
     position: Position,
 ) -> Option<LocationLink> {
     let offset = doc.to_byte_offset(&position);
@@ -89,7 +89,11 @@ mod tests {
     use std::{env, path};
     use url::Url;
 
-    use crate::{protocol::Range, t32};
+    use crate::{
+        ls::{textdoc::resolve_call_expressions, workspace},
+        protocol::Range,
+        t32,
+    };
 
     #[test]
     fn can_find_private_macro_definition() {
@@ -97,17 +101,18 @@ mod tests {
             Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
                 .unwrap();
         let doc = TextDoc::try_from(file).expect("Path must be valid.");
+        let files = workspace::FileIndex::new();
 
         let tree = t32::parse(doc.text.as_bytes(), None);
 
         let macros = t32::find_global_macro_definitions(&doc.text, &tree);
         let subroutines = t32::find_subroutines(&doc.text, &tree);
-        let calls = t32::find_call_expressions(&doc.text, &tree);
+        let calls = resolve_call_expressions(&doc.text, &tree, &files);
 
         let loc = find_definition(
             doc,
             tree,
-            Waypoints {
+            LangExpressions {
                 macros,
                 subroutines,
                 calls,
@@ -170,17 +175,18 @@ mod tests {
             Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
                 .unwrap();
         let doc = TextDoc::try_from(file).expect("Path must be valid.");
+        let files = workspace::FileIndex::new();
 
         let tree = t32::parse(doc.text.as_bytes(), None);
 
         let macros = t32::find_global_macro_definitions(&doc.text, &tree);
         let subroutines = t32::find_subroutines(&doc.text, &tree);
-        let calls = t32::find_call_expressions(&doc.text, &tree);
+        let calls = resolve_call_expressions(&doc.text, &tree, &files);
 
         let loc = find_definition(
             doc,
             tree,
-            Waypoints {
+            LangExpressions {
                 macros,
                 subroutines,
                 calls,

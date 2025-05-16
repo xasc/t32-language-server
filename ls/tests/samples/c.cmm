@@ -4,3 +4,13 @@
 
 PRINT "This is C"
 
+DO "a/a.cmm"
+
+DO "d/d.cmmt"
+
+// What subscript is called here depends on the the
+// current working directory:
+//   samples → samples/same.cmm
+//   samples/a → samples/a/same.cmm
+//   samples/b → samples/b/same.cmm
+DO same.cmm

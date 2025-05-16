@@ -35,6 +35,8 @@ use crate::{
     },
 };
 
+pub use crate::ls::workspace::FileIndex;
+
 struct InitializationStatus {
     msg: Message,
     rc: ReturnCode,

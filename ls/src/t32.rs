@@ -2,23 +2,29 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+mod ast;
+mod expressions;
+mod path;
+
 use tree_sitter::{Language, Parser, Tree, TreeCursor};
 use tree_sitter_t32;
 
-mod ast;
-mod expressions;
+use crate::{ls::FileIndex, protocol::Uri};
 
 pub use ast::{NodeKind, id_into_node};
-pub use expressions::{CallExpressions, MacroDefinition, MacroDefinitions, Subroutine};
+pub use expressions::{
+    CallExpression, CallExpressions, CallLocations, MacroDefinition, MacroDefinitions, Subroutine,
+    SubscriptCalls,
+};
 
 use expressions::{
     find_all_call_expressions, find_all_global_macro_definitions, find_all_subroutines,
-    find_macro_definition,
+    find_macro_definition, locate_subscript,
 };
 
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
-pub struct Waypoints {
+pub struct LangExpressions {
     pub macros: MacroDefinitions,
     pub subroutines: Option<Vec<Subroutine>>,
     pub calls: CallExpressions,
@@ -58,7 +64,7 @@ pub fn get_goto_ref_ids(lang: &Language) -> [u16; 3] {
 pub fn goto_macro_definition(
     text: &str,
     tree: &Tree,
-    _waypoints: &Waypoints,
+    _t32: &LangExpressions,
     r#macro: TreeCursor,
 ) -> Option<MacroDefinition> {
     let lang = tree.language();
@@ -81,6 +87,22 @@ pub fn find_subroutines(text: &str, tree: &Tree) -> Option<Vec<Subroutine>> {
     find_all_subroutines(text, tree)
 }
 
-pub fn find_call_expressions(text: &str, tree: &Tree) -> CallExpressions {
+pub fn find_call_expressions(text: &str, tree: &Tree) -> CallLocations {
     find_all_call_expressions(text, tree)
+}
+
+pub fn resolve_subscript_call_targets(
+    text: &str,
+    tree: &Tree,
+    target: usize,
+    files: &FileIndex,
+) -> Option<Vec<Uri>> {
+    if let Some(calls) = locate_subscript(text, tree, target, files) {
+        let mut scripts: Vec<Uri> = Vec::with_capacity(1);
+
+        calls.into_iter().for_each(|c| scripts.push(c));
+        Some(scripts)
+    } else {
+        None
+    }
 }

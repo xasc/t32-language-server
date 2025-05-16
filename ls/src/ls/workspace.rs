@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     ffi::OsStr,
     fs,
     path::{Path, PathBuf},
@@ -20,17 +20,19 @@ pub struct WorkspaceMembers {
 }
 
 #[allow(dead_code)]
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct FileIndex {
     pub by_filename: HashMap<String, Url>,
-    pub by_path: Option<(Vec<PathBuf>, Vec<Url>)>,
+    pub conflict_resolutions: Option<(Vec<PathBuf>, Vec<Url>)>,
+    pub directories: HashSet<PathBuf>,
 }
 
 impl FileIndex {
-    pub fn build() -> Self {
+    pub fn new() -> Self {
         FileIndex {
             by_filename: HashMap::new(),
-            by_path: None,
+            conflict_resolutions: None,
+            directories: HashSet::new(),
         }
     }
 }
@@ -84,6 +86,7 @@ pub fn locate_files(workspace: &Workspace, suffixes: &[&str]) -> WorkspaceMember
 
 pub fn index_files(files: Vec<Url>) -> FileIndex {
     let mut unique_names: HashMap<String, Url> = HashMap::new();
+    let mut directories: HashSet<PathBuf> = HashSet::new();
     let mut conflicts: ((Vec<String>, Vec<PathBuf>), Vec<Url>) =
         ((Vec::new(), Vec::new()), Vec::new());
 
@@ -97,6 +100,10 @@ pub fn index_files(files: Vec<Url>) -> FileIndex {
         let filename = script.file_name();
         if filename.is_none() {
             continue;
+        }
+
+        if let Some(dirname) = script.parent() {
+            directories.insert(dirname.to_path_buf());
         }
 
         let filename = filename.unwrap().to_str();
@@ -134,7 +141,8 @@ pub fn index_files(files: Vec<Url>) -> FileIndex {
     if conflicts.1.is_empty() {
         FileIndex {
             by_filename: unique_names,
-            by_path: None,
+            conflict_resolutions: None,
+            directories,
         }
     } else {
         let ((filenames, filepaths), uris) = conflicts;
@@ -142,7 +150,8 @@ pub fn index_files(files: Vec<Url>) -> FileIndex {
 
         FileIndex {
             by_filename: unique_names,
-            by_path: Some(resolution),
+            conflict_resolutions: Some(resolution),
+            directories,
         }
     }
 }

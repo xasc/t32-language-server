@@ -9,11 +9,12 @@ use tree_sitter::{Range as TRange, Tree, TreeCursor};
 use crate::{
     protocol::Uri,
     t32::{
-        NodeKind,
+        FileIndex, NodeKind,
         ast::{
-            KEYWORDS_SCRIPT_CALL, get_block_opener_ids, get_command_expression_id,
-            get_subroutine_call_id, get_subroutine_ids, node_into_id, start_on_adjacent_lines,
+            KEYWORDS_SCRIPT_CALL, get_block_opener_ids, get_string_body, get_subroutine_ids,
+            node_into_id, start_on_adjacent_lines,
         },
+        path::locate_script,
     },
 };
 
@@ -56,6 +57,13 @@ pub struct CallExpressions {
 
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
+pub struct CallLocations {
+    pub subroutines: Option<Vec<CallExpression>>,
+    pub scripts: Option<Vec<CallExpression>>,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug)]
 pub struct SubscriptCalls {
     pub locations: Vec<CallExpression>,
     pub targets: Vec<Option<Uri>>,
@@ -84,28 +92,50 @@ impl MacroDefinitions {
 }
 
 impl CallExpressions {
-    pub fn build(subroutines: Vec<CallExpression>, scripts: Vec<CallExpression>) -> Self {
+    pub fn build(
+        subroutines: Option<Vec<CallExpression>>,
+        scripts: Option<SubscriptCalls>,
+    ) -> Self {
         let subroutines: Option<Vec<CallExpression>> = match subroutines {
-            call if call.len() <= 0 => None,
-            call => Some(call),
+            Some(calls) if calls.len() <= 0 => None,
+            Some(calls) => Some(calls),
+            None => None,
         };
 
         let scripts: Option<SubscriptCalls> = match scripts {
-            calls if calls.len() <= 0 => None,
-            calls => {
-                let mut targets: Vec<Option<Uri>> = Vec::with_capacity(calls.len());
-                targets.resize(calls.len(), None);
-
-                Some(SubscriptCalls {
-                    locations: calls,
-                    targets,
-                })
-            }
+            Some(calls) if calls.locations.len() <= 0 => None,
+            Some(calls) => Some(calls),
+            None => None,
         };
         CallExpressions {
             subroutines,
             scripts,
         }
+    }
+}
+
+impl CallLocations {
+    pub fn build(subroutines: Vec<CallExpression>, scripts: Vec<CallExpression>) -> Self {
+        let subroutines: Option<Vec<CallExpression>> = match subroutines {
+            calls if calls.len() <= 0 => None,
+            calls => Some(calls),
+        };
+
+        let scripts: Option<Vec<CallExpression>> = match scripts {
+            calls if calls.len() <= 0 => None,
+            calls => Some(calls),
+        };
+
+        CallLocations {
+            subroutines,
+            scripts,
+        }
+    }
+}
+
+impl SubscriptCalls {
+    pub fn build(locations: Vec<CallExpression>, targets: Vec<Option<Uri>>) -> Self {
+        SubscriptCalls { locations, targets }
     }
 }
 
@@ -233,20 +263,20 @@ pub fn find_all_subroutines(_text: &str, tree: &Tree) -> Option<Vec<Subroutine>>
     }
 }
 
-pub fn find_all_call_expressions(text: &str, tree: &Tree) -> CallExpressions {
+pub fn find_all_call_expressions(text: &str, tree: &Tree) -> CallLocations {
     let mut cursor = tree.walk();
 
     let mut subroutines: Vec<CallExpression> = Vec::new();
     let mut scripts: Vec<CallExpression> = Vec::new();
 
     if !cursor.goto_first_child() {
-        return CallExpressions::build(subroutines, scripts);
+        return CallLocations::build(subroutines, scripts);
     }
 
     let lang = tree.language();
 
-    let subroutine_call = get_subroutine_call_id(&lang);
-    let script_call = get_command_expression_id(&lang);
+    let subroutine_call = NodeKind::SubroutineCallExpression.into_id(&lang);
+    let script_call = NodeKind::CommandExpression.into_id(&lang);
     let block_openers = get_block_opener_ids(&lang);
 
     'outer: loop {
@@ -255,7 +285,10 @@ pub fn find_all_call_expressions(text: &str, tree: &Tree) -> CallExpressions {
 
         if id == subroutine_call {
             let call = extract_subroutine_call(&mut cursor);
-            debug_assert_eq!(cursor.node().kind_id(), get_subroutine_call_id(&lang));
+            debug_assert_eq!(
+                cursor.node().kind_id(),
+                NodeKind::SubroutineCallExpression.into_id(&lang)
+            );
 
             if call.is_some() {
                 let mut call = call.unwrap();
@@ -266,10 +299,16 @@ pub fn find_all_call_expressions(text: &str, tree: &Tree) -> CallExpressions {
                 }
                 subroutines.push(call);
             }
-            debug_assert_eq!(cursor.node().kind_id(), get_subroutine_call_id(&lang));
+            debug_assert_eq!(
+                cursor.node().kind_id(),
+                NodeKind::SubroutineCallExpression.into_id(&lang)
+            );
         } else if id == script_call {
             let call = extract_script_call(text, &mut cursor);
-            debug_assert_eq!(cursor.node().kind_id(), get_command_expression_id(&lang));
+            debug_assert_eq!(
+                cursor.node().kind_id(),
+                NodeKind::CommandExpression.into_id(&lang)
+            );
 
             if call.is_some() {
                 let mut call = call.unwrap();
@@ -280,7 +319,10 @@ pub fn find_all_call_expressions(text: &str, tree: &Tree) -> CallExpressions {
                 }
                 scripts.push(call);
             }
-            debug_assert_eq!(cursor.node().kind_id(), get_command_expression_id(&lang));
+            debug_assert_eq!(
+                cursor.node().kind_id(),
+                NodeKind::CommandExpression.into_id(&lang)
+            );
         } else if block_openers.contains(&id) {
             if cursor.goto_first_child() {
                 continue;
@@ -293,8 +335,48 @@ pub fn find_all_call_expressions(text: &str, tree: &Tree) -> CallExpressions {
             }
         }
     }
+    CallLocations::build(subroutines, scripts)
+}
 
-    CallExpressions::build(subroutines, scripts)
+pub fn locate_subscript(
+    text: &str,
+    tree: &Tree,
+    target: usize,
+    files: &FileIndex,
+) -> Option<Vec<Uri>> {
+    let mut cursor = tree.walk();
+
+    let lang = tree.language();
+    let cmd = NodeKind::CommandExpression.into_id(&lang);
+
+    if cursor.goto_first_child_for_byte(target).is_none() || cursor.node().kind_id() != cmd {
+        return None;
+    }
+
+    let args = NodeKind::ArgumentList.into_id(&lang);
+
+    if cursor.goto_first_child_for_byte(target).is_none()
+        || cursor.node().kind_id() != args
+        || !cursor.goto_first_child()
+    {
+        return None;
+    }
+
+    let path: String = loop {
+        let node = cursor.node();
+        let id = node.kind_id();
+
+        if id == NodeKind::Path.into_id(&lang) {
+            break text[node.byte_range()].to_string();
+        } else if id == NodeKind::String.into_id(&lang) {
+            break get_string_body(&node, &text).to_string();
+        }
+
+        if !cursor.goto_next_sibling() {
+            return None;
+        }
+    };
+    locate_script(&path, &files)
 }
 
 pub fn find_macro_def_in_main_body(
@@ -504,7 +586,7 @@ fn extract_subroutine_call(cursor: &mut TreeCursor) -> Option<CallExpression> {
 
     debug_assert_eq!(
         call.kind_id(),
-        get_subroutine_call_id(&cursor.node().language())
+        NodeKind::SubroutineCallExpression.into_id(&cursor.node().language())
     );
 
     if !cursor.goto_first_child() {
@@ -541,7 +623,7 @@ fn extract_script_call(text: &str, cursor: &mut TreeCursor) -> Option<CallExpres
 
     debug_assert_eq!(
         call.kind_id(),
-        get_command_expression_id(&cursor.node().language())
+        NodeKind::CommandExpression.into_id(&cursor.node().language())
     );
 
     if !cursor.goto_first_child() {

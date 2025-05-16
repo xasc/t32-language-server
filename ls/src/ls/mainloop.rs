@@ -46,14 +46,14 @@ pub fn handle_requests(channel: &mut StdioChannel, mut cfg: Config) -> Result<()
     } {
         index_workspace(&mut tasks, &cfg.workspace, &mut outgoing)?
     } else {
-        FileIndex::build()
+        FileIndex::new()
     };
 
     let mut g = State {
         shutdown_request_recv: false,
         exit_requested: false,
         heartbeat: ProcHeartbeat::build(&cfg),
-        docs: TextDocs::build(files),
+        docs: TextDocs::new(files),
         tasks,
     };
 
@@ -124,7 +124,11 @@ fn schedule_tasks(
                 },
             )) => {
                 if lang_id_supported(&text_document.language_id) {
-                    process_doc_open_notif(text_document, &mut g.tasks)?;
+                    process_doc_open_notif(
+                        text_document,
+                        g.docs.get_file_idx().clone(),
+                        &mut g.tasks,
+                    )?;
                 } else {
                     outgoing.push(Some(error_lang_id_unsupported(&text_document.language_id)));
                 }
@@ -257,10 +261,14 @@ fn send_outgoing(channel: &mut StdioChannel, msgs: &mut Vec<Option<Message>>) {
     }
 }
 
-fn process_doc_open_notif(doc: TextDocumentItem, ts: &mut Tasks) -> Result<(), ReturnCode> {
+fn process_doc_open_notif(
+    doc: TextDocumentItem,
+    files: FileIndex,
+    ts: &mut Tasks,
+) -> Result<(), ReturnCode> {
     try_schedule(
         &mut ts.runner,
-        Task::TextDocNew(doc, import_doc),
+        Task::TextDocNew(doc, files, import_doc),
         &mut ts.ongoing,
         &mut ts.blocked,
     )
@@ -285,7 +293,13 @@ fn process_doc_change_notif(
     };
     try_schedule(
         &mut ts.runner,
-        Task::TextDocEdit(doc, tree.clone(), params.content_changes, update_doc),
+        Task::TextDocEdit(
+            doc,
+            tree.clone(),
+            docs.get_file_idx().clone(),
+            params.content_changes,
+            update_doc,
+        ),
         &mut ts.ongoing,
         &mut ts.blocked,
     )
@@ -425,7 +439,7 @@ fn index_workspace(
     for file in members.files {
         try_schedule(
             &mut tasks.runner,
-            Task::WorkspaceFileScan(file, read_doc),
+            Task::WorkspaceFileScan(file, file_index.clone(), read_doc),
             &mut tasks.ongoing,
             &mut tasks.blocked,
         )?;
@@ -565,6 +579,7 @@ mod tests {
                 version: 1,
                 text: "This is a test.".to_string(),
             },
+            FileIndex::new(),
             import_doc,
         );
         let job_copy = job.clone();
