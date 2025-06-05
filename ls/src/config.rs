@@ -4,6 +4,7 @@
 
 use std::{
     io::{self, Write},
+    str::FromStr,
     time::Duration,
 };
 
@@ -40,10 +41,24 @@ pub struct LocationLinkSupport {
     pub definitions_supported: bool,
 }
 
+impl FromStr for TraceValue {
+    type Err = ();
+
+    fn from_str(val: &str) -> Result<Self, Self::Err> {
+        match val {
+            "off" => Ok(TraceValue::Off),
+            "messages" => Ok(TraceValue::Messages),
+            "verbose" => Ok(TraceValue::Verbose),
+            _ => Err(()),
+        }
+    }
+}
+
 impl Config {
     pub fn build(args: &[String]) -> Result<Self, ReturnCode> {
         let mut ppid: Option<u32> = None;
         let mut show_help: bool = false;
+        let mut trace_level: TraceValue = TraceValue::Off;
 
         debug_assert!(args.len() > 0);
         let len = args[1..].len();
@@ -58,6 +73,15 @@ impl Config {
                 Err(err) => return Err(err),
                 Ok(Some(num)) => {
                     ppid = Some(num);
+                    continue;
+                }
+                Ok(None) => (),
+            }
+
+            match Self::parse_flag_value::<TraceValue>("--trace=", "-t", arg, next) {
+                Err(err) => return Err(err),
+                Ok(Some(level)) => {
+                    trace_level = level;
                     continue;
                 }
                 Ok(None) => (),
@@ -79,11 +103,11 @@ impl Config {
             channel: ChannelKind::Stdio,
             workspace: Workspace::Root(None),
             workspace_folders_supported: false,
-            trace_level: TraceValue::Off,
             position_encoding: PositionEncodingKind::Utf16,
             location_links: LocationLinkSupport {
                 definitions_supported: false,
             },
+            trace_level,
         })
     }
 
@@ -168,7 +192,11 @@ General options:
   -c PID, --clientProcessId=PID
     Process ID of the client that started the server. The server can use the
     PID to monitor the client process and shut itself down if the client
-    process dies."#
+    process dies.
+
+  -t LEVEL, --trace=LEVEL
+    Set the initial logging level of the server's execution trace. LEVEL must
+    be one of 'off,messages,verbose'."#
     )
     .expect("Writer must be configured correctly.");
 }

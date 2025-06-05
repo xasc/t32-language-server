@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+mod doc;
 mod language;
 mod lsp;
 mod mainloop;
@@ -9,7 +10,6 @@ mod proc;
 mod request;
 mod response;
 mod tasks;
-mod textdoc;
 mod transport;
 mod workspace;
 
@@ -23,11 +23,11 @@ use crate::{
     ls::lsp::Message,
     ls::transport::StdioChannel,
     ls::{
+        doc::TextDocs,
         proc::{ProcState, proc_alive},
         request::{ExitNotification, LogTraceNotification, Notification, Request},
         response::{ErrorResponse, InitializeResponse, Response},
         tasks::{OngoingTask, Task, TaskSystem},
-        textdoc::TextDocs,
     },
     protocol::{
         ErrorCodes, InitializeError, InitializeParams, InitializeResult, LogTraceParams,

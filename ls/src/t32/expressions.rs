@@ -33,11 +33,13 @@ pub struct Subroutine {
     pub docstring: Option<Range<usize>>,
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct CallExpression {
     pub target: Range<usize>,
+
+    #[allow(dead_code)]
     pub call: Range<usize>,
+
     pub docstring: Option<Range<usize>>,
 }
 
@@ -48,10 +50,11 @@ pub struct MacroDefinitions {
     pub globals: Option<Vec<MacroDefinition>>,
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct CallExpressions {
+    #[allow(dead_code)]
     pub subroutines: Option<Vec<CallExpression>>,
+
     pub scripts: Option<SubscriptCalls>,
 }
 
@@ -62,7 +65,6 @@ pub struct CallLocations {
     pub scripts: Option<Vec<CallExpression>>,
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct SubscriptCalls {
     pub locations: Vec<CallExpression>,

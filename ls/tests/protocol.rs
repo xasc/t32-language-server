@@ -135,7 +135,13 @@ fn exits_on_wrong_parent_pid() {
 fn can_index_workspace() {
     let pid = process::id();
 
-    let mut ls = utils::start_ls(&[&format!("--clientProcessId={}", pid.to_string())], false);
+    let mut ls = utils::start_ls(
+        &[
+            &format!("--clientProcessId={}", pid.to_string()),
+            &format!("--trace={}", "messages"),
+        ],
+        false,
+    );
     let mut stdin = ls.stdin.take().unwrap();
 
     let init = utils::make_initialize_request_with_multi_root_workspace(1, pid);
@@ -156,7 +162,13 @@ fn can_index_workspace() {
             .contains("samples/a/a.cmm")
     );
 
-    let mut ls = utils::start_ls(&[&format!("--clientProcessId={}", pid.to_string())], false);
+    let mut ls = utils::start_ls(
+        &[
+            &format!("--clientProcessId={}", pid.to_string()),
+            &format!("--trace={}", "messages"),
+        ],
+        false,
+    );
     let mut stdin = ls.stdin.take().unwrap();
 
     let init = utils::make_initialize_request_with_root_uri(2, pid);
@@ -177,7 +189,13 @@ fn can_index_workspace() {
             .contains("samples/b/b.cmm")
     );
 
-    let mut ls = utils::start_ls(&[&format!("--clientProcessId={}", pid.to_string())], false);
+    let mut ls = utils::start_ls(
+        &[
+            &format!("--clientProcessId={}", pid.to_string()),
+            &format!("--trace={}", "messages"),
+        ],
+        false,
+    );
     let mut stdin = ls.stdin.take().unwrap();
 
     let init = utils::make_initialize_request_with_root_path(3, pid);
@@ -203,7 +221,13 @@ fn can_index_workspace() {
 fn reports_invalid_workspace_roots() {
     let pid = process::id();
 
-    let mut ls = utils::start_ls(&[&format!("--clientProcessId={}", pid.to_string())], false);
+    let mut ls = utils::start_ls(
+        &[
+            &format!("--clientProcessId={}", pid.to_string()),
+            &format!("--trace={}", "messages"),
+        ],
+        false,
+    );
     let mut stdin = ls.stdin.take().unwrap();
 
     let init = utils::make_initialize_request_with_invalid_multi_root_workspace(1, pid);

@@ -22,7 +22,7 @@ use crate::{
     ReturnCode,
     config::Workspace,
     ls::{
-        textdoc::TextDoc,
+        doc::TextDoc,
         workspace::{FileIndex, WorkspaceMembers},
     },
     protocol::{
@@ -72,7 +72,7 @@ pub enum Task {
             Vec<TextDocumentContentChangeEvent>,
         ) -> (TextDoc, Tree, LangExpressions),
     ),
-    WorkspaceIndexScan(
+    WorkspaceFileDiscovery(
         Workspace,
         &'static [&'static str],
         fn(&Workspace, &[&str]) -> WorkspaceMembers,
@@ -90,7 +90,7 @@ pub enum TaskDone {
     GoToDefinitionExtMeta(NumberOrString, Option<LocationLink>),
     TextDocNew(TextDoc, Tree, LangExpressions),
     TextDocEdit(TextDoc, Tree, LangExpressions),
-    WorkspaceIndexScan(WorkspaceMembers),
+    WorkspaceFileDiscovery(WorkspaceMembers),
     WorkspaceFileScan(Result<(TextDoc, Tree, LangExpressions), Uri>),
     WorkspaceFileIndexNew(FileIndex),
 }
@@ -219,8 +219,8 @@ impl TaskSystem {
                 let (doc, tree, globals) = update(doc, tree, files, changes);
                 TaskDone::TextDocEdit(doc, tree, globals)
             }
-            Task::WorkspaceIndexScan(workspace, suffixes, locate) => {
-                TaskDone::WorkspaceIndexScan(locate(&workspace, suffixes))
+            Task::WorkspaceFileDiscovery(workspace, suffixes, locate) => {
+                TaskDone::WorkspaceFileDiscovery(locate(&workspace, suffixes))
             }
             Task::WorkspaceFileScan(uri, files, scan) => {
                 TaskDone::WorkspaceFileScan(scan(uri, files))

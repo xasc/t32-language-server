@@ -7,7 +7,7 @@ use std::ops::Range;
 use tree_sitter::{Tree, TreeCursor};
 
 use crate::{
-    ls::textdoc::TextDoc,
+    ls::doc::TextDoc,
     protocol::{LocationLink, Position},
     t32::{LangExpressions, NodeKind, get_goto_ref_ids, goto_macro_definition, id_into_node},
 };
@@ -90,7 +90,7 @@ mod tests {
     use url::Url;
 
     use crate::{
-        ls::{textdoc::resolve_call_expressions, workspace},
+        ls::{doc::resolve_call_expressions, workspace},
         protocol::Range,
         t32,
     };

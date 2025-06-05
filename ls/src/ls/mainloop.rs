@@ -4,6 +4,7 @@
 
 use serde_json::json;
 use tree_sitter::Tree;
+use url::Url;
 
 use crate::{
     ReturnCode,
@@ -12,7 +13,9 @@ use crate::{
     ls::lsp::Message,
     ls::transport::StdioChannel,
     ls::{
-        ProcHeartbeat, State, Tasks, log_notif, read_msg,
+        ProcHeartbeat, State, Tasks,
+        doc::{TextDoc, TextDocStatus, TextDocs, import_doc, read_doc, update_doc},
+        log_notif, read_msg,
         request::{
             DidChangeTextDocumentNotification, DidCloseTextDocumentNotification,
             DidOpenTextDocumentNotification, GoToDefinitionRequest, LogTraceNotification,
@@ -20,16 +23,17 @@ use crate::{
         },
         response::{ErrorResponse, GoToDefinitionResponse, LocationResult, NullResponse, Response},
         tasks::{OngoingTask, Task, TaskDone, TaskSystem},
-        textdoc::{TextDoc, TextDocStatus, TextDocs, import_doc, read_doc, update_doc},
-        workspace::{FileIndex, index_files, locate_files},
+        workspace::{FileIndex, WorkspaceMembers, index_files, locate_files},
     },
     protocol::{
         DefinitionParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
         DidOpenTextDocumentParams, ErrorCodes, LogTraceParams, NumberOrString, ResponseError,
         SetTraceParams, TextDocumentItem, TraceValue, Uri,
     },
-    t32::{LANGUAGE_ID, SUFFIXES, lang_id_supported},
+    t32::{LANGUAGE_ID, LangExpressions, SUFFIXES, lang_id_supported},
 };
+
+type FileData = (TextDoc, Tree, LangExpressions);
 
 pub fn handle_requests(channel: &mut StdioChannel, mut cfg: Config) -> Result<(), ReturnCode> {
     let mut tasks = Tasks {
@@ -40,20 +44,21 @@ pub fn handle_requests(channel: &mut StdioChannel, mut cfg: Config) -> Result<()
 
     let mut outgoing: Vec<Option<Message>> = Vec::new();
 
-    let files = if match cfg.workspace {
+    let (files, file_data) = if match cfg.workspace {
         Workspace::Root(Some(_)) | Workspace::Folders(Some(_)) => true,
         _ => false,
     } {
-        index_workspace(&mut tasks, &cfg.workspace, &mut outgoing)?
+        index_workspace(&cfg, channel, &mut tasks, &cfg.workspace, &mut outgoing)?
     } else {
-        FileIndex::new()
+        (FileIndex::new(), Vec::new())
     };
+    debug_assert_eq!(tasks.ongoing.len(), 0);
 
     let mut g = State {
         shutdown_request_recv: false,
         exit_requested: false,
         heartbeat: ProcHeartbeat::build(&cfg),
-        docs: TextDocs::new(files),
+        docs: TextDocs::from_workspace(files, file_data),
         tasks,
     };
 
@@ -247,9 +252,15 @@ fn recv_completed_tasks(
                     }
                     docs.add(doc, tree, globals, TextDocStatus::Closed);
                 }
-                Err(uri) => outgoing.push(Some(trace_doc_cannot_read(&uri))),
+                Err(uri) => {
+                    if cfg.trace_level != TraceValue::Off {
+                        outgoing.push(Some(trace_doc_cannot_read(&uri)));
+                    }
+                }
             },
-            TaskDone::WorkspaceIndexScan(_) | TaskDone::WorkspaceFileIndexNew(_) => unreachable!(),
+            TaskDone::WorkspaceFileDiscovery(_) | TaskDone::WorkspaceFileIndexNew(_) => {
+                unreachable!()
+            }
         }
     }
 }
@@ -365,7 +376,7 @@ fn task_blocked(job: &Task, ongoing: &[OngoingTask]) -> bool {
         Task::WorkspaceFileScan(url, ..) => ongoing.iter().any(|o| match o {
             OngoingTask::TextDocUpdate { uri: file } => file == url.as_str(),
         }),
-        Task::WorkspaceIndexScan(..) | Task::WorkspaceFileIndexNew(..) => false,
+        Task::WorkspaceFileDiscovery(..) | Task::WorkspaceFileIndexNew(..) => false,
     }
 }
 
@@ -382,7 +393,7 @@ fn add_ongoing_task_if_strictly_ordered(job: &Task, ongoing: &mut Vec<OngoingTas
             uri: url.to_string(),
         },
         Task::GoToDefinitionExtMeta(..)
-        | Task::WorkspaceIndexScan(..)
+        | Task::WorkspaceFileDiscovery(..)
         | Task::WorkspaceFileIndexNew(..) => return,
     };
     ongoing.push(t);
@@ -395,20 +406,37 @@ fn mark_ongoing_task_completed(job: &TaskDone, ongoing: &mut Vec<OngoingTask>) {
         | TaskDone::WorkspaceFileScan(Ok((doc, ..))) => find_ongoing_task(&doc.uri, ongoing),
         TaskDone::WorkspaceFileScan(Err(uri)) => find_ongoing_task(uri, ongoing),
         TaskDone::GoToDefinitionExtMeta(..)
-        | TaskDone::WorkspaceIndexScan(..)
+        | TaskDone::WorkspaceFileDiscovery(..)
         | TaskDone::WorkspaceFileIndexNew(..) => return,
     };
     ongoing.remove(idx);
 }
 
 fn index_workspace(
+    cfg: &Config,
+    channel: &mut StdioChannel,
     tasks: &mut Tasks,
     workspace: &Workspace,
     outgoing: &mut Vec<Option<Message>>,
-) -> Result<FileIndex, ReturnCode> {
+) -> Result<(FileIndex, Vec<FileData>), ReturnCode> {
     debug_assert!(tasks.ongoing.len() <= 0 && tasks.blocked.len() <= 0);
 
-    let discover = Task::WorkspaceIndexScan(workspace.clone(), &SUFFIXES, locate_files);
+    let members = discover_files(tasks, workspace.clone())?;
+    if members.missing_roots.len() > 0 {
+        outgoing.push(Some(trace_root_invalid(&members.missing_roots)));
+    }
+    send_outgoing(channel, outgoing);
+    outgoing.clear();
+
+    let file_index = categorize_files(tasks, members.files.clone())?;
+
+    let content = parse_files(cfg, channel, tasks, &file_index, &members, outgoing)?;
+
+    Ok((file_index, content))
+}
+
+fn discover_files(tasks: &mut Tasks, workspace: Workspace) -> Result<WorkspaceMembers, ReturnCode> {
+    let discover = Task::WorkspaceFileDiscovery(workspace.clone(), &SUFFIXES, locate_files);
     try_schedule(
         &mut tasks.runner,
         discover,
@@ -417,12 +445,17 @@ fn index_workspace(
     )?;
 
     let members = match tasks.runner.rx.recv() {
-        Ok(TaskDone::WorkspaceIndexScan(m)) => m,
+        Ok(TaskDone::WorkspaceFileDiscovery(m)) => Ok(m),
         Ok(_) => unreachable!("No other tasks must be pending."),
-        Err(_) => return Err(ReturnCode::UnavailableErr),
+        Err(_) => Err(ReturnCode::UnavailableErr),
     };
+    tasks.ongoing.clear();
 
-    let indexer = Task::WorkspaceFileIndexNew(members.files.clone(), index_files);
+    members
+}
+
+fn categorize_files(tasks: &mut Tasks, files: Vec<Url>) -> Result<FileIndex, ReturnCode> {
+    let indexer = Task::WorkspaceFileIndexNew(files, index_files);
     try_schedule(
         &mut tasks.runner,
         indexer,
@@ -431,24 +464,65 @@ fn index_workspace(
     )?;
 
     let file_index = match tasks.runner.rx.recv() {
-        Ok(TaskDone::WorkspaceFileIndexNew(idx)) => idx,
+        Ok(TaskDone::WorkspaceFileIndexNew(idx)) => Ok(idx),
         Ok(_) => unreachable!("No other tasks must be pending."),
-        Err(_) => return Err(ReturnCode::UnavailableErr),
+        Err(_) => Err(ReturnCode::UnavailableErr),
+    };
+    tasks.ongoing.clear();
+
+    file_index
+}
+
+fn parse_files(
+    cfg: &Config,
+    channel: &mut StdioChannel,
+    tasks: &mut Tasks,
+    file_index: &FileIndex,
+    workspace: &WorkspaceMembers,
+    outgoing: &mut Vec<Option<Message>>,
+) -> Result<Vec<FileData>, ReturnCode> {
+    let num_files: u32 = match workspace.files.len().try_into() {
+        Ok(n) => n,
+        Err(_) => u32::MAX,
     };
 
-    for file in members.files {
+    for file in workspace.files.iter() {
         try_schedule(
             &mut tasks.runner,
-            Task::WorkspaceFileScan(file, file_index.clone(), read_doc),
+            Task::WorkspaceFileScan(file.clone(), file_index.clone(), read_doc),
             &mut tasks.ongoing,
             &mut tasks.blocked,
         )?;
     }
+    let mut results: Vec<FileData> = Vec::with_capacity(num_files as usize);
 
-    if members.missing_roots.len() > 0 {
-        outgoing.push(Some(trace_root_invalid(&members.missing_roots)));
+    let mut completed: u32 = 0;
+    while completed < num_files {
+        match tasks.runner.rx.recv() {
+            Ok(TaskDone::WorkspaceFileScan(res)) => match res {
+                Ok((doc, tree, expr)) => {
+                    if cfg.trace_level != TraceValue::Off {
+                        outgoing.push(Some(trace_doc_change(&doc, &tree)));
+                    }
+                    results.push((doc, tree, expr));
+                }
+                Err(uri) => {
+                    if cfg.trace_level != TraceValue::Off {
+                        outgoing.push(Some(trace_doc_cannot_read(&uri)));
+                    }
+                }
+            },
+            Ok(_) => unreachable!("No other task type must be pending."),
+            Err(_) => return Err(ReturnCode::UnavailableErr),
+        }
+        send_outgoing(channel, outgoing);
+        outgoing.clear();
+
+        completed += 1;
     }
-    Ok(file_index)
+    tasks.ongoing.clear();
+
+    Ok(results)
 }
 
 fn find_ongoing_task(doc: &str, ongoing: &[OngoingTask]) -> usize {
