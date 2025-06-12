@@ -53,7 +53,7 @@ pub enum Task {
         Tree,
         LangExpressions,
         Position,
-        fn(TextDoc, Tree, LangExpressions, Position) -> Option<LocationLink>,
+        fn(TextDoc, Tree, LangExpressions, Position) -> Option<Vec<LocationLink>>,
     ),
     TextDocNew(
         TextDocumentItem,
@@ -87,7 +87,7 @@ pub enum Task {
 
 #[derive(Debug)]
 pub enum TaskDone {
-    GoToDefinitionExtMeta(NumberOrString, Option<LocationLink>),
+    GoToDefinitionExtMeta(NumberOrString, Option<Vec<LocationLink>>),
     TextDocNew(TextDoc, Tree, LangExpressions),
     TextDocEdit(TextDoc, Tree, LangExpressions),
     WorkspaceFileDiscovery(WorkspaceMembers),

@@ -8,9 +8,29 @@ use tree_sitter::{Tree, TreeCursor};
 
 use crate::{
     ls::doc::TextDoc,
-    protocol::{LocationLink, Position},
+    protocol::{LocationLink, Position, Uri},
     t32::{LangExpressions, NodeKind, get_goto_ref_ids, goto_macro_definition, id_into_node},
 };
+
+impl LocationLink {
+    pub fn build(
+        doc: &TextDoc,
+        origin: Option<Range<usize>>,
+        uri: Uri,
+        target_range: Range<usize>,
+        target_sel: Range<usize>,
+    ) -> Self {
+        LocationLink {
+            origin_selection_range: match origin {
+                Some(range) => Some(doc.to_range(range.start, range.end)),
+                None => None,
+            },
+            target_uri: uri,
+            target_range: doc.to_range(target_range.start, target_range.end),
+            target_selection_range: doc.to_range(target_sel.start, target_sel.end),
+        }
+    }
+}
 
 /// Retrieves definitions for `(macro)`, `(subroutine_call_expression)`, and
 /// `(command_expression)` nodes.
@@ -19,7 +39,7 @@ pub fn find_definition(
     tree: Tree,
     t32: LangExpressions,
     position: Position,
-) -> Option<LocationLink> {
+) -> Option<Vec<LocationLink>> {
     let offset = doc.to_byte_offset(&position);
 
     let lang = tree.language();
@@ -28,22 +48,31 @@ pub fn find_definition(
     let origin = find_deepest_node(&tree, offset, &allowed_kinds)?;
     let origin_range = origin.node().range();
 
-    let (target_range, target_selection_range) = match id_into_node(&lang, origin.node().kind_id())
-    {
+    let mut links: Vec<LocationLink> = Vec::with_capacity(1);
+    match id_into_node(&lang, origin.node().kind_id()) {
         NodeKind::Macro => {
-            if let Some(macro_def) = goto_macro_definition(&doc.text, &tree, &t32, origin) {
-                if let Some(docstring) = macro_def.docstring {
+            for def in goto_macro_definition(&doc.text, &tree, &t32, origin)? {
+                let (target_range, target_sel) = if let Some(docstring) = def.docstring {
                     let start: Range<usize> = Range {
                         start: docstring.start,
-                        end: macro_def.definition.end,
+                        end: def.definition.end,
                     };
 
-                    (start, macro_def.r#macro)
+                    (start, def.r#macro)
                 } else {
-                    (macro_def.definition, macro_def.r#macro)
-                }
-            } else {
-                return None;
+                    (def.definition, def.r#macro)
+                };
+
+                links.push(LocationLink::build(
+                    &doc,
+                    Some(Range {
+                        start: origin_range.start_byte,
+                        end: origin_range.end_byte,
+                    }),
+                    doc.uri.clone(),
+                    target_range,
+                    target_sel,
+                ));
             }
         }
         NodeKind::CommandExpression => todo!(),
@@ -51,13 +80,7 @@ pub fn find_definition(
         _ => unreachable!("No other node kinds can be traced back to definition."),
     };
 
-    Some(LocationLink {
-        origin_selection_range: Some(doc.to_range(origin_range.start_byte, origin_range.end_byte)),
-        target_uri: doc.uri.clone(),
-        target_range: doc.to_range(target_range.start, target_range.end),
-        target_selection_range: doc
-            .to_range(target_selection_range.start, target_selection_range.end),
-    })
+    if links.len() > 0 { Some(links) } else { None }
 }
 
 fn find_deepest_node<'a>(
@@ -95,12 +118,9 @@ mod tests {
         t32,
     };
 
-    #[test]
-    fn can_find_private_macro_definition() {
-        let file =
-            Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
-                .unwrap();
-        let doc = TextDoc::try_from(file).expect("Path must be valid.");
+    fn find_def(file: &str, position: Position) -> Option<Vec<LocationLink>> {
+        let uri = Url::from_file_path(path::absolute(file).expect("File must exist.")).unwrap();
+        let doc = TextDoc::try_from(uri).expect("Path must be valid.");
         let files = workspace::FileIndex::new();
 
         let tree = t32::parse(doc.text.as_bytes(), None);
@@ -109,7 +129,7 @@ mod tests {
         let subroutines = t32::find_subroutines(&doc.text, &tree);
         let calls = resolve_call_expressions(&doc.text, &tree, &files);
 
-        let loc = find_definition(
+        find_definition(
             doc,
             tree,
             LangExpressions {
@@ -117,6 +137,14 @@ mod tests {
                 subroutines,
                 calls,
             },
+            position,
+        )
+    }
+
+    #[test]
+    fn can_find_private_macro_definition() {
+        let loc = find_def(
+            "tests/samples/a/a.cmm",
             Position {
                 line: 8,
                 character: 0,
@@ -131,9 +159,11 @@ mod tests {
             .join("a.cmm");
         let _uri: Url = Url::from_file_path(path::absolute(file).unwrap()).unwrap();
 
+        let loc = loc.expect("Must not be empty.");
+        assert_eq!(loc.len(), 1);
         assert!(matches!(
-            loc,
-            Some(LocationLink {
+            &loc[0],
+            LocationLink {
                 origin_selection_range: Some(Range {
                     start: Position {
                         line: 8,
@@ -165,32 +195,14 @@ mod tests {
                         character: 22,
                     },
                 },
-            })
+            }
         ));
     }
 
     #[test]
     fn can_find_macro_definition_with_docstring() {
-        let file =
-            Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
-                .unwrap();
-        let doc = TextDoc::try_from(file).expect("Path must be valid.");
-        let files = workspace::FileIndex::new();
-
-        let tree = t32::parse(doc.text.as_bytes(), None);
-
-        let macros = t32::find_global_macro_definitions(&doc.text, &tree);
-        let subroutines = t32::find_subroutines(&doc.text, &tree);
-        let calls = resolve_call_expressions(&doc.text, &tree, &files);
-
-        let loc = find_definition(
-            doc,
-            tree,
-            LangExpressions {
-                macros,
-                subroutines,
-                calls,
-            },
+        let loc = find_def(
+            "tests/samples/a/a.cmm",
             Position {
                 line: 22,
                 character: 21,
@@ -205,9 +217,11 @@ mod tests {
             .join("a.cmm");
         let _uri: Url = Url::from_file_path(path::absolute(file).unwrap()).unwrap();
 
+        let loc = loc.expect("Must not be empty.");
+        assert_eq!(loc.len(), 1);
         assert!(matches!(
-            loc,
-            Some(LocationLink {
+            &loc[0],
+            LocationLink {
                 origin_selection_range: Some(Range {
                     start: Position {
                         line: 22,
@@ -239,7 +253,309 @@ mod tests {
                         character: 25,
                     },
                 },
-            })
+            }
+        ));
+    }
+
+    #[test]
+    fn can_find_macro_definition_from_subroutine() {
+        let loc = find_def(
+            "tests/samples/a/a.cmm",
+            Position {
+                line: 29,
+                character: 11,
+            },
+        );
+
+        let file = env::current_dir()
+            .unwrap()
+            .join("tests")
+            .join("samples")
+            .join("a")
+            .join("a.cmm");
+        let _uri: Url = Url::from_file_path(path::absolute(file).unwrap()).unwrap();
+
+        let loc = loc.expect("Must not be empty.");
+        assert_eq!(loc.len(), 1);
+        assert!(matches!(
+            &loc[0],
+            LocationLink {
+                origin_selection_range: Some(Range {
+                    start: Position {
+                        line: 29,
+                        character: 10,
+                    },
+                    end: Position {
+                        line: 29,
+                        character: 12,
+                    },
+                }),
+                target_uri: _uri,
+                target_range: Range {
+                    start: Position {
+                        line: 28,
+                        character: 4,
+                    },
+                    end: Position {
+                        line: 29,
+                        character: 0,
+                    },
+                },
+                target_selection_range: Range {
+                    start: Position {
+                        line: 28,
+                        character: 12,
+                    },
+                    end: Position {
+                        line: 28,
+                        character: 14,
+                    },
+                },
+            }
+        ));
+    }
+
+    #[test]
+    fn can_find_external_macro_definition_from_subroutine() {
+        let loc = find_def(
+            "tests/samples/a/a.cmm",
+            Position {
+                line: 38,
+                character: 10,
+            },
+        );
+
+        let file = env::current_dir()
+            .unwrap()
+            .join("tests")
+            .join("samples")
+            .join("a")
+            .join("a.cmm");
+        let _uri: Url = Url::from_file_path(path::absolute(file).unwrap()).unwrap();
+
+        let loc = loc.expect("Must not be empty.");
+        assert_eq!(loc.len(), 1);
+        assert!(matches!(
+            &loc[0],
+            LocationLink {
+                origin_selection_range: Some(Range {
+                    start: Position {
+                        line: 38,
+                        character: 4,
+                    },
+                    end: Position {
+                        line: 38,
+                        character: 16,
+                    },
+                }),
+                target_uri: _uri,
+                target_range: Range {
+                    start: Position {
+                        line: 42,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 43,
+                        character: 0,
+                    },
+                },
+                target_selection_range: Range {
+                    start: Position {
+                        line: 42,
+                        character: 6,
+                    },
+                    end: Position {
+                        line: 42,
+                        character: 18,
+                    },
+                },
+            }
+        ));
+    }
+
+    #[test]
+    fn can_find_macro_definition_over_subroutine_calls() {
+        let loc = find_def(
+            "tests/samples/a/a.cmm",
+            Position {
+                line: 58,
+                character: 22,
+            },
+        );
+
+        let file = env::current_dir()
+            .unwrap()
+            .join("tests")
+            .join("samples")
+            .join("a")
+            .join("a.cmm");
+        let _uri: Url = Url::from_file_path(path::absolute(file).unwrap()).unwrap();
+
+        let loc = loc.expect("Must not be empty.");
+        assert_eq!(loc.len(), 2);
+        assert!(matches!(
+            &loc[0],
+            LocationLink {
+                origin_selection_range: Some(Range {
+                    start: Position {
+                        line: 58,
+                        character: 11,
+                    },
+                    end: Position {
+                        line: 58,
+                        character: 23,
+                    },
+                }),
+                target_uri: _uri,
+                target_range: Range {
+                    start: Position {
+                        line: 65,
+                        character: 4,
+                    },
+                    end: Position {
+                        line: 66,
+                        character: 0,
+                    },
+                },
+                target_selection_range: Range {
+                    start: Position {
+                        line: 65,
+                        character: 10,
+                    },
+                    end: Position {
+                        line: 65,
+                        character: 22,
+                    },
+                },
+            }
+        ));
+
+        assert!(matches!(
+            &loc[1],
+            LocationLink {
+                origin_selection_range: Some(Range {
+                    start: Position {
+                        line: 58,
+                        character: 11,
+                    },
+                    end: Position {
+                        line: 58,
+                        character: 23,
+                    },
+                }),
+                target_uri: _uri,
+                target_range: Range {
+                    start: Position {
+                        line: 72,
+                        character: 4,
+                    },
+                    end: Position {
+                        line: 73,
+                        character: 0,
+                    },
+                },
+                target_selection_range: Range {
+                    start: Position {
+                        line: 72,
+                        character: 10,
+                    },
+                    end: Position {
+                        line: 72,
+                        character: 22,
+                    },
+                },
+            }
+        ));
+
+        let loc = find_def(
+            "tests/samples/a/a.cmm",
+            Position {
+                line: 58,
+                character: 30,
+            },
+        );
+
+        let file = env::current_dir()
+            .unwrap()
+            .join("tests")
+            .join("samples")
+            .join("a")
+            .join("a.cmm");
+        let _uri: Url = Url::from_file_path(path::absolute(file).unwrap()).unwrap();
+
+        let loc = loc.expect("Must not be empty.");
+        assert_eq!(loc.len(), 2);
+        assert!(matches!(
+            &loc[0],
+            LocationLink {
+                origin_selection_range: Some(Range {
+                    start: Position {
+                        line: 58,
+                        character: 26,
+                    },
+                    end: Position {
+                        line: 58,
+                        character: 38,
+                    },
+                }),
+                target_uri: _uri,
+                target_range: Range {
+                    start: Position {
+                        line: 61,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 62,
+                        character: 0,
+                    },
+                },
+                target_selection_range: Range {
+                    start: Position {
+                        line: 61,
+                        character: 6,
+                    },
+                    end: Position {
+                        line: 61,
+                        character: 18,
+                    },
+                },
+            }
+        ));
+        assert!(matches!(
+            &loc[1],
+            LocationLink {
+                origin_selection_range: Some(Range {
+                    start: Position {
+                        line: 58,
+                        character: 26,
+                    },
+                    end: Position {
+                        line: 58,
+                        character: 38,
+                    },
+                }),
+                target_uri: _uri,
+                target_range: Range {
+                    start: Position {
+                        line: 73,
+                        character: 4,
+                    },
+                    end: Position {
+                        line: 74,
+                        character: 0,
+                    },
+                },
+                target_selection_range: Range {
+                    start: Position {
+                        line: 73,
+                        character: 10,
+                    },
+                    end: Position {
+                        line: 73,
+                        character: 22,
+                    },
+                },
+            }
         ));
     }
 }

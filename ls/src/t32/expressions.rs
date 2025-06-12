@@ -9,10 +9,10 @@ use tree_sitter::{Range as TRange, Tree, TreeCursor};
 use crate::{
     protocol::Uri,
     t32::{
-        FileIndex, NodeKind,
+        FileIndex, LangExpressions, NodeKind,
         ast::{
-            KEYWORDS_SCRIPT_CALL, get_block_opener_ids, get_string_body, get_subroutine_ids,
-            node_into_id, start_on_adjacent_lines,
+            KEYWORDS_SCRIPT_CALL, KEYWORDS_SCRIPT_END, get_block_opener_ids, get_string_body,
+            get_subroutine_ids, node_into_id, start_on_adjacent_lines,
         },
         path::locate_script,
     },
@@ -25,7 +25,6 @@ pub struct MacroDefinition {
     pub docstring: Option<Range<usize>>,
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct Subroutine {
     pub name: Range<usize>,
@@ -36,29 +35,22 @@ pub struct Subroutine {
 #[derive(Clone, Debug)]
 pub struct CallExpression {
     pub target: Range<usize>,
-
-    #[allow(dead_code)]
     pub call: Range<usize>,
-
     pub docstring: Option<Range<usize>>,
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct MacroDefinitions {
-    pub locals: Option<Vec<Range<usize>>>,
+    pub locals: Option<Vec<MacroDefinition>>,
     pub globals: Option<Vec<MacroDefinition>>,
 }
 
 #[derive(Clone, Debug)]
 pub struct CallExpressions {
-    #[allow(dead_code)]
     pub subroutines: Option<Vec<CallExpression>>,
-
     pub scripts: Option<SubscriptCalls>,
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct CallLocations {
     pub subroutines: Option<Vec<CallExpression>>,
@@ -79,8 +71,8 @@ pub enum MacroScope {
 }
 
 impl MacroDefinitions {
-    pub fn build(locals: Vec<Range<usize>>, globals: Vec<MacroDefinition>) -> Self {
-        let locals: Option<Vec<Range<usize>>> = match locals {
+    pub fn build(locals: Vec<MacroDefinition>, globals: Vec<MacroDefinition>) -> Self {
+        let locals: Option<Vec<MacroDefinition>> = match locals {
             loc if loc.len() <= 0 => None,
             loc => Some(loc),
         };
@@ -155,8 +147,9 @@ impl From<&str> for MacroScope {
 pub fn find_macro_definition(
     text: &str,
     tree: &Tree,
+    t32: &LangExpressions,
     r#macro: TreeCursor,
-) -> Option<MacroDefinition> {
+) -> Option<Vec<MacroDefinition>> {
     let node = r#macro.node();
     debug_assert!(node.end_byte() < text.len());
 
@@ -167,9 +160,46 @@ pub fn find_macro_definition(
     if !cursor.goto_first_child() {
         return None;
     }
-    find_macro_def_in_main_body(text, &node.byte_range(), name, tree)
+
+    // This corner case has two matches for `&a` in the subroutine:
+    // ```
+    // PRIVATE &a
+    // ENTRY &a
+    //
+    // If "&a"==""
+    // (
+    //   LOCAL &a
+    //   &a = "inner"
+    //
+    //   GOSUB subA
+    //   ENDDO
+    // )
+    //
+    // subA:
+    // (
+    //   PRINT "&a"
+    // )
+    // ```
+    // The `PRIVATE` macro is used as soon as the body of the if block is not
+    // executed. Otherwise, the `LOCAL` macro shadows and is active during the
+    // subroutine call.
+    let mut defs: Vec<MacroDefinition> = Vec::with_capacity(1);
+    if let Some(subroutine) = resides_in_subroutine(&t32.subroutines, node.start_byte()) {
+        if let Some(mut macros) =
+            find_macro_def_across_subroutine_bounds(text, t32, subroutine, name, tree)
+        {
+            defs.append(&mut macros);
+        }
+    }
+
+    if let Some(def) = find_macro_def_in_parent_block(text, &node.byte_range(), name, tree) {
+        defs.push(def)
+    }
+
+    if defs.len() > 0 { Some(defs) } else { None }
 }
 
+/// Finds all PRACTICE macros with LOCAL and GLOBAL scope.
 pub fn find_all_global_macro_definitions(text: &str, tree: &Tree) -> MacroDefinitions {
     let mut cursor = tree.walk();
 
@@ -178,7 +208,7 @@ pub fn find_all_global_macro_definitions(text: &str, tree: &Tree) -> MacroDefini
 
     let id_macro_def = node_into_id(&tree.language(), NodeKind::MacroDefinition);
 
-    let mut locals: Vec<Range<usize>> = Vec::new();
+    let mut locals: Vec<MacroDefinition> = Vec::new();
     let mut globals: Vec<MacroDefinition> = Vec::new();
 
     if !cursor.goto_first_child() {
@@ -191,15 +221,18 @@ pub fn find_all_global_macro_definitions(text: &str, tree: &Tree) -> MacroDefini
 
         if id == id_macro_def {
             if let Some(scope) = find_macro_scope(text, &mut cursor) {
-                if scope == MacroScope::Local {
-                    extract_local_macro_defs(text, &mut cursor, &mut locals);
-                } else if scope == MacroScope::Global {
-                    let num = globals.len();
-                    extract_global_macro_defs(text, &mut cursor, &mut globals);
-                    if globals.len() != num {
-                        let docstring = find_docstring(tree, &mut cursor);
+                if scope != MacroScope::Private {
+                    let (num, macros) = match scope {
+                        MacroScope::Local => (locals.len(), &mut locals),
+                        MacroScope::Global => (globals.len(), &mut globals),
+                        MacroScope::Private => unreachable!(),
+                    };
+
+                    extract_macro_defs(text, &mut cursor, macros);
+                    if macros.len() != num {
+                        let docstring = find_docstring(&mut cursor);
                         if docstring.is_some() {
-                            for def in globals[num..].iter_mut() {
+                            for def in macros[num..].iter_mut() {
                                 def.docstring = docstring.clone();
                             }
                         }
@@ -244,7 +277,7 @@ pub fn find_all_subroutines(_text: &str, tree: &Tree) -> Option<Vec<Subroutine>>
 
             if subroutine.is_some() {
                 let mut subroutine = subroutine.unwrap();
-                let docstring = find_docstring(tree, &mut cursor);
+                let docstring = find_docstring(&mut cursor);
                 if docstring.is_some() {
                     subroutine.docstring = docstring;
                 }
@@ -295,7 +328,7 @@ pub fn find_all_call_expressions(text: &str, tree: &Tree) -> CallLocations {
             if call.is_some() {
                 let mut call = call.unwrap();
 
-                let docstring = find_docstring(tree, &mut cursor);
+                let docstring = find_docstring(&mut cursor);
                 if docstring.is_some() {
                     call.docstring = docstring;
                 }
@@ -315,7 +348,7 @@ pub fn find_all_call_expressions(text: &str, tree: &Tree) -> CallLocations {
             if call.is_some() {
                 let mut call = call.unwrap();
 
-                let docstring = find_docstring(tree, &mut cursor);
+                let docstring = find_docstring(&mut cursor);
                 if docstring.is_some() {
                     call.docstring = docstring;
                 }
@@ -381,17 +414,84 @@ pub fn locate_subscript(
     locate_script(&path, &files)
 }
 
-pub fn find_macro_def_in_main_body(
+/// Find PRACTICE macro definitions in a parent block relative to the origin node. Any
+/// macro type (`PRIVATE`, `LOCAL`, `GLOBAL`) works.
+pub fn find_macro_def_in_parent_block(
     text: &str,
     origin: &Range<usize>,
     name: &str,
     tree: &Tree,
 ) -> Option<MacroDefinition> {
-    let id_macro_def = node_into_id(&tree.language(), NodeKind::MacroDefinition);
+    let root = tree.walk();
+    find_macro_def_kinds_in_outer_block(text, origin, name, root, defines_macro)
+}
+
+/// Find PRACTICE macro definitions where the origin is in a subroutine, but
+/// it is externally defined. This is only possible for `LOCAL` and `GLOBAL`
+/// macros. Subroutine definitions cannot be nested.
+pub fn find_macro_def_across_subroutine_bounds(
+    text: &str,
+    t32: &LangExpressions,
+    origin: &Subroutine,
+    name: &str,
+    tree: &Tree,
+) -> Option<Vec<MacroDefinition>> {
+    debug_assert!(t32.subroutines.is_some());
+
+    let Some(subroutines) = &t32.subroutines else {
+        return None;
+    };
+
+    let Some(calls) = &t32.calls.subroutines else {
+        return None;
+    };
+
+    let mut locals: Vec<MacroDefinition> = Vec::new();
+    if let Some(macros) = &t32.macros.locals {
+        for r#macro in macros.iter().filter(|m| text[m.r#macro.clone()] == *name) {
+            locals.push(r#macro.clone());
+        }
+    }
+
+    let mut globals: Vec<MacroDefinition> = Vec::new();
+    if let Some(macros) = &t32.macros.globals {
+        for r#macro in macros.iter().filter(|m| text[m.r#macro.clone()] == *name) {
+            globals.push(r#macro.clone());
+        }
+    }
+
+    if locals.len() <= 0 && globals.len() <= 0 {
+        return None;
+    }
+
+    let mut defs: Vec<MacroDefinition> = Vec::new();
+    if let Some(mut macros) =
+        find_macro_def_covering_subroutine_call(text, &origin.name, name, calls, subroutines, tree)
+    {
+        defs.append(&mut macros);
+    }
+
+    if defs.len() > 0 {
+        Some(defs)
+    } else if globals.len() > 0 {
+        Some(globals)
+    } else {
+        None
+    }
+}
+
+fn find_macro_def_kinds_in_outer_block(
+    text: &str,
+    origin: &Range<usize>,
+    name: &str,
+    root: TreeCursor,
+    select: fn(text: &str, def: &mut TreeCursor, name: &str) -> Option<MacroDefinition>,
+) -> Option<MacroDefinition> {
+    let id_macro_def = node_into_id(&root.node().language(), NodeKind::MacroDefinition);
 
     let mut definition: Option<MacroDefinition> = None;
 
-    let mut cursor = tree.walk();
+    let mut cursor = root;
     loop {
         let node = cursor.node();
         if node.start_byte() > origin.end {
@@ -400,8 +500,8 @@ pub fn find_macro_def_in_main_body(
         let id = node.kind_id();
 
         if id == id_macro_def {
-            if let Some(mut def) = defines_macro(&text, &mut cursor, name) {
-                let docstring = find_docstring(tree, &mut cursor);
+            if let Some(mut def) = select(&text, &mut cursor, name) {
+                let docstring = find_docstring(&mut cursor);
                 if docstring.is_some() {
                     def.docstring = docstring;
                 }
@@ -431,23 +531,84 @@ pub fn find_macro_def_in_main_body(
     definition
 }
 
-fn defines_macro(text: &str, def: &mut TreeCursor, name: &str) -> Option<MacroDefinition> {
+fn find_macro_def_covering_subroutine_call(
+    text: &str,
+    origin: &Range<usize>,
+    name: &str,
+    calls: &Vec<CallExpression>,
+    subroutines: &Vec<Subroutine>,
+    tree: &Tree,
+) -> Option<Vec<MacroDefinition>> {
+    let mut defs: Vec<MacroDefinition> = Vec::new();
+    for target in calls
+        .iter()
+        .filter(|&c| text[c.target.clone()] == text[origin.clone()])
+    {
+        let subroutine = subroutines
+            .iter()
+            .find(|s| s.definition.contains(&target.call.start));
+
+        let root: TreeCursor = match subroutine {
+            Some(sub) => {
+                let mut cursor = tree.walk();
+                let ids = get_subroutine_ids(&tree.language());
+                loop {
+                    if cursor
+                        .goto_first_child_for_byte(sub.definition.start)
+                        .is_none()
+                    {
+                        break tree.walk();
+                    }
+                    if ids.contains(&cursor.node().kind_id()) {
+                        break cursor;
+                    }
+                }
+            }
+            None => tree.walk(),
+        };
+
+        if let Some(r#macro) = find_macro_def_kinds_in_outer_block(
+            text,
+            &target.call,
+            name,
+            root,
+            defines_global_macro,
+        ) {
+            defs.push(r#macro);
+        } else if let Some(sub) = subroutine {
+            if let Some(mut macros) = find_macro_def_covering_subroutine_call(
+                text,
+                &sub.name,
+                name,
+                calls,
+                subroutines,
+                tree,
+            ) {
+                defs.append(&mut macros);
+            }
+        }
+    }
+
+    if defs.len() > 0 { Some(defs) } else { None }
+}
+
+fn defines_macro(text: &str, cursor: &mut TreeCursor, name: &str) -> Option<MacroDefinition> {
     debug_assert_eq!(
-        def.node().kind_id(),
-        node_into_id(&def.node().language(), NodeKind::MacroDefinition)
+        cursor.node().kind_id(),
+        node_into_id(&cursor.node().language(), NodeKind::MacroDefinition)
     );
 
-    if !def.goto_first_child() {
+    if !cursor.goto_first_child() {
         return None;
     }
 
     debug_assert_eq!(
-        def.node().kind_id(),
-        node_into_id(&def.node().language(), NodeKind::Identifier)
+        cursor.node().kind_id(),
+        node_into_id(&cursor.node().language(), NodeKind::Identifier)
     );
 
-    while def.goto_next_sibling() {
-        let r#macro = def.node();
+    while cursor.goto_next_sibling() {
+        let r#macro = cursor.node();
         debug_assert_eq!(
             r#macro.kind_id(),
             node_into_id(&r#macro.language(), NodeKind::Macro)
@@ -459,40 +620,43 @@ fn defines_macro(text: &str, def: &mut TreeCursor, name: &str) -> Option<MacroDe
         }
 
         if &text[range] == name {
-            def.goto_parent();
+            cursor.goto_parent();
             return Some(MacroDefinition {
-                definition: def.node().byte_range(),
+                definition: cursor.node().byte_range(),
                 r#macro: r#macro.byte_range(),
                 docstring: None,
             });
         }
     }
-    def.goto_parent();
+    cursor.goto_parent();
     None
 }
 
-fn extract_local_macro_defs(text: &str, def: &mut TreeCursor, locals: &mut Vec<Range<usize>>) {
+fn defines_global_macro(
+    text: &str,
+    cursor: &mut TreeCursor,
+    name: &str,
+) -> Option<MacroDefinition> {
     debug_assert_eq!(
-        def.node().kind_id(),
-        node_into_id(&def.node().language(), NodeKind::MacroDefinition)
+        cursor.node().kind_id(),
+        node_into_id(&cursor.node().language(), NodeKind::MacroDefinition)
     );
 
-    if !def.goto_first_child() {
-        return;
+    if !cursor.goto_first_child() {
+        return None;
     }
 
     debug_assert_eq!(
-        def.node().kind_id(),
-        node_into_id(&def.node().language(), NodeKind::Identifier)
+        cursor.node().kind_id(),
+        node_into_id(&cursor.node().language(), NodeKind::Identifier)
     );
-    debug_assert_eq!(
-        MacroScope::from(&text[def.node().byte_range()]),
-        MacroScope::Local
-    );
+    if MacroScope::from(&text[cursor.node().byte_range()]) == MacroScope::Private {
+        cursor.goto_parent();
+        return None;
+    }
 
-    while def.goto_next_sibling() {
-        let r#macro = def.node();
-
+    while cursor.goto_next_sibling() {
+        let r#macro = cursor.node();
         debug_assert_eq!(
             r#macro.kind_id(),
             node_into_id(&r#macro.language(), NodeKind::Macro)
@@ -502,16 +666,21 @@ fn extract_local_macro_defs(text: &str, def: &mut TreeCursor, locals: &mut Vec<R
         if range.end >= text.len() {
             break;
         }
-        locals.push(range);
+
+        if &text[range] == name {
+            cursor.goto_parent();
+            return Some(MacroDefinition {
+                definition: cursor.node().byte_range(),
+                r#macro: r#macro.byte_range(),
+                docstring: None,
+            });
+        }
     }
-    def.goto_parent();
+    cursor.goto_parent();
+    None
 }
 
-fn extract_global_macro_defs(
-    text: &str,
-    cursor: &mut TreeCursor,
-    globals: &mut Vec<MacroDefinition>,
-) {
+fn extract_macro_defs(text: &str, cursor: &mut TreeCursor, macros: &mut Vec<MacroDefinition>) {
     let def = cursor.node();
     debug_assert_eq!(
         def.kind_id(),
@@ -526,9 +695,9 @@ fn extract_global_macro_defs(
         cursor.node().kind_id(),
         node_into_id(&def.language(), NodeKind::Identifier)
     );
-    debug_assert_eq!(
-        MacroScope::from(&text[cursor.node().byte_range()]),
-        MacroScope::Global
+    debug_assert!(
+        [MacroScope::Local, MacroScope::Global]
+            .contains(&MacroScope::from(&text[cursor.node().byte_range()]))
     );
 
     while cursor.goto_next_sibling() {
@@ -543,7 +712,7 @@ fn extract_global_macro_defs(
         if range.end >= text.len() {
             break;
         }
-        globals.push(MacroDefinition {
+        macros.push(MacroDefinition {
             definition: def.byte_range(),
             r#macro: r#macro.byte_range(),
             docstring: None,
@@ -680,14 +849,14 @@ fn find_macro_scope(text: &str, cursor: &mut TreeCursor) -> Option<MacroScope> {
     scope
 }
 
-fn find_docstring(tree: &Tree, cursor: &mut TreeCursor) -> Option<Range<usize>> {
+fn find_docstring(cursor: &mut TreeCursor) -> Option<Range<usize>> {
     let target = cursor.node();
 
     if !(cursor.goto_parent() && cursor.goto_first_child()) {
         unreachable!("Target node must have a parent.");
     }
 
-    let id_comment = node_into_id(&tree.language(), NodeKind::Comment);
+    let id_comment = node_into_id(&target.language(), NodeKind::Comment);
     let mut node = cursor.node();
 
     let mut docstring: Option<TRange> = None;
@@ -722,6 +891,50 @@ fn find_docstring(tree: &Tree, cursor: &mut TreeCursor) -> Option<Range<usize>> 
             end: range.end_byte,
         }),
         _ => None,
+    }
+}
+
+fn resides_in_subroutine(
+    subroutines: &Option<Vec<Subroutine>>,
+    offset: usize,
+) -> Option<&Subroutine> {
+    let Some(sub) = subroutines else {
+        return None;
+    };
+
+    sub.iter().find(|s| s.definition.contains(&offset))
+}
+
+#[allow(dead_code)]
+fn terminates_script(text: &str, cursor: &mut TreeCursor) -> bool {
+    let node = cursor.node();
+    if node.kind_id() != NodeKind::CommandExpression.into_id(&node.language()) {
+        return false;
+    }
+
+    if !cursor.goto_first_child() {
+        return false;
+    }
+
+    debug_assert_eq!(
+        cursor.node().kind_id(),
+        node_into_id(&cursor.node().language(), NodeKind::Identifier)
+    );
+
+    let Some(command) = text[cursor.node().byte_range()].split(".").last() else {
+        cursor.goto_parent();
+        return false;
+    };
+
+    cursor.goto_parent();
+
+    if KEYWORDS_SCRIPT_END
+        .iter()
+        .any(|k| k.eq_ignore_ascii_case(command))
+    {
+        true
+    } else {
+        false
     }
 }
 

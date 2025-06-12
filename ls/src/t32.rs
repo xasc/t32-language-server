@@ -22,7 +22,6 @@ use expressions::{
     find_macro_definition, locate_subscript,
 };
 
-#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct LangExpressions {
     pub macros: MacroDefinitions,
@@ -64,9 +63,9 @@ pub fn get_goto_ref_ids(lang: &Language) -> [u16; 3] {
 pub fn goto_macro_definition(
     text: &str,
     tree: &Tree,
-    _t32: &LangExpressions,
+    t32: &LangExpressions,
     r#macro: TreeCursor,
-) -> Option<MacroDefinition> {
+) -> Option<Vec<MacroDefinition>> {
     let lang = tree.language();
     debug_assert!(matches!(
         lang.node_kind_for_id(r#macro.node().kind_id()),
@@ -76,7 +75,7 @@ pub fn goto_macro_definition(
     if r#macro.node().end_byte() >= text.len() {
         return None;
     }
-    find_macro_definition(text, tree, r#macro)
+    find_macro_definition(text, tree, t32, r#macro)
 }
 
 pub fn find_global_macro_definitions(text: &str, tree: &Tree) -> MacroDefinitions {

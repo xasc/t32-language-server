@@ -41,6 +41,7 @@ const BLOCK_OPENERS: [NodeKind; 6] = [
 ];
 
 pub const KEYWORDS_SCRIPT_CALL: [&'static str; 2] = ["DO", "RUN"];
+pub const KEYWORDS_SCRIPT_END: [&'static str; 2] = ["END", "ENDDO"];
 
 pub const NODE_ARGUMENT_LIST: &'static str = "argument_list";
 pub const NODE_BLOCK: &'static str = "block";

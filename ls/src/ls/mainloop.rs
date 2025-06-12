@@ -226,7 +226,7 @@ fn recv_completed_tasks(
         match done {
             TaskDone::GoToDefinitionExtMeta(id, loc) => {
                 let result = match loc {
-                    Some(link) => Some(LocationResult::ExtMeta(vec![link])),
+                    Some(links) => Some(LocationResult::ExtMeta(links)),
                     None => None,
                 };
                 outgoing.push(Some(Message::Response(Response::GoToDefinitionResponse(

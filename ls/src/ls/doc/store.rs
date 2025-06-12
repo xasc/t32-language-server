@@ -66,7 +66,8 @@ struct CallRelations {
 }
 
 impl TextDocs {
-    pub fn new(files: FileIndex) -> Self {
+    #[allow(dead_code)]
+    fn new(files: FileIndex) -> Self {
         TextDocs {
             docs: DocStore {
                 open: Vec::new(),
@@ -93,11 +94,38 @@ impl TextDocs {
         }
     }
 
+    pub fn with_capacity(files: FileIndex, num: usize) -> Self {
+        TextDocs {
+            docs: DocStore {
+                open: Vec::new(),
+                closed: Vec::with_capacity(num),
+            },
+            trees: TreeStore {
+                open: Vec::new(),
+                closed: Vec::with_capacity(num),
+            },
+            t32: LangExpressionStore {
+                open: Vec::new(),
+                closed: Vec::with_capacity(num),
+            },
+            registry: HashMap::with_capacity(num),
+            free_list: FreeLists {
+                open: Vec::new(),
+                closed: Vec::new(),
+            },
+            file_idx: files,
+            callers: CallerStore {
+                open: Vec::new(),
+                closed: Vec::with_capacity(num),
+            },
+        }
+    }
+
     pub fn from_workspace(
         file_idx: FileIndex,
         members: Vec<(TextDoc, Tree, LangExpressions)>,
     ) -> Self {
-        let mut store = TextDocs::new(file_idx);
+        let mut store = TextDocs::with_capacity(file_idx, members.len());
 
         debug_assert_eq!(store.docs.closed.len(), 0);
         for file in members {

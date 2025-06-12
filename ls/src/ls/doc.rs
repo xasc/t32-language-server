@@ -261,7 +261,7 @@ mod test {
                 .as_ref()
                 .unwrap()
                 .iter()
-                .find_map(|s| (doc.text[s.clone()] == *"&local_macro").then_some(()))
+                .find_map(|s| (doc.text[s.r#macro.clone()] == *"&local_macro").then_some(()))
                 .is_some()
         );
     }

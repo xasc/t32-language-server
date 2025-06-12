@@ -19,7 +19,6 @@ pub struct WorkspaceMembers {
     pub missing_roots: Vec<Uri>,
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct FileIndex {
     pub by_filename: HashMap<String, Url>,

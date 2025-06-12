@@ -26,6 +26,7 @@ IF &private_macro
 ; First subroutine
 SUBROUTINE subA
 (
+    PRIVATE &a
     ENTRY &a
 
     RETURN
@@ -35,6 +36,7 @@ subB:
 (
     ENTRY &a &b
 
+    &local_macro="local"
 )
 
 GLOBAL &global_macro
@@ -49,3 +51,29 @@ DO ../b/b.cmm
 
 // This is subscript call
 RUN ../c.cmm
+
+SUBROUTINE subC
+(
+    ENTRY &first
+
+    PRINT "&inner_macro"+"&outer_macro"
+)
+
+LOCAL &outer_macro
+
+SUBROUTINE subD
+(
+    LOCAL &inner_macro
+
+    GOSUB subC "first"
+)
+
+SUBROUTINE subE
+(
+    LOCAL &inner_macro
+    LOCAL &outer_macro
+
+    GOSUB subC "first"
+)
+
+GOSUB subD
