@@ -19,7 +19,7 @@ pub use expressions::{
 
 use expressions::{
     find_all_call_expressions, find_all_global_macro_definitions, find_all_subroutines,
-    find_macro_definition, locate_subscript,
+    find_macro_definition, find_subroutine_definition, locate_subscript,
 };
 
 #[derive(Clone, Debug)]
@@ -66,16 +66,27 @@ pub fn goto_macro_definition(
     t32: &LangExpressions,
     r#macro: TreeCursor,
 ) -> Option<Vec<MacroDefinition>> {
-    let lang = tree.language();
-    debug_assert!(matches!(
-        lang.node_kind_for_id(r#macro.node().kind_id()),
-        Some(ast::NODE_MACRO)
-    ));
+    debug_assert_eq!(
+        r#macro.node().kind_id(),
+        NodeKind::Macro.into_id(&r#macro.node().language()),
+    );
 
     if r#macro.node().end_byte() >= text.len() {
         return None;
     }
     find_macro_definition(text, tree, t32, r#macro)
+}
+
+pub fn goto_subroutine_definition(text: &str, subroutines: &Vec<Subroutine>, call: TreeCursor) -> Option<Subroutine> {
+    debug_assert_eq!(
+        call.node().kind_id(),
+        NodeKind::SubroutineCallExpression.into_id(&call.node().language()),
+    );
+
+    if call.node().end_byte() >= text.len() {
+        return None;
+    }
+    find_subroutine_definition(text, subroutines, call)
 }
 
 pub fn find_global_macro_definitions(text: &str, tree: &Tree) -> MacroDefinitions {

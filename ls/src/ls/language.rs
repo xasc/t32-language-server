@@ -9,7 +9,7 @@ use tree_sitter::{Tree, TreeCursor};
 use crate::{
     ls::doc::TextDoc,
     protocol::{LocationLink, Position, Uri},
-    t32::{LangExpressions, NodeKind, get_goto_ref_ids, goto_macro_definition, id_into_node},
+    t32::{LangExpressions, NodeKind, Subroutine, get_goto_ref_ids, goto_macro_definition, goto_subroutine_definition, id_into_node},
 };
 
 impl LocationLink {
@@ -75,8 +75,31 @@ pub fn find_definition(
                 ));
             }
         }
-        NodeKind::CommandExpression => todo!(),
-        NodeKind::SubroutineCallExpression => todo!(),
+        NodeKind::CommandExpression => todo!(), // DO, PARAMS, ENTRY
+        NodeKind::SubroutineCallExpression => {
+            // let subroutines = &t32.subroutines?;
+            let sub: Subroutine = goto_subroutine_definition(&doc.text, &t32.subroutines?, origin)?;
+            let (target_range, target_sel) = if let Some(docstring) = sub.docstring {
+                let start: Range<usize> = Range {
+                    start: docstring.start,
+                    end: sub.definition.end,
+                };
+
+                (start, sub.name.clone())
+            } else {
+                (sub.definition.clone(), sub.name.clone())
+            };
+            links.push(LocationLink::build(
+                &doc,
+                Some(Range {
+                    start: origin_range.start_byte,
+                    end: origin_range.end_byte,
+                }),
+                doc.uri.clone(),
+                target_range,
+                target_sel,
+            ));
+        },
         _ => unreachable!("No other node kinds can be traced back to definition."),
     };
 

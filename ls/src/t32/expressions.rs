@@ -151,15 +151,19 @@ pub fn find_macro_definition(
     r#macro: TreeCursor,
 ) -> Option<Vec<MacroDefinition>> {
     let node = r#macro.node();
-    debug_assert!(node.end_byte() < text.len());
 
-    let name = &text[node.start_byte()..node.end_byte()];
+    debug_assert!(node.end_byte() < text.len());
+    debug_assert_eq!(
+        node.kind_id(),
+        NodeKind::Macro.into_id(&node.language()),
+    );
 
     let mut cursor = tree.walk();
-
     if !cursor.goto_first_child() {
         return None;
     }
+
+    let name = &text[node.start_byte()..node.end_byte()];
 
     // This corner case has two matches for `&a` in the subroutine:
     // ```
@@ -197,6 +201,26 @@ pub fn find_macro_definition(
     }
 
     if defs.len() > 0 { Some(defs) } else { None }
+}
+
+pub fn find_subroutine_definition(text: &str, subroutines: &Vec<Subroutine>, mut call: TreeCursor) -> Option<Subroutine> {
+    let node = call.node();
+
+    debug_assert!(node.end_byte() < text.len());
+    debug_assert_eq!(
+        node.kind_id(),
+        NodeKind::SubroutineCallExpression.into_id(&node.language()),
+    );
+
+    let CallExpression { target, .. } = extract_subroutine_call(&mut call)?;
+    let name = &text[target];
+
+    for subroutine in subroutines {
+        if text[subroutine.name.clone()] == *name {
+            return Some(subroutine.clone());
+        }
+    }
+    None
 }
 
 /// Finds all PRACTICE macros with LOCAL and GLOBAL scope.
