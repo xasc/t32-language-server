@@ -19,7 +19,7 @@ pub use expressions::{
 
 use expressions::{
     find_all_call_expressions, find_all_global_macro_definitions, find_all_subroutines,
-    find_macro_definition, find_subroutine_definition, locate_subscript,
+    find_file_target, find_macro_definition, find_subroutine_definition, locate_subscript,
 };
 
 #[derive(Clone, Debug)]
@@ -77,7 +77,11 @@ pub fn goto_macro_definition(
     find_macro_definition(text, tree, t32, r#macro)
 }
 
-pub fn goto_subroutine_definition(text: &str, subroutines: &Vec<Subroutine>, call: TreeCursor) -> Option<Subroutine> {
+pub fn goto_subroutine_definition(
+    text: &str,
+    subroutines: &Vec<Subroutine>,
+    call: TreeCursor,
+) -> Option<Subroutine> {
     debug_assert_eq!(
         call.node().kind_id(),
         NodeKind::SubroutineCallExpression.into_id(&call.node().language()),
@@ -87,6 +91,18 @@ pub fn goto_subroutine_definition(text: &str, subroutines: &Vec<Subroutine>, cal
         return None;
     }
     find_subroutine_definition(text, subroutines, call)
+}
+
+pub fn goto_file(text: &str, calls: &SubscriptCalls, command: TreeCursor) -> Option<Uri> {
+    debug_assert_eq!(
+        command.node().kind_id(),
+        NodeKind::CommandExpression.into_id(&command.node().language()),
+    );
+
+    if command.node().end_byte() >= text.len() {
+        return None;
+    }
+    find_file_target(calls, command)
 }
 
 pub fn find_global_macro_definitions(text: &str, tree: &Tree) -> MacroDefinitions {

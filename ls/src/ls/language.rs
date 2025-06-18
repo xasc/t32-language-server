@@ -9,7 +9,10 @@ use tree_sitter::{Tree, TreeCursor};
 use crate::{
     ls::doc::TextDoc,
     protocol::{LocationLink, Position, Uri},
-    t32::{LangExpressions, NodeKind, Subroutine, get_goto_ref_ids, goto_macro_definition, goto_subroutine_definition, id_into_node},
+    t32::{
+        LangExpressions, NodeKind, Subroutine, get_goto_ref_ids, goto_file, goto_macro_definition,
+        goto_subroutine_definition, id_into_node,
+    },
 };
 
 impl LocationLink {
@@ -33,7 +36,8 @@ impl LocationLink {
 }
 
 /// Retrieves definitions for `(macro)`, `(subroutine_call_expression)`, and
-/// `(command_expression)` nodes.
+/// `(command_expression)` nodes. `(command_expression)` nodes capture
+/// `DO` and `RUN` commands for subscripts calls.
 pub fn find_definition(
     doc: TextDoc,
     tree: Tree,
@@ -57,7 +61,6 @@ pub fn find_definition(
                         start: docstring.start,
                         end: def.definition.end,
                     };
-
                     (start, def.r#macro)
                 } else {
                     (def.definition, def.r#macro)
@@ -75,20 +78,35 @@ pub fn find_definition(
                 ));
             }
         }
-        NodeKind::CommandExpression => todo!(), // DO, PARAMS, ENTRY
+        NodeKind::CommandExpression => {
+            if let Some(calls) = &t32.calls.scripts {
+                if let Some(uri) = goto_file(&doc.text, calls, origin) {
+                    // Point to start of called script file
+                    links.push(LocationLink::build(
+                        &doc,
+                        Some(Range {
+                            start: origin_range.start_byte,
+                            end: origin_range.end_byte,
+                        }),
+                        uri,
+                        Range { start: 0, end: 1 },
+                        Range { start: 0, end: 1 },
+                    ));
+                }
+            }
+        }
         NodeKind::SubroutineCallExpression => {
-            // let subroutines = &t32.subroutines?;
             let sub: Subroutine = goto_subroutine_definition(&doc.text, &t32.subroutines?, origin)?;
             let (target_range, target_sel) = if let Some(docstring) = sub.docstring {
                 let start: Range<usize> = Range {
                     start: docstring.start,
                     end: sub.definition.end,
                 };
-
                 (start, sub.name.clone())
             } else {
                 (sub.definition.clone(), sub.name.clone())
             };
+
             links.push(LocationLink::build(
                 &doc,
                 Some(Range {
@@ -99,7 +117,7 @@ pub fn find_definition(
                 target_range,
                 target_sel,
             ));
-        },
+        }
         _ => unreachable!("No other node kinds can be traced back to definition."),
     };
 
@@ -141,16 +159,43 @@ mod tests {
         t32,
     };
 
+    fn files() -> Vec<Url> {
+        vec![
+            Url::from_file_path(path::absolute("tests/samples/c.cmm").expect("File must exist."))
+                .unwrap(),
+            Url::from_file_path(
+                path::absolute("tests/samples/same.cmm").expect("File must exist."),
+            )
+            .unwrap(),
+            Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
+                .unwrap(),
+            Url::from_file_path(
+                path::absolute("tests/samples/a/same.cmm").expect("File must exist."),
+            )
+            .unwrap(),
+            Url::from_file_path(
+                path::absolute("tests/samples/a/d/d.cmmt").expect("File must exist."),
+            )
+            .unwrap(),
+            Url::from_file_path(path::absolute("tests/samples/b/b.cmm").expect("File must exist."))
+                .unwrap(),
+            Url::from_file_path(
+                path::absolute("tests/samples/b/same.cmm").expect("File must exist."),
+            )
+            .unwrap(),
+        ]
+    }
+
     fn find_def(file: &str, position: Position) -> Option<Vec<LocationLink>> {
         let uri = Url::from_file_path(path::absolute(file).expect("File must exist.")).unwrap();
         let doc = TextDoc::try_from(uri).expect("Path must be valid.");
-        let files = workspace::FileIndex::new();
+        let file_idx = workspace::index_files(files());
 
         let tree = t32::parse(doc.text.as_bytes(), None);
 
         let macros = t32::find_global_macro_definitions(&doc.text, &tree);
         let subroutines = t32::find_subroutines(&doc.text, &tree);
-        let calls = resolve_call_expressions(&doc.text, &tree, &files);
+        let calls = resolve_call_expressions(&doc.text, &tree, &file_idx);
 
         find_definition(
             doc,
@@ -576,6 +621,64 @@ mod tests {
                     end: Position {
                         line: 73,
                         character: 22,
+                    },
+                },
+            }
+        ));
+    }
+
+    #[test]
+    fn can_find_subscript_call_target() {
+        let loc = find_def(
+            "tests/samples/a/a.cmm",
+            Position {
+                line: 49,
+                character: 8,
+            },
+        );
+
+        let file = env::current_dir()
+            .unwrap()
+            .join("tests")
+            .join("samples")
+            .join("a")
+            .join("a.cmm");
+        let _uri: Url = Url::from_file_path(path::absolute(file).unwrap()).unwrap();
+
+        let loc = loc.expect("Must not be empty.");
+        assert_eq!(loc.len(), 1);
+        assert!(matches!(
+            &loc[0],
+            LocationLink {
+                origin_selection_range: Some(Range {
+                    start: Position {
+                        line: 49,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 50,
+                        character: 0,
+                    },
+                }),
+                target_uri: _uri,
+                target_range: Range {
+                    start: Position {
+                        line: 0,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 0,
+                        character: 1,
+                    },
+                },
+                target_selection_range: Range {
+                    start: Position {
+                        line: 0,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 0,
+                        character: 1,
                     },
                 },
             }
