@@ -10,8 +10,8 @@ use crate::{
     ls::doc::TextDoc,
     protocol::{LocationLink, Position, Uri},
     t32::{
-        LangExpressions, NodeKind, Subroutine, get_goto_ref_ids, goto_file, goto_macro_definition,
-        goto_subroutine_definition, id_into_node,
+        LangExpressions, MacroDefResolution, NodeKind, Subroutine, get_goto_ref_ids, goto_file,
+        goto_macro_definition, goto_subroutine_definition, id_into_node,
     },
 };
 
@@ -56,44 +56,47 @@ pub fn find_definition(
     match id_into_node(&lang, origin.node().kind_id()) {
         NodeKind::Macro => {
             for def in goto_macro_definition(&doc.text, &tree, &t32, origin)? {
-                let (target_range, target_sel) = if let Some(docstring) = def.docstring {
-                    let start: Range<usize> = Range {
-                        start: docstring.start,
-                        end: def.definition.end,
-                    };
-                    (start, def.r#macro)
-                } else {
-                    (def.definition, def.r#macro)
-                };
+                match def {
+                    MacroDefResolution::Final(d) | MacroDefResolution::Overridable(d) => {
+                        let (target_range, target_sel) = if let Some(docstring) = d.docstring {
+                            let start: Range<usize> = Range {
+                                start: docstring.start,
+                                end: d.definition.end,
+                            };
+                            (start, d.r#macro)
+                        } else {
+                            (d.definition, d.r#macro)
+                        };
 
-                links.push(LocationLink::build(
-                    &doc,
-                    Some(Range {
-                        start: origin_range.start_byte,
-                        end: origin_range.end_byte,
-                    }),
-                    doc.uri.clone(),
-                    target_range,
-                    target_sel,
-                ));
+                        links.push(LocationLink::build(
+                            &doc,
+                            Some(Range {
+                                start: origin_range.start_byte,
+                                end: origin_range.end_byte,
+                            }),
+                            doc.uri.clone(),
+                            target_range,
+                            target_sel,
+                        ));
+                    }
+                    _ => (),
+                }
             }
         }
         NodeKind::CommandExpression => {
-            if let Some(calls) = &t32.calls.scripts {
-                if let Some(uri) = goto_file(&doc.text, calls, origin) {
-                    // Point to start of called script file
-                    links.push(LocationLink::build(
-                        &doc,
-                        Some(Range {
-                            start: origin_range.start_byte,
-                            end: origin_range.end_byte,
-                        }),
-                        uri,
-                        Range { start: 0, end: 1 },
-                        Range { start: 0, end: 1 },
-                    ));
-                }
-            }
+            let uri = goto_file(&doc.text, &t32.calls.scripts?, origin)?;
+
+            // Point to start of called script file
+            links.push(LocationLink::build(
+                &doc,
+                Some(Range {
+                    start: origin_range.start_byte,
+                    end: origin_range.end_byte,
+                }),
+                uri,
+                Range { start: 0, end: 1 },
+                Range { start: 0, end: 1 },
+            ));
         }
         NodeKind::SubroutineCallExpression => {
             let sub: Subroutine = goto_subroutine_definition(&doc.text, &t32.subroutines?, origin)?;
@@ -118,17 +121,15 @@ pub fn find_definition(
                 target_sel,
             ));
         }
-        _ => unreachable!("No other node kinds can be traced back to definition."),
+        _ => {
+            unreachable!("No other node kinds can be traced back to definition. Must abort early.")
+        }
     };
 
     if links.len() > 0 { Some(links) } else { None }
 }
 
-fn find_deepest_node<'a>(
-    tree: &'a Tree,
-    offset: usize,
-    allowed_kinds: &[u16],
-) -> Option<TreeCursor<'a>> {
+fn find_deepest_node<'a>(tree: &'a Tree, offset: usize, stop_at: &[u16]) -> Option<TreeCursor<'a>> {
     let mut cursor = tree.walk();
     let mut sel: Option<TreeCursor> = None;
 
@@ -139,7 +140,7 @@ fn find_deepest_node<'a>(
         }
 
         let id = node.kind_id();
-        if let Some(_) = allowed_kinds.iter().find(|k| **k == id) {
+        if let Some(_) = stop_at.iter().find(|k| **k == id) {
             sel = Some(cursor.clone());
         }
     }
@@ -442,189 +443,386 @@ mod tests {
     }
 
     #[test]
-    fn can_find_macro_definition_over_subroutine_calls() {
-        let loc = find_def(
-            "tests/samples/a/a.cmm",
+    fn can_find_macro_definition_across_subroutine_calls() {
+        let file = env::current_dir()
+            .unwrap()
+            .join("tests")
+            .join("samples")
+            .join("a")
+            .join("a.cmm");
+
+        let uri: Url = Url::from_file_path(path::absolute(file).unwrap()).unwrap();
+
+        for (loc, _link) in [
             Position {
                 line: 58,
                 character: 22,
             },
-        );
-
-        let file = env::current_dir()
-            .unwrap()
-            .join("tests")
-            .join("samples")
-            .join("a")
-            .join("a.cmm");
-        let _uri: Url = Url::from_file_path(path::absolute(file).unwrap()).unwrap();
-
-        let loc = loc.expect("Must not be empty.");
-        assert_eq!(loc.len(), 2);
-        assert!(matches!(
-            &loc[0],
-            LocationLink {
-                origin_selection_range: Some(Range {
-                    start: Position {
-                        line: 58,
-                        character: 11,
-                    },
-                    end: Position {
-                        line: 58,
-                        character: 23,
-                    },
-                }),
-                target_uri: _uri,
-                target_range: Range {
-                    start: Position {
-                        line: 65,
-                        character: 4,
-                    },
-                    end: Position {
-                        line: 66,
-                        character: 0,
-                    },
-                },
-                target_selection_range: Range {
-                    start: Position {
-                        line: 65,
-                        character: 10,
-                    },
-                    end: Position {
-                        line: 65,
-                        character: 22,
-                    },
-                },
-            }
-        ));
-
-        assert!(matches!(
-            &loc[1],
-            LocationLink {
-                origin_selection_range: Some(Range {
-                    start: Position {
-                        line: 58,
-                        character: 11,
-                    },
-                    end: Position {
-                        line: 58,
-                        character: 23,
-                    },
-                }),
-                target_uri: _uri,
-                target_range: Range {
-                    start: Position {
-                        line: 72,
-                        character: 4,
-                    },
-                    end: Position {
-                        line: 73,
-                        character: 0,
-                    },
-                },
-                target_selection_range: Range {
-                    start: Position {
-                        line: 72,
-                        character: 10,
-                    },
-                    end: Position {
-                        line: 72,
-                        character: 22,
-                    },
-                },
-            }
-        ));
-
-        let loc = find_def(
-            "tests/samples/a/a.cmm",
             Position {
                 line: 58,
                 character: 30,
             },
-        );
+        ]
+        .into_iter()
+        .zip([
+            [
+                LocationLink {
+                    origin_selection_range: Some(Range {
+                        start: Position {
+                            line: 58,
+                            character: 11,
+                        },
+                        end: Position {
+                            line: 58,
+                            character: 23,
+                        },
+                    }),
+                    target_uri: uri.to_string(),
+                    target_range: Range {
+                        start: Position {
+                            line: 65,
+                            character: 4,
+                        },
+                        end: Position {
+                            line: 66,
+                            character: 0,
+                        },
+                    },
+                    target_selection_range: Range {
+                        start: Position {
+                            line: 65,
+                            character: 10,
+                        },
+                        end: Position {
+                            line: 65,
+                            character: 22,
+                        },
+                    },
+                },
+                LocationLink {
+                    origin_selection_range: Some(Range {
+                        start: Position {
+                            line: 58,
+                            character: 11,
+                        },
+                        end: Position {
+                            line: 58,
+                            character: 23,
+                        },
+                    }),
+                    target_uri: uri.to_string(),
+                    target_range: Range {
+                        start: Position {
+                            line: 72,
+                            character: 4,
+                        },
+                        end: Position {
+                            line: 73,
+                            character: 0,
+                        },
+                    },
+                    target_selection_range: Range {
+                        start: Position {
+                            line: 72,
+                            character: 10,
+                        },
+                        end: Position {
+                            line: 72,
+                            character: 22,
+                        },
+                    },
+                },
+            ],
+            [
+                LocationLink {
+                    origin_selection_range: Some(Range {
+                        start: Position {
+                            line: 58,
+                            character: 26,
+                        },
+                        end: Position {
+                            line: 58,
+                            character: 38,
+                        },
+                    }),
+                    target_uri: uri.to_string(),
+                    target_range: Range {
+                        start: Position {
+                            line: 61,
+                            character: 0,
+                        },
+                        end: Position {
+                            line: 62,
+                            character: 0,
+                        },
+                    },
+                    target_selection_range: Range {
+                        start: Position {
+                            line: 61,
+                            character: 6,
+                        },
+                        end: Position {
+                            line: 61,
+                            character: 18,
+                        },
+                    },
+                },
+                LocationLink {
+                    origin_selection_range: Some(Range {
+                        start: Position {
+                            line: 58,
+                            character: 26,
+                        },
+                        end: Position {
+                            line: 58,
+                            character: 38,
+                        },
+                    }),
+                    target_uri: uri.to_string(),
+                    target_range: Range {
+                        start: Position {
+                            line: 73,
+                            character: 4,
+                        },
+                        end: Position {
+                            line: 74,
+                            character: 0,
+                        },
+                    },
+                    target_selection_range: Range {
+                        start: Position {
+                            line: 73,
+                            character: 10,
+                        },
+                        end: Position {
+                            line: 73,
+                            character: 22,
+                        },
+                    },
+                },
+            ],
+        ]) {
+            let def = find_def("tests/samples/a/a.cmm", loc);
+            assert!(matches!(def, _link));
+        }
+    }
 
+    #[test]
+    fn can_identify_implicit_macro_definitions() {
         let file = env::current_dir()
             .unwrap()
             .join("tests")
             .join("samples")
             .join("a")
             .join("a.cmm");
-        let _uri: Url = Url::from_file_path(path::absolute(file).unwrap()).unwrap();
 
-        let loc = loc.expect("Must not be empty.");
-        assert_eq!(loc.len(), 2);
-        assert!(matches!(
-            &loc[0],
+        let uri: Url = Url::from_file_path(path::absolute(file).unwrap()).unwrap();
+
+        for (loc, _link) in [
+            Position {
+                line: 84,
+                character: 11,
+            },
+            Position {
+                line: 91,
+                character: 12,
+            },
+            Position {
+                line: 100,
+                character: 11,
+            },
+            Position {
+                line: 107,
+                character: 11,
+            },
+            Position {
+                line: 115,
+                character: 11,
+            },
+        ]
+        .into_iter()
+        .zip([
             LocationLink {
                 origin_selection_range: Some(Range {
                     start: Position {
-                        line: 58,
-                        character: 26,
+                        line: 84,
+                        character: 11,
                     },
                     end: Position {
-                        line: 58,
-                        character: 38,
+                        line: 84,
+                        character: 13,
                     },
                 }),
-                target_uri: _uri,
+                target_uri: uri.to_string(),
                 target_range: Range {
                     start: Position {
-                        line: 61,
-                        character: 0,
-                    },
-                    end: Position {
-                        line: 62,
-                        character: 0,
-                    },
-                },
-                target_selection_range: Range {
-                    start: Position {
-                        line: 61,
-                        character: 6,
-                    },
-                    end: Position {
-                        line: 61,
-                        character: 18,
-                    },
-                },
-            }
-        ));
-        assert!(matches!(
-            &loc[1],
-            LocationLink {
-                origin_selection_range: Some(Range {
-                    start: Position {
-                        line: 58,
-                        character: 26,
-                    },
-                    end: Position {
-                        line: 58,
-                        character: 38,
-                    },
-                }),
-                target_uri: _uri,
-                target_range: Range {
-                    start: Position {
-                        line: 73,
+                        line: 82,
                         character: 4,
                     },
                     end: Position {
-                        line: 74,
+                        line: 83,
                         character: 0,
                     },
                 },
                 target_selection_range: Range {
                     start: Position {
-                        line: 73,
+                        line: 82,
                         character: 10,
                     },
                     end: Position {
-                        line: 73,
-                        character: 22,
+                        line: 82,
+                        character: 12,
                     },
                 },
-            }
-        ));
+            },
+            LocationLink {
+                origin_selection_range: Some(Range {
+                    start: Position {
+                        line: 91,
+                        character: 11,
+                    },
+                    end: Position {
+                        line: 91,
+                        character: 13,
+                    },
+                }),
+                target_uri: uri.to_string(),
+                target_range: Range {
+                    start: Position {
+                        line: 82,
+                        character: 4,
+                    },
+                    end: Position {
+                        line: 83,
+                        character: 0,
+                    },
+                },
+                target_selection_range: Range {
+                    start: Position {
+                        line: 82,
+                        character: 10,
+                    },
+                    end: Position {
+                        line: 82,
+                        character: 12,
+                    },
+                },
+            },
+            LocationLink {
+                origin_selection_range: Some(Range {
+                    start: Position {
+                        line: 100,
+                        character: 11,
+                    },
+                    end: Position {
+                        line: 100,
+                        character: 13,
+                    },
+                }),
+                target_uri: uri.to_string(),
+                target_range: Range {
+                    start: Position {
+                        line: 98,
+                        character: 4,
+                    },
+                    end: Position {
+                        line: 99,
+                        character: 0,
+                    },
+                },
+                target_selection_range: Range {
+                    start: Position {
+                        line: 98,
+                        character: 15,
+                    },
+                    end: Position {
+                        line: 98,
+                        character: 17,
+                    },
+                },
+            },
+            LocationLink {
+                origin_selection_range: Some(Range {
+                    start: Position {
+                        line: 107,
+                        character: 11,
+                    },
+                    end: Position {
+                        line: 107,
+                        character: 13,
+                    },
+                }),
+                target_uri: uri.to_string(),
+                target_range: Range {
+                    start: Position {
+                        line: 82,
+                        character: 4,
+                    },
+                    end: Position {
+                        line: 83,
+                        character: 0,
+                    },
+                },
+                target_selection_range: Range {
+                    start: Position {
+                        line: 82,
+                        character: 10,
+                    },
+                    end: Position {
+                        line: 82,
+                        character: 12,
+                    },
+                },
+            },
+            LocationLink {
+                origin_selection_range: Some(Range {
+                    start: Position {
+                        line: 115,
+                        character: 11,
+                    },
+                    end: Position {
+                        line: 115,
+                        character: 13,
+                    },
+                }),
+                target_uri: uri.to_string(),
+                target_range: Range {
+                    start: Position {
+                        line: 82,
+                        character: 4,
+                    },
+                    end: Position {
+                        line: 83,
+                        character: 0,
+                    },
+                },
+                target_selection_range: Range {
+                    start: Position {
+                        line: 82,
+                        character: 10,
+                    },
+                    end: Position {
+                        line: 82,
+                        character: 12,
+                    },
+                },
+            },
+        ]) {
+            let def = find_def("tests/samples/a/a.cmm", loc);
+            assert!(matches!(def, _link));
+        }
+    }
+
+    #[test]
+    fn can_break_recursion_loops_for_subroutine_macro_defs() {
+        let loc = find_def(
+            "tests/samples/a/a.cmm",
+            Position {
+                line: 127,
+                character: 13,
+            },
+        );
+        assert!(loc.is_none());
     }
 
     #[test]

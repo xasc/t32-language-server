@@ -13,8 +13,8 @@ use crate::{ls::FileIndex, protocol::Uri};
 
 pub use ast::{NodeKind, id_into_node};
 pub use expressions::{
-    CallExpression, CallExpressions, CallLocations, MacroDefinition, MacroDefinitions, Subroutine,
-    SubscriptCalls,
+    CallExpression, CallExpressions, CallLocations, MacroDefResolution, MacroDefinitions,
+    Subroutine, SubscriptCalls,
 };
 
 use expressions::{
@@ -65,7 +65,7 @@ pub fn goto_macro_definition(
     tree: &Tree,
     t32: &LangExpressions,
     r#macro: TreeCursor,
-) -> Option<Vec<MacroDefinition>> {
+) -> Option<Vec<MacroDefResolution>> {
     debug_assert_eq!(
         r#macro.node().kind_id(),
         NodeKind::Macro.into_id(&r#macro.node().language()),

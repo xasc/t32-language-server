@@ -16,6 +16,7 @@ pub enum NodeKind {
     Macro,
     MacroDefinition,
     Path,
+    ParameterDeclaration,
     RepeatBlock,
     Script,
     String,
@@ -40,6 +41,8 @@ const BLOCK_OPENERS: [NodeKind; 6] = [
     NodeKind::RepeatBlock,
 ];
 
+pub const KEYWORD_SUBROUTINE_ENTRY: &'static str = "ENTRY";
+pub const KEYWORD_SUBROUTINE_PARAMETERS: &'static str = "PARAMETERS";
 pub const KEYWORDS_SCRIPT_CALL: [&'static str; 2] = ["DO", "RUN"];
 pub const KEYWORDS_SCRIPT_END: [&'static str; 2] = ["END", "ENDDO"];
 
@@ -52,6 +55,7 @@ pub const NODE_IF_BLOCK: &'static str = "if_block";
 pub const NODE_MACRO: &'static str = "macro";
 pub const NODE_MACRO_DEFINITION: &'static str = "macro_definition";
 pub const NODE_LABELED_EXPRESSION: &'static str = "labeled_expression";
+pub const NODE_PARAMETER_DECLARATION: &'static str = "parameter_declaration";
 pub const NODE_PATH: &'static str = "path";
 pub const NODE_REPEAT_BLOCK: &'static str = "repeat_block";
 pub const NODE_SCRIPT: &'static str = "script";
@@ -81,6 +85,7 @@ pub fn node_into_id(lang: &Language, node: NodeKind) -> u16 {
             NodeKind::Macro => NODE_MACRO,
             NodeKind::MacroDefinition => NODE_MACRO_DEFINITION,
             NodeKind::Path => NODE_PATH,
+            NodeKind::ParameterDeclaration => NODE_PARAMETER_DECLARATION,
             NodeKind::RepeatBlock => NODE_REPEAT_BLOCK,
             NodeKind::Script => NODE_SCRIPT,
             NodeKind::String => NODE_STRING,
@@ -106,6 +111,7 @@ pub fn id_into_node(lang: &Language, id: u16) -> NodeKind {
             NODE_MACRO => NodeKind::Macro,
             NODE_MACRO_DEFINITION => NodeKind::MacroDefinition,
             NODE_PATH => NodeKind::Path,
+            NODE_PARAMETER_DECLARATION => NodeKind::ParameterDeclaration,
             NODE_REPEAT_BLOCK => NodeKind::RepeatBlock,
             NODE_SCRIPT => NodeKind::Script,
             NODE_STRING => NodeKind::String,

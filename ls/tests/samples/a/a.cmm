@@ -77,3 +77,54 @@ SUBROUTINE subE
 )
 
 GOSUB subD
+
+subF:
+(
+    ENTRY &x
+
+    PRINT "&x"
+
+    GOSUB subG
+)
+
+SUBROUTINE subG
+(
+    PRINT "&x"
+
+    GOSUB subH
+)
+
+SUBROUTINE subH
+(
+    PARAMETERS &x
+
+    PRINT "&x"
+
+    GOSUB subI
+)
+
+SUBROUTINE subI
+(
+    PRINT "&x"
+
+    ENTRY &x
+    GOSUB subJ
+)
+
+SUBROUTINE subJ
+(
+    PRINT "&x"
+)
+
+GOSUB subF "param"
+
+subK:
+(
+    GOSUB subL
+)
+
+subL:
+(
+    PRINT "&inf"
+    GOSUB subK
+)
