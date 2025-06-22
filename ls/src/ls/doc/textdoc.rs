@@ -121,6 +121,14 @@ impl TextDoc {
 
     pub fn to_position(&self, offset: usize) -> Position {
         if offset >= self.text.len() {
+            let num_lines = self.lines.max_utf16_char_offset.len();
+            if self.lines.max_utf16_char_offset[num_lines - 1].is_none() {
+                // File ends on line break → line map ends with an empty virtual line
+                return Position {
+                    line: (self.lines.byte_offsets.len() - 1) as u32,
+                    character: 0,
+                };
+            }
             return Position {
                 line: self.lines.byte_offsets.len() as u32,
                 character: 0,

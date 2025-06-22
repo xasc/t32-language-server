@@ -374,7 +374,7 @@ mod tests {
                 target_selection_range: Range {
                     start: Position {
                         line: 136,
-                        character: 8,
+                        character: 7,
                     },
                     end: Position {
                         line: 136,

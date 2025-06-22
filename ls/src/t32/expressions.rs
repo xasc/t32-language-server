@@ -466,7 +466,10 @@ pub fn find_all_call_expressions(text: &str, tree: &Tree) -> CallLocations {
     CallLocations::build(subroutines, scripts)
 }
 
-pub fn find_all_parameter_declarations(text: &str, tree: &Tree) -> Option<Vec<ParameterDeclaration>> {
+pub fn find_all_parameter_declarations(
+    text: &str,
+    tree: &Tree,
+) -> Option<Vec<ParameterDeclaration>> {
     let mut cursor = tree.walk();
 
     let mut parameters: Vec<ParameterDeclaration> = Vec::new();
@@ -511,7 +514,11 @@ pub fn find_all_parameter_declarations(text: &str, tree: &Tree) -> Option<Vec<Pa
             }
         }
     }
-    if parameters.len() > 0 { Some(parameters) } else { None }
+    if parameters.len() > 0 {
+        Some(parameters)
+    } else {
+        None
+    }
 }
 
 pub fn locate_subscript(
@@ -593,7 +600,10 @@ pub fn find_definition_for_macro_in_subroutine(
 
     let mut params: Vec<ParameterDeclaration> = Vec::new();
     if let Some(parameters) = &t32.parameters {
-        for decl in parameters.iter().filter(|m| text[m.r#macro.clone()] == *name) {
+        for decl in parameters
+            .iter()
+            .filter(|m| text[m.r#macro.clone()] == *name)
+        {
             params.push(decl.clone());
         }
     }
@@ -665,7 +675,9 @@ fn find_explicit_macro_def(
     name: &str,
     tree: &Tree,
 ) -> Option<Vec<MacroDefResolution>> {
-    if let Some(def) = find_explicit_macro_def_in_block(text, origin, name, tree.walk(), defines_any_macro) {
+    if let Some(def) =
+        find_explicit_macro_def_in_block(text, origin, name, tree.walk(), defines_any_macro)
+    {
         Some(vec![def])
     } else if let Some(globals) = &globals {
         // See [Note: `GLOBAL` Macro Definitions]
@@ -1150,7 +1162,11 @@ fn extract_macro_defs(text: &str, cursor: &mut TreeCursor, macros: &mut Vec<Macr
     cursor.goto_parent();
 }
 
-fn extract_params(text: &str, cursor: &mut TreeCursor, declarations: &mut Vec<ParameterDeclaration>) {
+fn extract_params(
+    text: &str,
+    cursor: &mut TreeCursor,
+    declarations: &mut Vec<ParameterDeclaration>,
+) {
     let decl = cursor.node();
     debug_assert_eq!(
         decl.kind_id(),
