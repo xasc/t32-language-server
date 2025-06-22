@@ -128,3 +128,10 @@ subL:
     PRINT "&inf"
     GOSUB subK
 )
+
+SUBROUTINE subM
+(
+    PRINT "&def_after_sub"
+)
+
+GLOBAL &def_after_sub

@@ -23,10 +23,7 @@ pub struct TextDocs {
     trees: TreeStore,
     file_idx: FileIndex,
 
-    #[allow(dead_code)]
     callers: CallerStore,
-
-    #[allow(dead_code)]
     t32: LangExpressionStore,
 
     registry: HashMap<Uri, DocIndex>,
@@ -53,7 +50,6 @@ struct LangExpressionStore {
     closed: Vec<Option<LangExpressions>>,
 }
 
-#[allow(dead_code)]
 struct CallerStore {
     open: Vec<Option<Vec<Uri>>>,
     closed: Vec<Option<Vec<Uri>>>,
@@ -549,8 +545,8 @@ mod test {
     use crate::{
         ls::{
             doc::{
-                find_global_macro_definitions, find_subroutines, read_doc,
-                textdoc::create_line_map_for_text,
+                find_global_macro_definitions, find_parameter_declarations, find_subroutines,
+                read_doc, textdoc::create_line_map_for_text,
             },
             workspace::index_files,
         },
@@ -603,6 +599,7 @@ mod test {
 
         let macros = find_global_macro_definitions(&doc.text, &tree);
         let subroutines = find_subroutines(&doc.text, &tree);
+        let parameters = find_parameter_declarations(&doc.text, &tree);
         let calls = CallExpressions {
             subroutines: None,
             scripts: None,
@@ -615,6 +612,7 @@ mod test {
                 macros,
                 subroutines,
                 calls,
+                parameters,
             },
         )
     }

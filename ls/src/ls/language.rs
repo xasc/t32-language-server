@@ -57,16 +57,18 @@ pub fn find_definition(
         NodeKind::Macro => {
             for def in goto_macro_definition(&doc.text, &tree, &t32, origin)? {
                 match def {
-                    MacroDefResolution::Final(d) | MacroDefResolution::Overridable(d) => {
-                        let (target_range, target_sel) = if let Some(docstring) = d.docstring {
-                            let start: Range<usize> = Range {
-                                start: docstring.start,
-                                end: d.definition.end,
+                    MacroDefResolution::Final(definition)
+                    | MacroDefResolution::Overridable(definition) => {
+                        let (target_range, target_sel) =
+                            if let Some(docstring) = definition.docstring {
+                                let start: Range<usize> = Range {
+                                    start: docstring.start,
+                                    end: definition.cmd.end,
+                                };
+                                (start, definition.r#macro)
+                            } else {
+                                (definition.cmd, definition.r#macro)
                             };
-                            (start, d.r#macro)
-                        } else {
-                            (d.definition, d.r#macro)
-                        };
 
                         links.push(LocationLink::build(
                             &doc,
@@ -196,6 +198,7 @@ mod tests {
 
         let macros = t32::find_global_macro_definitions(&doc.text, &tree);
         let subroutines = t32::find_subroutines(&doc.text, &tree);
+        let parameters = t32::find_parameter_declarations(&doc.text, &tree);
         let calls = resolve_call_expressions(&doc.text, &tree, &file_idx);
 
         find_definition(
@@ -205,6 +208,7 @@ mod tests {
                 macros,
                 subroutines,
                 calls,
+                parameters,
             },
             position,
         )
@@ -229,10 +233,9 @@ mod tests {
         let _uri: Url = Url::from_file_path(path::absolute(file).unwrap()).unwrap();
 
         let loc = loc.expect("Must not be empty.");
-        assert_eq!(loc.len(), 1);
         assert!(matches!(
-            &loc[0],
-            LocationLink {
+            &loc[..],
+            [LocationLink {
                 origin_selection_range: Some(Range {
                     start: Position {
                         line: 8,
@@ -264,7 +267,7 @@ mod tests {
                         character: 22,
                     },
                 },
-            }
+            }]
         ));
     }
 
@@ -287,10 +290,9 @@ mod tests {
         let _uri: Url = Url::from_file_path(path::absolute(file).unwrap()).unwrap();
 
         let loc = loc.expect("Must not be empty.");
-        assert_eq!(loc.len(), 1);
         assert!(matches!(
-            &loc[0],
-            LocationLink {
+            &loc[..],
+            [LocationLink {
                 origin_selection_range: Some(Range {
                     start: Position {
                         line: 22,
@@ -322,12 +324,69 @@ mod tests {
                         character: 25,
                     },
                 },
-            }
+            }]
         ));
     }
 
     #[test]
-    fn can_find_macro_definition_from_subroutine() {
+    fn can_find_global_macro_definition() {
+        let loc = find_def(
+            "tests/samples/a/a.cmm",
+            Position {
+                line: 133,
+                character: 14,
+            },
+        );
+
+        let file = env::current_dir()
+            .unwrap()
+            .join("tests")
+            .join("samples")
+            .join("a")
+            .join("a.cmm");
+        let _uri: Url = Url::from_file_path(path::absolute(file).unwrap()).unwrap();
+
+        let loc = loc.expect("Must not be empty.");
+        assert!(matches!(
+            &loc[..],
+            [LocationLink {
+                origin_selection_range: Some(Range {
+                    start: Position {
+                        line: 133,
+                        character: 11,
+                    },
+                    end: Position {
+                        line: 133,
+                        character: 25,
+                    },
+                }),
+                target_uri: _uri,
+                target_range: Range {
+                    start: Position {
+                        line: 136,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 137,
+                        character: 0,
+                    },
+                },
+                target_selection_range: Range {
+                    start: Position {
+                        line: 136,
+                        character: 8,
+                    },
+                    end: Position {
+                        line: 136,
+                        character: 21,
+                    },
+                },
+            }]
+        ));
+    }
+
+    #[test]
+    fn can_find_macro_definition_inside_subroutine() {
         let loc = find_def(
             "tests/samples/a/a.cmm",
             Position {
@@ -345,10 +404,9 @@ mod tests {
         let _uri: Url = Url::from_file_path(path::absolute(file).unwrap()).unwrap();
 
         let loc = loc.expect("Must not be empty.");
-        assert_eq!(loc.len(), 1);
         assert!(matches!(
-            &loc[0],
-            LocationLink {
+            &loc[..],
+            [LocationLink {
                 origin_selection_range: Some(Range {
                     start: Position {
                         line: 29,
@@ -380,12 +438,12 @@ mod tests {
                         character: 14,
                     },
                 },
-            }
+            }]
         ));
     }
 
     #[test]
-    fn can_find_external_macro_definition_from_subroutine() {
+    fn can_find_external_macro_definition_for_subroutine() {
         let loc = find_def(
             "tests/samples/a/a.cmm",
             Position {

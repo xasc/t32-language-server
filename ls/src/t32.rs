@@ -14,11 +14,17 @@ use crate::{ls::FileIndex, protocol::Uri};
 pub use ast::{NodeKind, id_into_node};
 pub use expressions::{
     CallExpression, CallExpressions, CallLocations, MacroDefResolution, MacroDefinitions,
-    Subroutine, SubscriptCalls,
+    ParameterDeclaration, Subroutine, SubscriptCalls,
+};
+
+pub use expressions::{
+    find_all_call_expressions as find_call_expressions,
+    find_all_global_macro_definitions as find_global_macro_definitions,
+    find_all_parameter_declarations as find_parameter_declarations,
+    find_all_subroutines as find_subroutines,
 };
 
 use expressions::{
-    find_all_call_expressions, find_all_global_macro_definitions, find_all_subroutines,
     find_file_target, find_macro_definition, find_subroutine_definition, locate_subscript,
 };
 
@@ -27,6 +33,7 @@ pub struct LangExpressions {
     pub macros: MacroDefinitions,
     pub subroutines: Option<Vec<Subroutine>>,
     pub calls: CallExpressions,
+    pub parameters: Option<Vec<ParameterDeclaration>>,
 }
 
 /// Use same language ID as [PRACTICE extension for Visual Studio
@@ -103,18 +110,6 @@ pub fn goto_file(text: &str, calls: &SubscriptCalls, command: TreeCursor) -> Opt
         return None;
     }
     find_file_target(calls, command)
-}
-
-pub fn find_global_macro_definitions(text: &str, tree: &Tree) -> MacroDefinitions {
-    find_all_global_macro_definitions(text, tree)
-}
-
-pub fn find_subroutines(text: &str, tree: &Tree) -> Option<Vec<Subroutine>> {
-    find_all_subroutines(text, tree)
-}
-
-pub fn find_call_expressions(text: &str, tree: &Tree) -> CallLocations {
-    find_all_call_expressions(text, tree)
 }
 
 pub fn resolve_subscript_call_targets(
