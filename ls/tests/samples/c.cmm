@@ -14,3 +14,19 @@ DO "d/d.cmmt"
 //   samples/a → samples/a/same.cmm
 //   samples/b → samples/b/same.cmm
 DO same.cmm
+
+LOCAL &local_macro
+DO "a/a.cmm"
+
+subA:
+(
+    LOCAL &from_c_cmm
+
+    DO "a/a.cmm"
+
+    RETURN
+)
+
+GOSUB subA
+
+PRINT "&global_macro"

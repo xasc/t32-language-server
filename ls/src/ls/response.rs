@@ -42,7 +42,7 @@ pub struct NullResponse {
     pub id: NumberOrString,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum LocationResult {
     Single(Location),

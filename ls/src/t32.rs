@@ -13,20 +13,28 @@ use crate::{ls::FileIndex, protocol::Uri};
 
 pub use ast::{NodeKind, id_into_node};
 pub use expressions::{
-    CallExpression, CallExpressions, CallLocations, MacroDefResolution, MacroDefinitions,
+    CallExpression, CallExpressions, CallLocations, MacroDefinition, MacroDefinitions,
     ParameterDeclaration, Subroutine, SubscriptCalls,
 };
 
 pub use expressions::{
     find_all_call_expressions as find_call_expressions,
-    find_all_global_macro_definitions as find_global_macro_definitions,
+    find_all_macro_definitions as find_macro_definitions,
     find_all_parameter_declarations as find_parameter_declarations,
     find_all_subroutines as find_subroutines,
+    find_external_macro_definition as goto_external_macro_definition,
 };
 
 use expressions::{
-    find_file_target, find_macro_definition, find_subroutine_definition, locate_subscript,
+    defines_named_macro, find_file_target, find_macro_definition, find_subroutine_definition,
+    locate_subscript,
 };
+
+pub enum MacroDefinitionResult {
+    Final(Vec<MacroDefinition>),
+    Partial(String, Vec<MacroDefinition>),
+    Indeterminate(String),
+}
 
 #[derive(Clone, Debug)]
 pub struct LangExpressions {
@@ -72,7 +80,7 @@ pub fn goto_macro_definition(
     tree: &Tree,
     t32: &LangExpressions,
     r#macro: TreeCursor,
-) -> Option<Vec<MacroDefResolution>> {
+) -> Option<MacroDefinitionResult> {
     debug_assert_eq!(
         r#macro.node().kind_id(),
         NodeKind::Macro.into_id(&r#macro.node().language()),
@@ -81,7 +89,16 @@ pub fn goto_macro_definition(
     if r#macro.node().end_byte() >= text.len() {
         return None;
     }
-    find_macro_definition(text, tree, t32, r#macro)
+    let node = r#macro.node();
+
+    debug_assert!(node.end_byte() < text.len());
+    debug_assert_eq!(node.kind_id(), NodeKind::Macro.into_id(&node.language()),);
+
+    let name = &text[node.start_byte()..node.end_byte()];
+    if !defines_named_macro(text, t32, name) {
+        return Some(MacroDefinitionResult::Indeterminate(name.to_string()));
+    }
+    find_macro_definition(text, tree, t32, node)
 }
 
 pub fn goto_subroutine_definition(

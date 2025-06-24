@@ -12,7 +12,7 @@ use crate::{
         workspace::FileIndex,
     },
     protocol::Uri,
-    t32::LangExpressions,
+    t32::{LangExpressions, MacroDefinition},
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -61,7 +61,21 @@ struct CallRelations {
     source_uris: Vec<Uri>,
 }
 
-impl TextDocs {
+#[derive(Debug, Clone)]
+pub struct TextDocData {
+    pub doc: TextDoc,
+    pub tree: Tree,
+    pub t32: LangExpressions,
+}
+
+pub struct GlobalMacroDefIndex<'a>(
+    pub Vec<Uri>,
+    pub Vec<u32>,
+    pub Vec<&'a str>,
+    pub Vec<&'a MacroDefinition>,
+);
+
+impl<'a> TextDocs {
     #[allow(dead_code)]
     fn new(files: FileIndex) -> Self {
         TextDocs {
@@ -245,6 +259,31 @@ impl TextDocs {
         }
     }
 
+    pub fn get_all_global_macros(&'a self) -> Option<GlobalMacroDefIndex<'a>> {
+        debug_assert_eq!(self.docs.open.len(), self.t32.open.len());
+
+        let (mut files, mut nums, mut names, mut macros) =
+            Self::gather_global_macros(&self.docs.open, &self.t32.open);
+
+        let (mut files_, mut nums_, mut names_, mut macros_): (
+            Vec<Uri>,
+            Vec<u32>,
+            Vec<&str>,
+            Vec<&MacroDefinition>,
+        ) = Self::gather_global_macros(&self.docs.closed, &self.t32.closed);
+
+        files.append(&mut files_);
+        nums.append(&mut nums_);
+        names.append(&mut names_);
+        macros.append(&mut macros_);
+
+        if files.len() > 0 {
+            Some(GlobalMacroDefIndex(files, nums, names, macros))
+        } else {
+            None
+        }
+    }
+
     pub fn get_file_idx(&self) -> &FileIndex {
         &self.file_idx
     }
@@ -252,25 +291,31 @@ impl TextDocs {
     pub fn get_doc_data(&self, uri: &str) -> Option<(&TextDoc, &Tree, &LangExpressions)> {
         match self.registry.get(uri) {
             Some(idx) if idx.0 == TextDocStatus::Open => {
-                if self.docs.open[idx.1].is_none() || self.trees.open[idx.1].is_none() {
+                if self.docs.open[idx.1].is_none()
+                    || self.trees.open[idx.1].is_none()
+                    || self.t32.open[idx.1].is_none()
+                {
+                    None
+                } else {
                     Some((
                         &self.docs.open[idx.1].as_ref().unwrap(),
                         &self.trees.open[idx.1].as_ref().unwrap(),
                         &self.t32.open[idx.1].as_ref().unwrap(),
                     ))
-                } else {
-                    None
                 }
             }
             Some(idx) => {
-                if self.docs.closed[idx.1].is_none() || self.trees.closed[idx.1].is_none() {
-                    Some((
-                        &self.docs.open[idx.1].as_ref().unwrap(),
-                        &self.trees.open[idx.1].as_ref().unwrap(),
-                        &self.t32.open[idx.1].as_ref().unwrap(),
-                    ))
-                } else {
+                if self.docs.closed[idx.1].is_none()
+                    || self.trees.closed[idx.1].is_none()
+                    || self.t32.closed[idx.1].is_none()
+                {
                     None
+                } else {
+                    Some((
+                        self.docs.closed[idx.1].as_ref().unwrap(),
+                        self.trees.closed[idx.1].as_ref().unwrap(),
+                        self.t32.closed[idx.1].as_ref().unwrap(),
+                    ))
                 }
             }
             None => None,
@@ -532,6 +577,52 @@ impl TextDocs {
             None
         }
     }
+
+    fn gather_global_macros(
+        docs: &'a Vec<Option<TextDoc>>,
+        t32: &'a Vec<Option<LangExpressions>>,
+    ) -> (Vec<Uri>, Vec<u32>, Vec<&'a str>, Vec<&'a MacroDefinition>) {
+        let mut files: Vec<Uri> = Vec::new();
+        let mut nums: Vec<u32> = Vec::new();
+        let mut names: Vec<&str> = Vec::new();
+        let mut macros: Vec<&MacroDefinition> = Vec::new();
+
+        for (doc, t32) in docs.iter().zip(t32.iter()) {
+            if doc.is_none() {
+                continue;
+            }
+
+            let globals = t32.as_ref().unwrap().macros.globals.as_ref();
+            if globals.is_none() {
+                continue;
+            }
+            let globals = globals.unwrap();
+
+            let num = globals.len();
+            nums.push(num as u32);
+
+            let doc = doc.as_ref().unwrap();
+
+            names.reserve(num);
+            macros.reserve(num);
+            for def in globals {
+                names.push(&doc.text[def.r#macro.clone()]);
+                macros.push(def);
+            }
+
+            let uri = doc.uri.clone();
+            files.push(uri);
+
+            debug_assert_eq!(nums.len(), files.len());
+            debug_assert_eq!(nums.iter().sum::<u32>() as usize, macros.len());
+            debug_assert_eq!(macros.len(), names.len());
+        }
+        debug_assert_eq!(nums.len(), files.len());
+        debug_assert_eq!(nums.iter().sum::<u32>() as usize, macros.len());
+        debug_assert_eq!(macros.len(), names.len());
+
+        (files, nums, names, macros)
+    }
 }
 
 #[cfg(test)]
@@ -545,8 +636,8 @@ mod test {
     use crate::{
         ls::{
             doc::{
-                find_global_macro_definitions, find_parameter_declarations, find_subroutines,
-                read_doc, textdoc::create_line_map_for_text,
+                find_macro_definitions, find_parameter_declarations, find_subroutines, read_doc,
+                textdoc::create_line_map_for_text,
             },
             workspace::index_files,
         },
@@ -597,11 +688,11 @@ mod test {
         };
         let tree = t32::parse(text.as_bytes(), None);
 
-        let macros = find_global_macro_definitions(&doc.text, &tree);
+        let macros = find_macro_definitions(&doc.text, &tree);
         let subroutines = find_subroutines(&doc.text, &tree);
         let parameters = find_parameter_declarations(&doc.text, &tree);
         let calls = CallExpressions {
-            subroutines: None,
+            subroutines: Vec::new(),
             scripts: None,
         };
 

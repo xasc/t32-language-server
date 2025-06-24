@@ -14,19 +14,19 @@ use crate::{
     protocol::{TextDocumentContentChangeEvent, TextDocumentItem, Uri},
     t32::{
         self, CallExpression, CallExpressions, CallLocations, LangExpressions, SubscriptCalls,
-        find_call_expressions, find_global_macro_definitions, find_parameter_declarations,
+        find_call_expressions, find_macro_definitions, find_parameter_declarations,
         find_subroutines, resolve_subscript_call_targets,
     },
 };
 
-pub use store::TextDocs;
+pub use store::{GlobalMacroDefIndex, TextDocData, TextDocs};
 pub use textdoc::{TextDoc, TextDocStatus};
 
 pub fn import_doc(r#in: TextDocumentItem, files: FileIndex) -> (TextDoc, Tree, LangExpressions) {
     let doc = TextDoc::from(r#in);
     let tree = t32::parse(doc.text.as_bytes(), None);
 
-    let macros = find_global_macro_definitions(&doc.text, &tree);
+    let macros = find_macro_definitions(&doc.text, &tree);
     let subroutines = find_subroutines(&doc.text, &tree);
     let parameters = find_parameter_declarations(&doc.text, &tree);
     let calls = resolve_call_expressions(&doc.text, &tree, &files);
@@ -56,7 +56,7 @@ pub fn update_doc(
         t32::parse(doc.text.as_bytes(), Some(&tree));
     }
 
-    let macros = find_global_macro_definitions(&doc.text, &tree);
+    let macros = find_macro_definitions(&doc.text, &tree);
     let subroutines = find_subroutines(&doc.text, &tree);
     let parameters = find_parameter_declarations(&doc.text, &tree);
     let calls = resolve_call_expressions(&doc.text, &tree, &files);
@@ -81,7 +81,7 @@ pub fn read_doc(r#in: Url, files: FileIndex) -> Result<(TextDoc, Tree, LangExpre
     };
     let tree = t32::parse(doc.text.as_bytes(), None);
 
-    let macros = find_global_macro_definitions(&doc.text, &tree);
+    let macros = find_macro_definitions(&doc.text, &tree);
     let subroutines = find_subroutines(&doc.text, &tree);
     let parameters = find_parameter_declarations(&doc.text, &tree);
     let calls = resolve_call_expressions(&doc.text, &tree, &files);
@@ -105,9 +105,7 @@ pub fn resolve_call_expressions(text: &str, tree: &Tree, files: &FileIndex) -> C
     } = find_call_expressions(text, &tree);
 
     let subscripts: Option<SubscriptCalls>;
-    if scripts.is_some() {
-        let scripts = scripts.unwrap();
-
+    if scripts.len() > 0 {
         let mut locations: Vec<CallExpression> = Vec::with_capacity(scripts.len());
         let mut targets: Vec<Option<Uri>> = Vec::with_capacity(scripts.len());
 
@@ -125,11 +123,14 @@ pub fn resolve_call_expressions(text: &str, tree: &Tree, files: &FileIndex) -> C
             }
         }
         debug_assert_eq!(targets.len(), locations.len());
-        subscripts = Some(SubscriptCalls::build(locations, targets));
+        subscripts = Some(SubscriptCalls { locations, targets });
     } else {
         subscripts = None;
     }
-    CallExpressions::build(subroutines, subscripts)
+    CallExpressions {
+        subroutines,
+        scripts: subscripts,
+    }
 }
 
 #[cfg(test)]
@@ -217,7 +218,7 @@ mod test {
     }
 
     #[test]
-    fn can_find_global_macros() {
+    fn can_find_global_scoped_macros() {
         let file_idx = FileIndex::new();
 
         let file =
@@ -245,7 +246,7 @@ mod test {
     }
 
     #[test]
-    fn can_find_local_macros() {
+    fn can_find_local_scoped_macros() {
         let file_idx = FileIndex::new();
 
         let file =
@@ -268,6 +269,34 @@ mod test {
                 .unwrap()
                 .iter()
                 .find_map(|s| (doc.text[s.r#macro.clone()] == *"&local_macro").then_some(()))
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn can_find_private_scoped_macros() {
+        let file_idx = FileIndex::new();
+
+        let file =
+            Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
+                .unwrap();
+
+        let (
+            doc,
+            _,
+            LangExpressions {
+                macros: MacroDefinitions { privates, .. },
+                ..
+            },
+        ) = read_doc(file, file_idx).expect("Must not fail.");
+
+        assert!(!privates.clone().is_none_or(|s| s.is_empty()));
+        assert!(
+            privates
+                .as_ref()
+                .unwrap()
+                .iter()
+                .find_map(|s| (doc.text[s.r#macro.clone()] == *"&private_macro").then_some(()))
                 .is_some()
         );
     }
@@ -319,19 +348,15 @@ mod test {
             },
         ) = read_doc(file, file_idx).expect("Must not fail.");
 
-        assert!(!subroutines.clone().is_none_or(|s| s.is_empty()));
+        assert!(subroutines.len() > 0);
         assert!(
             subroutines
-                .as_ref()
-                .unwrap()
                 .iter()
                 .find_map(|s| (doc.text[s.target.clone()] == *"subA").then_some(()))
                 .is_some()
         );
         assert!(
             subroutines
-                .as_ref()
-                .unwrap()
                 .iter()
                 .find_map(|s| (s.docstring.is_some()
                     && doc.text[s.docstring.as_ref().unwrap().clone()]

@@ -7,12 +7,18 @@ use std::ops::Range;
 use tree_sitter::{Tree, TreeCursor};
 
 use crate::{
-    ls::doc::TextDoc,
-    protocol::{LocationLink, Position, Uri},
-    t32::{
-        LangExpressions, MacroDefResolution, NodeKind, Subroutine, get_goto_ref_ids, goto_file,
-        goto_macro_definition, goto_subroutine_definition, id_into_node,
+    ls::{
+        GotoDefinitionResult,
+        doc::{GlobalMacroDefIndex, TextDoc, TextDocData, TextDocs},
+        tasks::ExtMacroDefOrigin,
     },
+    protocol::{LocationLink, Position, Range as LRange, Uri},
+    t32::{
+        MacroDefinition, MacroDefinitionResult, NodeKind, Subroutine, get_goto_ref_ids,
+        goto_external_macro_definition, goto_file, goto_macro_definition,
+        goto_subroutine_definition, id_into_node,
+    },
+    utils::BRange,
 };
 
 impl LocationLink {
@@ -33,75 +39,125 @@ impl LocationLink {
             target_selection_range: doc.to_range(target_sel.start, target_sel.end),
         }
     }
+
+    pub fn from_macro_def(doc: &TextDoc, origin: BRange, r#macro: MacroDefinition) -> Self {
+        let (target_range, target_sel) = if let Some(docstring) = r#macro.docstring {
+            let start: Range<usize> = Range {
+                start: docstring.start,
+                end: r#macro.cmd.end,
+            };
+            (start, r#macro.r#macro)
+        } else {
+            (r#macro.cmd, r#macro.r#macro)
+        };
+
+        LocationLink::build(
+            &doc,
+            Some(origin.into()),
+            doc.uri.clone(),
+            target_range,
+            target_sel,
+        )
+    }
+
+    pub fn from_ext_macro_def(doc: &TextDoc, origin: LRange, r#macro: MacroDefinition) -> Self {
+        let (target_range, target_sel) = if let Some(docstring) = r#macro.docstring {
+            let start: Range<usize> = Range {
+                start: docstring.start,
+                end: r#macro.cmd.end,
+            };
+            (start, r#macro.r#macro)
+        } else {
+            (r#macro.cmd, r#macro.r#macro)
+        };
+
+        LocationLink {
+            origin_selection_range: Some(origin),
+            target_uri: doc.uri.clone(),
+            target_range: doc.to_range(target_range.start, target_range.end),
+            target_selection_range: doc.to_range(target_sel.start, target_sel.end),
+        }
+    }
 }
 
 /// Retrieves definitions for `(macro)`, `(subroutine_call_expression)`, and
 /// `(command_expression)` nodes. `(command_expression)` nodes capture
 /// `DO` and `RUN` commands for subscripts calls.
-pub fn find_definition(
-    doc: TextDoc,
-    tree: Tree,
-    t32: LangExpressions,
-    position: Position,
-) -> Option<Vec<LocationLink>> {
-    let offset = doc.to_byte_offset(&position);
+pub fn find_definition(textdoc: TextDocData, position: Position) -> Option<GotoDefinitionResult> {
+    let offset = textdoc.doc.to_byte_offset(&position);
 
-    let lang = tree.language();
+    let lang = textdoc.tree.language();
     let allowed_kinds = get_goto_ref_ids(&lang);
 
-    let origin = find_deepest_node(&tree, offset, &allowed_kinds)?;
-    let origin_range = origin.node().range();
+    let origin = find_deepest_node(&textdoc.tree, offset, &allowed_kinds)?;
 
-    let mut links: Vec<LocationLink> = Vec::with_capacity(1);
+    let origin_span = origin.node().range();
+
     match id_into_node(&lang, origin.node().kind_id()) {
         NodeKind::Macro => {
-            for def in goto_macro_definition(&doc.text, &tree, &t32, origin)? {
-                match def {
-                    MacroDefResolution::Final(definition)
-                    | MacroDefResolution::Overridable(definition) => {
-                        let (target_range, target_sel) =
-                            if let Some(docstring) = definition.docstring {
-                                let start: Range<usize> = Range {
-                                    start: docstring.start,
-                                    end: definition.cmd.end,
-                                };
-                                (start, definition.r#macro)
-                            } else {
-                                (definition.cmd, definition.r#macro)
-                            };
-
-                        links.push(LocationLink::build(
-                            &doc,
-                            Some(Range {
-                                start: origin_range.start_byte,
-                                end: origin_range.end_byte,
-                            }),
-                            doc.uri.clone(),
-                            target_range,
-                            target_sel,
+            match goto_macro_definition(&textdoc.doc.text, &textdoc.tree, &textdoc.t32, origin)? {
+                MacroDefinitionResult::Final(gotos) => {
+                    let mut links: Vec<LocationLink> = Vec::with_capacity(gotos.len());
+                    for def in gotos {
+                        links.push(LocationLink::from_macro_def(
+                            &textdoc.doc,
+                            origin_span.into(),
+                            def,
                         ));
                     }
-                    _ => (),
+                    Some(GotoDefinitionResult::Final(links))
+                }
+                MacroDefinitionResult::Partial(name, gotos) => {
+                    let mut links: Vec<LocationLink> = Vec::with_capacity(gotos.len());
+                    for def in gotos {
+                        links.push(LocationLink::from_macro_def(
+                            &textdoc.doc,
+                            origin_span.into(),
+                            def,
+                        ));
+                    }
+
+                    let span = textdoc
+                        .doc
+                        .to_range(origin_span.start_byte, origin_span.end_byte);
+                    Some(GotoDefinitionResult::PartialMacro(
+                        textdoc.doc.uri,
+                        name,
+                        span,
+                        links,
+                    ))
+                }
+                MacroDefinitionResult::Indeterminate(name) => {
+                    let span = textdoc
+                        .doc
+                        .to_range(origin_span.start_byte, origin_span.end_byte);
+                    Some(GotoDefinitionResult::PartialMacro(
+                        textdoc.doc.uri,
+                        name,
+                        span,
+                        Vec::new(),
+                    ))
                 }
             }
         }
         NodeKind::CommandExpression => {
-            let uri = goto_file(&doc.text, &t32.calls.scripts?, origin)?;
+            let uri = goto_file(&textdoc.doc.text, &textdoc.t32.calls.scripts?, origin)?;
 
             // Point to start of called script file
-            links.push(LocationLink::build(
-                &doc,
+            Some(GotoDefinitionResult::Final(vec![LocationLink::build(
+                &textdoc.doc,
                 Some(Range {
-                    start: origin_range.start_byte,
-                    end: origin_range.end_byte,
+                    start: origin_span.start_byte,
+                    end: origin_span.end_byte,
                 }),
                 uri,
                 Range { start: 0, end: 1 },
                 Range { start: 0, end: 1 },
-            ));
+            )]))
         }
         NodeKind::SubroutineCallExpression => {
-            let sub: Subroutine = goto_subroutine_definition(&doc.text, &t32.subroutines?, origin)?;
+            let sub: Subroutine =
+                goto_subroutine_definition(&textdoc.doc.text, &textdoc.t32.subroutines?, origin)?;
             let (target_range, target_sel) = if let Some(docstring) = sub.docstring {
                 let start: Range<usize> = Range {
                     start: docstring.start,
@@ -112,23 +168,139 @@ pub fn find_definition(
                 (sub.definition.clone(), sub.name.clone())
             };
 
-            links.push(LocationLink::build(
-                &doc,
+            Some(GotoDefinitionResult::Final(vec![LocationLink::build(
+                &textdoc.doc,
                 Some(Range {
-                    start: origin_range.start_byte,
-                    end: origin_range.end_byte,
+                    start: origin_span.start_byte,
+                    end: origin_span.end_byte,
                 }),
-                doc.uri.clone(),
+                textdoc.doc.uri.clone(),
                 target_range,
                 target_sel,
-            ));
+            )]))
         }
         _ => {
             unreachable!("No other node kinds can be traced back to definition. Must abort early.")
         }
-    };
+    }
+}
 
-    if links.len() > 0 { Some(links) } else { None }
+pub fn find_external_macro_definition(
+    textdoc: TextDocData,
+    callers: Vec<Uri>,
+    origin: ExtMacroDefOrigin,
+) -> (Option<GotoDefinitionResult>, Vec<Uri>) {
+    if textdoc.t32.calls.scripts.is_none() {
+        return (None, callers);
+    }
+
+    let mut targets: Vec<Range<usize>> = Vec::with_capacity(1);
+
+    for (_, loc) in textdoc
+        .t32
+        .calls
+        .scripts
+        .as_ref()
+        .unwrap()
+        .targets
+        .iter()
+        .zip(textdoc.t32.calls.scripts.as_ref().unwrap().locations.iter())
+        .filter(|&(t, _)| t.is_some() && *t.as_ref().unwrap() == origin.uri)
+    {
+        targets.push(loc.call.clone());
+    }
+    if targets.is_empty() {
+        return (None, callers);
+    }
+
+    let ExtMacroDefOrigin {
+        name: r#macro,
+        span,
+        ..
+    } = origin;
+
+    match goto_external_macro_definition(
+        &textdoc.doc.text,
+        &textdoc.tree,
+        &textdoc.t32,
+        r#macro,
+        targets,
+    ) {
+        Some(MacroDefinitionResult::Final(gotos)) => {
+            let mut links: Vec<LocationLink> = Vec::with_capacity(gotos.len());
+            for def in gotos {
+                links.push(LocationLink::from_ext_macro_def(
+                    &textdoc.doc,
+                    span.clone(),
+                    def,
+                ));
+            }
+            (Some(GotoDefinitionResult::Final(links)), callers)
+        }
+        Some(MacroDefinitionResult::Partial(name, gotos)) => {
+            let mut links: Vec<LocationLink> = Vec::with_capacity(gotos.len());
+            for def in gotos {
+                links.push(LocationLink::from_ext_macro_def(
+                    &textdoc.doc,
+                    span.clone(),
+                    def,
+                ));
+            }
+
+            (
+                Some(GotoDefinitionResult::PartialMacro(
+                    textdoc.doc.uri,
+                    name,
+                    span.clone(),
+                    links,
+                )),
+                callers,
+            )
+        }
+        Some(MacroDefinitionResult::Indeterminate(name)) => (
+            Some(GotoDefinitionResult::PartialMacro(
+                textdoc.doc.uri,
+                name,
+                span,
+                Vec::new(),
+            )),
+            callers,
+        ),
+        None => (None, callers),
+    }
+}
+
+pub fn find_global_macro_definitions(
+    docs: &TextDocs,
+    macros: GlobalMacroDefIndex,
+    origin: ExtMacroDefOrigin,
+) -> Vec<LocationLink> {
+    let mut links: Vec<LocationLink> = Vec::new();
+
+    let mut base: u32 = 0;
+    for (uri, num) in macros.0.into_iter().zip(macros.1.into_iter()) {
+        if uri == origin.uri {
+            base += num;
+            continue;
+        }
+
+        for (&r#macro, &def) in macros.2[base as usize..(base + num) as usize]
+            .into_iter()
+            .zip(macros.3[base as usize..(base + num) as usize].into_iter())
+        {
+            if *r#macro != origin.name {
+                continue;
+            }
+            let doc = docs.get_doc(&uri).expect("Document must exist.");
+            links.push(LocationLink::from_ext_macro_def(
+                doc,
+                origin.span.clone(),
+                def.clone(),
+            ));
+        }
+        base += num;
+    }
+    links
 }
 
 fn find_deepest_node<'a>(tree: &'a Tree, offset: usize, stop_at: &[u16]) -> Option<TreeCursor<'a>> {
@@ -157,9 +329,12 @@ mod tests {
     use url::Url;
 
     use crate::{
-        ls::{doc::resolve_call_expressions, workspace},
+        ls::{
+            doc::{read_doc, resolve_call_expressions},
+            workspace::{self, FileIndex},
+        },
         protocol::Range,
-        t32,
+        t32::{self, LangExpressions},
     };
 
     fn files() -> Vec<Url> {
@@ -189,28 +364,66 @@ mod tests {
         ]
     }
 
-    fn find_def(file: &str, position: Position) -> Option<Vec<LocationLink>> {
+    fn create_file_idx() -> FileIndex {
+        workspace::index_files(files())
+    }
+
+    fn find_def(file: &str, position: Position) -> Option<GotoDefinitionResult> {
         let uri = Url::from_file_path(path::absolute(file).expect("File must exist.")).unwrap();
         let doc = TextDoc::try_from(uri).expect("Path must be valid.");
         let file_idx = workspace::index_files(files());
 
         let tree = t32::parse(doc.text.as_bytes(), None);
 
-        let macros = t32::find_global_macro_definitions(&doc.text, &tree);
+        let macros = t32::find_macro_definitions(&doc.text, &tree);
         let subroutines = t32::find_subroutines(&doc.text, &tree);
         let parameters = t32::find_parameter_declarations(&doc.text, &tree);
         let calls = resolve_call_expressions(&doc.text, &tree, &file_idx);
 
         find_definition(
-            doc,
-            tree,
-            LangExpressions {
-                macros,
-                subroutines,
-                calls,
-                parameters,
+            TextDocData {
+                doc,
+                tree,
+                t32: LangExpressions {
+                    macros,
+                    subroutines,
+                    calls,
+                    parameters,
+                },
             },
             position,
+        )
+    }
+
+    fn find_external_macro_def(
+        file: &str,
+        callers: Vec<Uri>,
+        origin: ExtMacroDefOrigin,
+    ) -> (Option<GotoDefinitionResult>, Vec<Uri>) {
+        let uri = Url::from_file_path(path::absolute(file).expect("File must exist.")).unwrap();
+        let doc = TextDoc::try_from(uri).expect("Path must be valid.");
+        let file_idx = workspace::index_files(files());
+
+        let tree = t32::parse(doc.text.as_bytes(), None);
+
+        let macros = t32::find_macro_definitions(&doc.text, &tree);
+        let subroutines = t32::find_subroutines(&doc.text, &tree);
+        let parameters = t32::find_parameter_declarations(&doc.text, &tree);
+        let calls = resolve_call_expressions(&doc.text, &tree, &file_idx);
+
+        find_external_macro_definition(
+            TextDocData {
+                doc,
+                tree,
+                t32: LangExpressions {
+                    macros,
+                    subroutines,
+                    calls,
+                    parameters,
+                },
+            },
+            callers,
+            origin,
         )
     }
 
@@ -232,7 +445,10 @@ mod tests {
             .join("a.cmm");
         let _uri: Url = Url::from_file_path(path::absolute(file).unwrap()).unwrap();
 
-        let loc = loc.expect("Must not be empty.");
+        let GotoDefinitionResult::Final(loc) = loc.expect("Must not be empty.") else {
+            unreachable!();
+        };
+
         assert!(matches!(
             &loc[..],
             [LocationLink {
@@ -289,7 +505,9 @@ mod tests {
             .join("a.cmm");
         let _uri: Url = Url::from_file_path(path::absolute(file).unwrap()).unwrap();
 
-        let loc = loc.expect("Must not be empty.");
+        let GotoDefinitionResult::Final(loc) = loc.expect("Must not be empty.") else {
+            unreachable!();
+        };
         assert!(matches!(
             &loc[..],
             [LocationLink {
@@ -346,7 +564,9 @@ mod tests {
             .join("a.cmm");
         let _uri: Url = Url::from_file_path(path::absolute(file).unwrap()).unwrap();
 
-        let loc = loc.expect("Must not be empty.");
+        let GotoDefinitionResult::Final(loc) = loc.expect("Must not be empty.") else {
+            unreachable!();
+        };
         assert!(matches!(
             &loc[..],
             [LocationLink {
@@ -403,7 +623,9 @@ mod tests {
             .join("a.cmm");
         let _uri: Url = Url::from_file_path(path::absolute(file).unwrap()).unwrap();
 
-        let loc = loc.expect("Must not be empty.");
+        let GotoDefinitionResult::Final(loc) = loc.expect("Must not be empty.") else {
+            unreachable!();
+        };
         assert!(matches!(
             &loc[..],
             [LocationLink {
@@ -443,7 +665,7 @@ mod tests {
     }
 
     #[test]
-    fn can_find_external_macro_definition_for_subroutine() {
+    fn can_find_outside_macro_definition_for_subroutine() {
         let loc = find_def(
             "tests/samples/a/a.cmm",
             Position {
@@ -460,8 +682,9 @@ mod tests {
             .join("a.cmm");
         let _uri: Url = Url::from_file_path(path::absolute(file).unwrap()).unwrap();
 
-        let loc = loc.expect("Must not be empty.");
-        assert_eq!(loc.len(), 1);
+        let GotoDefinitionResult::Final(loc) = loc.expect("Must not be empty.") else {
+            unreachable!();
+        };
         assert!(matches!(
             &loc[0],
             LocationLink {
@@ -901,8 +1124,9 @@ mod tests {
             .join("a.cmm");
         let _uri: Url = Url::from_file_path(path::absolute(file).unwrap()).unwrap();
 
-        let loc = loc.expect("Must not be empty.");
-        assert_eq!(loc.len(), 1);
+        let GotoDefinitionResult::Final(loc) = loc.expect("Must not be empty.") else {
+            unreachable!();
+        };
         assert!(matches!(
             &loc[0],
             LocationLink {
@@ -938,6 +1162,231 @@ mod tests {
                     },
                 },
             }
+        ));
+    }
+
+    #[test]
+    fn can_find_macro_definition_covering_subscript_call() {
+        let mut callers: Vec<Uri> = Vec::new();
+        for file in ["tests/samples/c.cmm"].into_iter() {
+            callers.push(
+                Url::from_file_path(path::absolute(file).expect("File must exist."))
+                    .unwrap()
+                    .to_string(),
+            );
+        }
+
+        for (job, _link) in [
+            (
+                "tests/samples/a/a.cmm",
+                callers.clone(),
+                ExtMacroDefOrigin {
+                    name: "&local_macro".to_string(),
+                    span: Range {
+                        start: Position {
+                            line: 17,
+                            character: 6,
+                        },
+                        end: Position {
+                            line: 17,
+                            character: 18,
+                        },
+                    },
+                    uri: Url::from_file_path(
+                        path::absolute("tests/samples/c.cmm").expect("File must exist."),
+                    )
+                    .unwrap()
+                    .to_string(),
+                },
+            ),
+            (
+                "tests/samples/c.cmm",
+                callers.clone(),
+                ExtMacroDefOrigin {
+                    name: "&from_c_cmm".to_string(),
+                    span: Range {
+                        start: Position {
+                            line: 139,
+                            character: 7,
+                        },
+                        end: Position {
+                            line: 139,
+                            character: 18,
+                        },
+                    },
+                    uri: Url::from_file_path(
+                        path::absolute("tests/samples/a/a.cmm").expect("File must exist."),
+                    )
+                    .unwrap()
+                    .to_string(),
+                },
+            ),
+        ]
+        .into_iter()
+        .zip([
+            LocationLink {
+                origin_selection_range: Some(Range {
+                    start: Position {
+                        line: 17,
+                        character: 6,
+                    },
+                    end: Position {
+                        line: 17,
+                        character: 18,
+                    },
+                }),
+                target_uri: Url::from_file_path(
+                    path::absolute("tests/samples/a/a.cmm").expect("File must exist."),
+                )
+                .unwrap()
+                .to_string(),
+                target_range: Range {
+                    start: Position {
+                        line: 42,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 43,
+                        character: 0,
+                    },
+                },
+                target_selection_range: Range {
+                    start: Position {
+                        line: 42,
+                        character: 6,
+                    },
+                    end: Position {
+                        line: 42,
+                        character: 18,
+                    },
+                },
+            },
+            LocationLink {
+                origin_selection_range: Some(Range {
+                    start: Position {
+                        line: 139,
+                        character: 7,
+                    },
+                    end: Position {
+                        line: 139,
+                        character: 18,
+                    },
+                }),
+                target_uri: Url::from_file_path(
+                    path::absolute("tests/samples/a/a.cmm").expect("File must exist."),
+                )
+                .unwrap()
+                .to_string(),
+                target_range: Range {
+                    start: Position {
+                        line: 22,
+                        character: 4,
+                    },
+                    end: Position {
+                        line: 23,
+                        character: 0,
+                    },
+                },
+                target_selection_range: Range {
+                    start: Position {
+                        line: 22,
+                        character: 10,
+                    },
+                    end: Position {
+                        line: 22,
+                        character: 21,
+                    },
+                },
+            },
+        ]) {
+            let (Some(GotoDefinitionResult::Final(loc)), successors) =
+                find_external_macro_def(job.0, job.1, job.2)
+            else {
+                unreachable!();
+            };
+
+            assert!(matches!(&loc[..], _link));
+            assert_eq!(successors, callers);
+        }
+    }
+
+    #[test]
+    fn can_find_macro_global_macro_definition() {
+        let files = files();
+        let file_idx = create_file_idx();
+
+        let mut members: Vec<(TextDoc, Tree, LangExpressions)> = Vec::new();
+        for uri in files {
+            let (doc, tree, expr) =
+                read_doc(uri.clone(), file_idx.clone()).expect("Must not fail.");
+            members.push((doc, tree, expr));
+        }
+
+        let docs = TextDocs::from_workspace(FileIndex::new(), members);
+
+        let globals = docs.get_all_global_macros().expect("Must not fail.");
+
+        let links = find_global_macro_definitions(
+            &docs,
+            globals,
+            ExtMacroDefOrigin {
+                name: "&global_macro".to_string(),
+                span: Range {
+                    start: Position {
+                        line: 31,
+                        character: 7,
+                    },
+                    end: Position {
+                        line: 31,
+                        character: 20,
+                    },
+                },
+                uri: Url::from_file_path(
+                    path::absolute("tests/samples/c.cmm").expect("File must exist."),
+                )
+                .unwrap()
+                .to_string(),
+            },
+        );
+
+        let _uri =
+            Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."));
+
+        assert!(matches!(
+            &links[..],
+            [LocationLink {
+                origin_selection_range: Some(Range {
+                    start: Position {
+                        line: 31,
+                        character: 7,
+                    },
+                    end: Position {
+                        line: 31,
+                        character: 20,
+                    },
+                }),
+                target_uri: _uri,
+                target_range: Range {
+                    start: Position {
+                        line: 41,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 42,
+                        character: 0,
+                    },
+                },
+                target_selection_range: Range {
+                    start: Position {
+                        line: 41,
+                        character: 7,
+                    },
+                    end: Position {
+                        line: 41,
+                        character: 20,
+                    },
+                },
+            }]
         ));
     }
 }

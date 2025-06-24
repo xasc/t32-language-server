@@ -7,6 +7,7 @@ mod config;
 mod ls;
 mod protocol;
 mod t32;
+mod utils;
 
 pub use config::Config;
 

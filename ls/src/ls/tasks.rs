@@ -13,6 +13,7 @@ use std::{
         mpsc::{Receiver, Sender, channel},
     },
     thread::{Builder, JoinHandle, available_parallelism},
+    time::Instant,
 };
 
 use tree_sitter::Tree;
@@ -22,39 +23,31 @@ use crate::{
     ReturnCode,
     config::Workspace,
     ls::{
-        doc::TextDoc,
+        GotoDefinitionResult,
+        doc::{TextDoc, TextDocData},
         workspace::{FileIndex, WorkspaceMembers},
     },
     protocol::{
-        LocationLink, NumberOrString, Position, TextDocumentContentChangeEvent, TextDocumentItem,
-        Uri,
+        LocationLink, NumberOrString, Position, Range, TextDocumentContentChangeEvent,
+        TextDocumentItem, Uri,
     },
     t32::LangExpressions,
 };
-
-pub struct TaskSystem {
-    pub rx: Receiver<TaskDone>,
-    queues: Arc<Vec<JobQueue>>,
-    threads: Vec<Option<JoinHandle<Result<(), ReturnCode>>>>,
-    work: Arc<(AtomicU32, AtomicBool)>,
-    signal: Arc<(Condvar, Mutex<usize>)>,
-    slot: usize,
-}
-
-pub struct JobQueue {
-    queue: Mutex<VecDeque<Task>>,
-}
 
 #[derive(Debug, Clone)]
 pub enum Task {
     GoToDefinitionExtMeta(
         NumberOrString,
-        TextDoc,
-        Tree,
-        LangExpressions,
+        TextDocData,
         Position,
-        fn(TextDoc, Tree, LangExpressions, Position) -> Option<Vec<LocationLink>>,
+        fn(TextDocData, Position) -> Option<GotoDefinitionResult>,
     ),
+    GoToExternalMacroDefinition {
+        id: NumberOrString,
+        textdoc: TextDocData,
+        callers: Vec<Uri>,
+        lookup: ExtMacroDefLookup,
+    },
     TextDocNew(
         TextDocumentItem,
         FileIndex,
@@ -87,7 +80,9 @@ pub enum Task {
 
 #[derive(Debug)]
 pub enum TaskDone {
-    GoToDefinitionExtMeta(NumberOrString, Option<Vec<LocationLink>>),
+    GoToDefinitionExtMeta(NumberOrString, Option<GotoDefinitionResult>),
+    GoToExternalMacroDefinitionExtMeta(NumberOrString, Vec<LocationLink>),
+    GoToExternalMacroDefinitionSync(NumberOrString, Option<GotoDefinitionResult>, Uri, Vec<Uri>),
     TextDocNew(TextDoc, Tree, LangExpressions),
     TextDocEdit(TextDoc, Tree, LangExpressions),
     WorkspaceFileDiscovery(WorkspaceMembers),
@@ -97,7 +92,58 @@ pub enum TaskDone {
 
 #[derive(Debug)]
 pub enum OngoingTask {
-    TextDocUpdate { uri: String },
+    TextDocUpdate {
+        uri: String,
+    },
+    GoToDefinitionExtMeta(NumberOrString, Instant),
+    GoToExternalMacroDefinition {
+        id: NumberOrString,
+        completed: u32,
+        total: u32,
+        depth: u32,
+        onset: Instant,
+        origin: ExtMacroDefOrigin,
+        preliminary: Vec<LocationLink>,
+        ops: Option<ExtMacroDefOperations>,
+    },
+}
+
+pub enum OngoingTaskHandle {
+    Identifier(NumberOrString),
+    Uri(Uri),
+}
+
+pub struct TaskSystem {
+    pub rx: Receiver<TaskDone>,
+    queues: Arc<Vec<JobQueue>>,
+    threads: Vec<Option<JoinHandle<Result<(), ReturnCode>>>>,
+    work: Arc<(AtomicU32, AtomicBool)>,
+    signal: Arc<(Condvar, Mutex<usize>)>,
+    slot: usize,
+}
+
+pub struct JobQueue {
+    queue: Mutex<VecDeque<Task>>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ExtMacroDefLookup {
+    pub origin: ExtMacroDefOrigin,
+    pub find:
+        fn(TextDocData, Vec<Uri>, ExtMacroDefOrigin) -> (Option<GotoDefinitionResult>, Vec<Uri>),
+}
+
+#[derive(Debug)]
+pub struct ExtMacroDefOperations {
+    pub scripts: Vec<Uri>,
+    pub callees: Vec<Uri>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ExtMacroDefOrigin {
+    pub name: String,
+    pub span: Range,
+    pub uri: Uri,
 }
 
 impl TaskSystem {
@@ -208,16 +254,27 @@ impl TaskSystem {
 
     fn execute(job: Task) -> TaskDone {
         match job {
-            Task::GoToDefinitionExtMeta(id, doc, tree, globals, loc, find) => {
-                TaskDone::GoToDefinitionExtMeta(id, find(doc, tree, globals, loc))
+            Task::GoToDefinitionExtMeta(id, textdoc, loc, find) => {
+                TaskDone::GoToDefinitionExtMeta(id, find(textdoc, loc))
+            }
+            Task::GoToExternalMacroDefinition {
+                id,
+                textdoc,
+                callers,
+                lookup,
+            } => {
+                let uri = textdoc.doc.uri.clone();
+                let defs = (lookup.find)(textdoc, callers, lookup.origin);
+
+                TaskDone::GoToExternalMacroDefinitionSync(id, defs.0, uri, defs.1)
             }
             Task::TextDocNew(doc, files, transform) => {
-                let (doc, tree, globals) = transform(doc, files);
-                TaskDone::TextDocNew(doc, tree, globals)
+                let (doc, tree, t32) = transform(doc, files);
+                TaskDone::TextDocNew(doc, tree, t32)
             }
             Task::TextDocEdit(doc, tree, files, changes, update) => {
-                let (doc, tree, globals) = update(doc, tree, files, changes);
-                TaskDone::TextDocEdit(doc, tree, globals)
+                let (doc, tree, t32) = update(doc, tree, files, changes);
+                TaskDone::TextDocEdit(doc, tree, t32)
             }
             Task::WorkspaceFileDiscovery(workspace, suffixes, locate) => {
                 TaskDone::WorkspaceFileDiscovery(locate(&workspace, suffixes))
@@ -285,6 +342,24 @@ impl JobQueue {
             Ok(None)
         } else {
             Ok(queue.pop_front())
+        }
+    }
+}
+
+impl TaskDone {
+    pub fn get_task_handle(&self) -> Option<OngoingTaskHandle> {
+        match self {
+            TaskDone::GoToDefinitionExtMeta(id, ..)
+            | TaskDone::GoToExternalMacroDefinitionExtMeta(id, ..) => {
+                Some(OngoingTaskHandle::Identifier(id.clone()))
+            }
+            TaskDone::TextDocEdit(doc, ..)
+            | TaskDone::TextDocNew(doc, ..)
+            | TaskDone::WorkspaceFileScan(Ok((doc, ..))) => {
+                Some(OngoingTaskHandle::Uri(doc.uri.clone()))
+            }
+            TaskDone::WorkspaceFileScan(Err(uri)) => Some(OngoingTaskHandle::Uri(uri.clone())),
+            _ => None,
         }
     }
 }

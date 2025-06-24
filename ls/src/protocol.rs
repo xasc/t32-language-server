@@ -262,7 +262,7 @@ pub enum ProgressTokenKind {
     String(String),
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum NumberOrString {
     Number(i64),
@@ -2521,13 +2521,13 @@ pub struct DefinitionParams {
     pub partial_result_token: Option<NumberOrString>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Location {
     pub uri: DocumentUri,
     pub range: Range,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LocationLink {
     #[serde(skip_serializing_if = "Option::is_none")]

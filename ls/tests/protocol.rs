@@ -2,9 +2,10 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use std::{process, thread, time};
+use std::{env, process, thread, time};
 
 use serde_json::json;
+use url::Url;
 
 mod utils;
 
@@ -322,6 +323,75 @@ fn supports_docsync_did_close_notification() {
     let output = ls.wait_with_output().expect("Cannot capture output");
 
     assert_eq!(output.status.code(), Some(0));
+}
+
+#[test]
+fn supports_lang_goto_definition_request() {
+    for ((dir, line, character), (start, end)) in [
+        (
+            env::current_dir()
+                .unwrap()
+                .join("tests")
+                .join("samples")
+                .join("a")
+                .join("a.cmm"),
+            139,
+            12,
+        ),
+        (
+            env::current_dir()
+                .unwrap()
+                .join("tests")
+                .join("samples")
+                .join("a")
+                .join("a.cmm"),
+            22,
+            14,
+        ),
+    ]
+    .into_iter()
+    .zip([((22, 21), (22, 10)), ((18, 12), (18, 25))])
+    {
+        let mut ls = utils::start_ls_with_workspace(&[
+            &format!("--clientProcessId={}", process::id().to_string()),
+            &format!("--trace={}", "messages"),
+        ]);
+        let mut stdin = ls.stdin.take().unwrap();
+
+        let notif = utils::make_set_trace_notification(utils::TraceValue::Messages);
+        utils::to_stdin(&mut stdin, &notif);
+
+        let uri = Url::from_file_path(dir).expect("Must not fail.");
+
+        let notif = utils::make_goto_definition_request(2, uri, line, character);
+        utils::to_stdin(&mut stdin, &notif);
+        thread::sleep(time::Duration::from_secs(2));
+
+        utils::stop_ls(&mut ls, Some(&mut stdin), Some(2));
+        let output = ls.wait_with_output().expect("Cannot capture output");
+
+        assert_eq!(output.status.code(), Some(0));
+        assert!(
+            std::str::from_utf8(&output.stdout)
+                .unwrap()
+                .contains(&format!("\"line\":{}", start.0))
+        );
+        assert!(
+            std::str::from_utf8(&output.stdout)
+                .unwrap()
+                .contains(&format!("\"character\":{}", start.1))
+        );
+        assert!(
+            std::str::from_utf8(&output.stdout)
+                .unwrap()
+                .contains(&format!("\"line\":{}", end.0))
+        );
+        assert!(
+            std::str::from_utf8(&output.stdout)
+                .unwrap()
+                .contains(&format!("\"character\":{}", end.1))
+        );
+    }
 }
 
 #[test]

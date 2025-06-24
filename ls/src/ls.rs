@@ -27,15 +27,21 @@ use crate::{
         proc::{ProcState, proc_alive},
         request::{ExitNotification, LogTraceNotification, Notification, Request},
         response::{ErrorResponse, InitializeResponse, Response},
-        tasks::{OngoingTask, Task, TaskSystem},
+        tasks::{OngoingTask, Task, TaskDone, TaskSystem},
     },
     protocol::{
-        ErrorCodes, InitializeError, InitializeParams, InitializeResult, LogTraceParams,
-        ResponseError, ServerCapabilities, TraceValue,
+        ErrorCodes, InitializeError, InitializeParams, InitializeResult, LocationLink,
+        LogTraceParams, Range, ResponseError, ServerCapabilities, TraceValue, Uri,
     },
 };
 
 pub use crate::ls::workspace::FileIndex;
+
+#[derive(Debug)]
+pub enum GotoDefinitionResult {
+    Final(Vec<LocationLink>),
+    PartialMacro(Uri, String, Range, Vec<LocationLink>),
+}
 
 struct InitializationStatus {
     msg: Message,
@@ -52,6 +58,7 @@ struct Tasks {
     runner: TaskSystem,
     blocked: Vec<Task>,
     ongoing: Vec<OngoingTask>,
+    completed: Vec<Option<TaskDone>>,
 }
 
 struct State {

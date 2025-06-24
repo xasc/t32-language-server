@@ -135,3 +135,6 @@ SUBROUTINE subM
 )
 
 GLOBAL &def_after_sub
+LOCAL &inf
+
+PRINT "&from_c_cmm"

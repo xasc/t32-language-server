@@ -8,6 +8,8 @@ use std::{
     time::Duration,
 };
 
+use serde::Serialize;
+
 use crate::{
     ReturnCode,
     protocol::{PositionEncodingKind, TraceValue, Uri, WorkspaceFolder},
@@ -20,7 +22,7 @@ pub enum ChannelKind {
     Stdio,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 pub enum Workspace {
     Root(Option<Uri>),
     Folders(Option<Vec<WorkspaceFolder>>),
