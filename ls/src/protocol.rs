@@ -9,6 +9,7 @@ use serde_repr::{Deserialize_repr, Serialize_repr};
 type DocumentUri = String;
 type DocumentSelector = Vec<DocumentFilter>;
 type ProgressToken = NumberOrString;
+
 pub type Uri = String;
 
 pub enum ErrorCodes {

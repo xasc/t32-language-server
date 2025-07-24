@@ -7,11 +7,7 @@ use std::ops::Range;
 use tree_sitter::{Tree, TreeCursor};
 
 use crate::{
-    ls::{
-        GotoDefinitionResult,
-        doc::{GlobalMacroDefIndex, TextDoc, TextDocData, TextDocs},
-        tasks::ExtMacroDefOrigin,
-    },
+    ls::doc::{GlobalMacroDefIndex, TextDoc, TextDocData, TextDocs},
     protocol::{LocationLink, Position, Range as LRange, Uri},
     t32::{
         MacroDefinition, MacroDefinitionResult, NodeKind, Subroutine, get_goto_ref_ids,
@@ -20,6 +16,19 @@ use crate::{
     },
     utils::BRange,
 };
+
+#[derive(Debug)]
+pub enum GotoDefinitionResult {
+    Final(Vec<LocationLink>),
+    PartialMacro(Uri, String, LRange, Vec<LocationLink>),
+}
+
+#[derive(Clone, Debug)]
+pub struct ExtMacroDefOrigin {
+    pub name: String,
+    pub span: LRange,
+    pub uri: Uri,
+}
 
 impl LocationLink {
     pub fn build(

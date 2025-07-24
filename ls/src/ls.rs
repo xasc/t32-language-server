@@ -30,18 +30,12 @@ use crate::{
         tasks::{OngoingTask, Task, TaskDone, TaskSystem},
     },
     protocol::{
-        ErrorCodes, InitializeError, InitializeParams, InitializeResult, LocationLink,
-        LogTraceParams, Range, ResponseError, ServerCapabilities, TraceValue, Uri,
+        ErrorCodes, InitializeError, InitializeParams, InitializeResult, LogTraceParams,
+        ResponseError, ServerCapabilities, TraceValue,
     },
 };
 
 pub use crate::ls::workspace::FileIndex;
-
-#[derive(Debug)]
-pub enum GotoDefinitionResult {
-    Final(Vec<LocationLink>),
-    PartialMacro(Uri, String, Range, Vec<LocationLink>),
-}
 
 struct InitializationStatus {
     msg: Message,
