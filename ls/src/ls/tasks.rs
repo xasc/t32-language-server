@@ -35,11 +35,7 @@ use crate::{
     ls::{
         doc::TextDocStatus,
         log_notif,
-        request::{
-            DidChangeTextDocumentNotification, DidCloseTextDocumentNotification,
-            DidOpenTextDocumentNotification, GoToDefinitionRequest, LogTraceNotification,
-            Notification, Request, SetTraceNotification,
-        },
+        request::{Notification, Request},
         response::{ErrorResponse, GoToDefinitionResponse, LocationResult, NullResponse, Response},
     },
     protocol::{
@@ -324,44 +320,38 @@ fn process_msg(
                     .clone(),
             )));
         }
-        Message::Notification(Notification::DidCloseTextDocumentNotification(
-            DidCloseTextDocumentNotification {
-                params: DidCloseTextDocumentParams { text_document },
-            },
-        )) => {
+        Message::Notification(Notification::DidCloseTextDocumentNotification {
+            params: DidCloseTextDocumentParams { text_document },
+        }) => {
             process_doc_close_notif(&text_document.uri, &mut g.docs, outgoing);
         }
-        Message::Notification(Notification::DidOpenTextDocumentNotification(
-            DidOpenTextDocumentNotification {
-                params: DidOpenTextDocumentParams { text_document },
-            },
-        )) => {
+        Message::Notification(Notification::DidOpenTextDocumentNotification {
+            params: DidOpenTextDocumentParams { text_document },
+        }) => {
             if lang_id_supported(&text_document.language_id) {
                 process_doc_open_notif(text_document, g.docs.get_file_idx().clone(), &mut g.tasks)?;
             } else {
                 outgoing.push(Some(error_lang_id_unsupported(&text_document.language_id)));
             }
         }
-        Message::Notification(Notification::DidChangeTextDocumentNotification(
-            DidChangeTextDocumentNotification { params },
-        )) => {
+        Message::Notification(Notification::DidChangeTextDocumentNotification { params }) => {
             process_doc_change_notif(params, &g.docs, &mut g.tasks, outgoing)?;
         }
-        Message::Notification(Notification::SetTraceNotification(SetTraceNotification {
+        Message::Notification(Notification::SetTraceNotification {
             params: SetTraceParams { value },
-        })) => {
+        }) => {
             cfg.trace_level = value;
         }
-        Message::Request(Request::GoToDefinition(GoToDefinitionRequest { id, params })) => {
+        Message::Request(Request::GoToDefinition { id, params }) => {
             process_goto_definition_req(id, params, g, cfg.trace_level, outgoing)?;
         }
-        Message::Request(Request::ShutdownRequest(req)) => {
+        Message::Request(Request::ShutdownRequest { id }) => {
             g.shutdown_request_recv = true;
             outgoing.push(Some(Message::Response(Response::NullResponse(
-                NullResponse { id: req.id.clone() },
+                NullResponse { id: id },
             ))));
         }
-        Message::Notification(Notification::ExitNotification(_)) => {
+        Message::Notification(Notification::ExitNotification { .. }) => {
             g.exit_requested = true;
         }
         _ => (),
@@ -528,16 +518,16 @@ fn error_shutdown_seq(id: NumberOrString) -> Message {
 }
 
 fn trace_doc_unknown(uri: &str) -> Message {
-    Message::Notification(Notification::LogTraceNotification(LogTraceNotification {
+    Message::Notification(Notification::LogTraceNotification {
         params: LogTraceParams {
             message: format!("WARNING: File \"{}\" is not known.", uri),
             verbose: None,
         },
-    }))
+    })
 }
 
 fn trace_goto_def(duration: Duration, defs: Option<LocationResult>) -> Message {
-    Message::Notification(Notification::LogTraceNotification(LogTraceNotification {
+    Message::Notification(Notification::LogTraceNotification {
         params: LogTraceParams {
             message: format!(
                 "INFO: Go to definition request completed in {:.4} seconds.",
@@ -549,7 +539,7 @@ fn trace_goto_def(duration: Duration, defs: Option<LocationResult>) -> Message {
                 None
             },
         },
-    }))
+    })
 }
 
 #[cfg(test)]

@@ -25,7 +25,7 @@ use crate::{
     ls::{
         doc::TextDocs,
         proc::{ProcState, proc_alive},
-        request::{ExitNotification, LogTraceNotification, Notification, Request},
+        request::{Notification, Request},
         response::{ErrorResponse, InitializeResponse, Response},
         tasks::{OngoingTask, Task, TaskDone, TaskSystem},
     },
@@ -91,25 +91,25 @@ pub fn serve(mut cfg: Config) -> ReturnCode {
 
     let InitializationStatus { msg, rc } = wait_for_initialize_req(&mut channel, heartbeat);
     match msg {
-        Message::Request(Request::InitializeRequest(req)) => {
-            if let Err(error) = process_initialize_params(req.params, &mut cfg) {
+        Message::Request(Request::InitializeRequest { id, params }) => {
+            if let Err(error) = process_initialize_params(params, &mut cfg) {
                 channel.send_msg(Message::Response(Response::ErrorResponse(ErrorResponse {
-                    id: Some(req.id),
+                    id: Some(id),
                     error,
                 })));
                 return ReturnCode::ProtcolErr;
             } else {
                 let result = InitializeResult::build(ServerCapabilities::build());
                 channel.send_msg(Message::Response(Response::InitializeResponse(
-                    InitializeResponse { id: req.id, result },
+                    InitializeResponse { id: id, result },
                 )));
             }
         }
         // No shutdown request was received before
-        Message::Notification(Notification::ExitNotification(n)) => {
+        Message::Notification(Notification::ExitNotification {}) => {
             if cfg.trace_level != TraceValue::Off {
                 channel.send_msg(Message::Notification(log_notif(
-                    &Notification::ExitNotification(n),
+                    &Notification::ExitNotification {},
                 )));
             }
             return shutdown(channel, rc);
@@ -147,15 +147,15 @@ fn wait_for_initialize_req(
             Ok(None) => continue,
             Err(rc) => {
                 return InitializationStatus {
-                    msg: Message::Notification(Notification::ExitNotification(ExitNotification {})),
+                    msg: Message::Notification(Notification::ExitNotification {}),
                     rc,
                 };
             }
         };
 
         match msg {
-            Message::Request(Request::InitializeRequest(_))
-            | Message::Notification(Notification::ExitNotification(_)) => {
+            Message::Request(Request::InitializeRequest { .. })
+            | Message::Notification(Notification::ExitNotification { .. }) => {
                 return InitializationStatus {
                     msg,
                     rc: if shutdown_request_recv {
@@ -166,7 +166,7 @@ fn wait_for_initialize_req(
                 };
             }
             m if m.is_request() => {
-                if let Message::Request(Request::ShutdownRequest(_)) = m {
+                if let Message::Request(Request::ShutdownRequest { .. }) = m {
                     shutdown_request_recv = true;
                 }
                 let req = m.get_request();
@@ -309,21 +309,21 @@ fn error_pid_mismatch(pid_msg: u32, pid_cli: u32) -> ResponseError {
 }
 
 fn notif_initialized() -> Notification {
-    Notification::LogTraceNotification(LogTraceNotification {
+    Notification::LogTraceNotification {
         params: LogTraceParams {
             message: "INFO: Server is initialized.".to_string(),
             verbose: None,
         },
-    })
+    }
 }
 
 fn log_notif(msg: &Notification) -> Notification {
-    Notification::LogTraceNotification(LogTraceNotification {
+    Notification::LogTraceNotification {
         params: LogTraceParams {
             message: format!("INFO: Received notification \"{:}\".", msg),
             verbose: None,
         },
-    })
+    }
 }
 
 /// We ignore the specification here when it states that the exit code 1 should

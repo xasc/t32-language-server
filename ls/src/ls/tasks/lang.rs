@@ -32,7 +32,7 @@ pub fn process_goto_definition_result(
                         uri,
                     },
                     links,
-                    callers.clone(),
+                    callers.clone(), // TODO: Remove duplicate copies
                     &mut ts.ongoing,
                 );
                 return None;
@@ -108,7 +108,7 @@ pub fn process_goto_external_macro_def_sync(
         match res {
             GotoDefinitionResult::Final(mut loc)
             | GotoDefinitionResult::PartialMacro(_, _, _, mut loc) => {
-                preliminary.append(&mut loc);
+                preliminary.append(&mut loc); // TODO: Remove duplicate copies
             }
         }
     }

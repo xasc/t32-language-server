@@ -106,7 +106,7 @@ pub struct ParameterDeclaration {
     pub cmd: Range<usize>,
 
     pub r#macro: Range<usize>,
-    pub docstring: Option<Range<usize>>,
+    pub docstring: Option<Range<usize>>, // TODO: Detect inline docstring after expression.
 }
 
 #[derive(Clone, Debug)]

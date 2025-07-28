@@ -12,7 +12,7 @@ pub enum NodeKind {
     Comment,
     Identifier,
     IfBlock,
-    LabeledExpression,
+    LabeledExpression, // TODO: Differentiate plain labels from subroutines.
     Macro,
     MacroDefinition,
     Path,

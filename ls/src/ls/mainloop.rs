@@ -16,7 +16,7 @@ use crate::{
         ProcHeartbeat, State, Tasks,
         doc::{TextDoc, TextDocs, read_doc},
         read_msg,
-        request::{LogTraceNotification, Notification},
+        request::Notification,
         tasks::{
             Task, TaskDone, TaskSystem, categorize_files, discover_files, recv_completed_tasks,
             schedule_tasks, try_schedule,
@@ -185,16 +185,16 @@ pub fn index_workspace(
 }
 
 pub fn trace_doc_cannot_read(uri: &str) -> Message {
-    Message::Notification(Notification::LogTraceNotification(LogTraceNotification {
+    Message::Notification(Notification::LogTraceNotification {
         params: LogTraceParams {
             message: format!("WARNING: File \"{}\" could not be read.", uri),
             verbose: None,
         },
-    }))
+    })
 }
 
 fn trace_workspace_indexed(duration: Duration, workspace: &Workspace) -> Message {
-    Message::Notification(Notification::LogTraceNotification(LogTraceNotification {
+    Message::Notification(Notification::LogTraceNotification {
         params: LogTraceParams {
             message: format!(
                 "INFO: Workspace files indexed in {:.4} seconds.",
@@ -202,11 +202,11 @@ fn trace_workspace_indexed(duration: Duration, workspace: &Workspace) -> Message
             ),
             verbose: Some(json!(workspace).to_string()),
         },
-    }))
+    })
 }
 
 fn trace_root_invalid(roots: &[Uri]) -> Message {
-    Message::Notification(Notification::LogTraceNotification(LogTraceNotification {
+    Message::Notification(Notification::LogTraceNotification {
         params: LogTraceParams {
             message: format!(
                 "WARNING: Workspace root(s) \"{}\"do not exist.",
@@ -214,11 +214,12 @@ fn trace_root_invalid(roots: &[Uri]) -> Message {
             ),
             verbose: None,
         },
-    }))
+    })
 }
 
 pub fn trace_doc_change(doc: &TextDoc, tree: &Tree) -> Message {
-    Message::Notification(Notification::LogTraceNotification(LogTraceNotification {
+    // TODO: Add duration of operation
+    Message::Notification(Notification::LogTraceNotification {
         params: LogTraceParams {
             message: format!(
                 "INFO: Text document \"{}\" was updated to version {}.",
@@ -232,5 +233,5 @@ pub fn trace_doc_change(doc: &TextDoc, tree: &Tree) -> Message {
                 .to_string(),
             ),
         },
-    }))
+    })
 }

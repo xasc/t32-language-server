@@ -13,12 +13,7 @@ use serde_json::{Error, Value, error::Category};
 
 use crate::{
     ls::lsp::Message,
-    ls::request::{
-        DidChangeTextDocumentNotification, DidCloseTextDocumentNotification,
-        DidOpenTextDocumentNotification, ExitNotification, GoToDefinitionRequest,
-        InitializeRequest, InitializedNotification, LogTraceNotification, Notification, Request,
-        SetTraceNotification, ShutdownRequest,
-    },
+    ls::request::{Notification, Request},
     ls::response::{
         ErrorResponse, GoToDefinitionResponse, InitializeResponse, NullResponse, Response,
     },
@@ -301,21 +296,21 @@ fn deserialize_request(msg: RequestMessage) -> Result<Message, ErrorResponse> {
 
     match msg.method.as_str() {
         INITIALIZE => match deserialize_msg_params::<InitializeParams>(msg.params) {
-            Ok(params) => Ok(Message::Request(Request::InitializeRequest(
-                InitializeRequest { id: msg.id, params },
-            ))),
+            Ok(params) => Ok(Message::Request(Request::InitializeRequest {
+                id: msg.id,
+                params,
+            })),
             Err(err) => Err(ErrorResponse {
                 id: Some(msg.id),
                 error: err,
             }),
         },
-        SHUTDOWN => Ok(Message::Request(Request::ShutdownRequest(
-            ShutdownRequest { id: msg.id },
-        ))),
+        SHUTDOWN => Ok(Message::Request(Request::ShutdownRequest { id: msg.id })),
         TEXTDOC_DEFINITION => match deserialize_msg_params::<DefinitionParams>(msg.params) {
-            Ok(params) => Ok(Message::Request(Request::GoToDefinition(
-                GoToDefinitionRequest { id: msg.id, params },
-            ))),
+            Ok(params) => Ok(Message::Request(Request::GoToDefinition {
+                id: msg.id,
+                params,
+            })),
             Err(err) => Err(ErrorResponse {
                 id: Some(msg.id),
                 error: err,
@@ -337,12 +332,10 @@ fn deserialize_notif(msg: NotificationMessage) -> Result<Message, ErrorResponse>
     const TEXTDOC_DID_OPEN: &'static str = "textDocument/didOpen";
 
     match msg.method.as_str() {
-        EXIT => Ok(Message::Notification(Notification::ExitNotification(
-            ExitNotification {},
-        ))),
+        EXIT => Ok(Message::Notification(Notification::ExitNotification {})),
         INITIALIZED => match deserialize_msg_params::<InitializedParams>(msg.params) {
             Ok(params) => Ok(Message::Notification(
-                Notification::InitializedNotification(InitializedNotification { params }),
+                Notification::InitializedNotification { params },
             )),
             Err(err) => Err(ErrorResponse {
                 id: None,
@@ -350,9 +343,9 @@ fn deserialize_notif(msg: NotificationMessage) -> Result<Message, ErrorResponse>
             }),
         },
         SET_TRACE => match deserialize_msg_params::<SetTraceParams>(msg.params) {
-            Ok(params) => Ok(Message::Notification(Notification::SetTraceNotification(
-                SetTraceNotification { params },
-            ))),
+            Ok(params) => Ok(Message::Notification(Notification::SetTraceNotification {
+                params,
+            })),
             Err(err) => Err(ErrorResponse {
                 id: None,
                 error: err,
@@ -361,9 +354,7 @@ fn deserialize_notif(msg: NotificationMessage) -> Result<Message, ErrorResponse>
         TEXTDOC_DID_CLOSE => {
             match deserialize_msg_params::<DidCloseTextDocumentParams>(msg.params) {
                 Ok(params) => Ok(Message::Notification(
-                    Notification::DidCloseTextDocumentNotification(
-                        DidCloseTextDocumentNotification { params },
-                    ),
+                    Notification::DidCloseTextDocumentNotification { params },
                 )),
                 Err(err) => Err(ErrorResponse {
                     id: None,
@@ -374,9 +365,7 @@ fn deserialize_notif(msg: NotificationMessage) -> Result<Message, ErrorResponse>
         TEXTDOC_DID_CHANGE => {
             match deserialize_msg_params::<DidChangeTextDocumentParams>(msg.params) {
                 Ok(params) => Ok(Message::Notification(
-                    Notification::DidChangeTextDocumentNotification(
-                        DidChangeTextDocumentNotification { params },
-                    ),
+                    Notification::DidChangeTextDocumentNotification { params },
                 )),
                 Err(err) => Err(ErrorResponse {
                     id: None,
@@ -386,9 +375,7 @@ fn deserialize_notif(msg: NotificationMessage) -> Result<Message, ErrorResponse>
         }
         TEXTDOC_DID_OPEN => match deserialize_msg_params::<DidOpenTextDocumentParams>(msg.params) {
             Ok(params) => Ok(Message::Notification(
-                Notification::DidOpenTextDocumentNotification(DidOpenTextDocumentNotification {
-                    params,
-                }),
+                Notification::DidOpenTextDocumentNotification { params },
             )),
             Err(err) => Err(ErrorResponse {
                 id: None,
@@ -417,7 +404,7 @@ fn serialize_nofif(msg: Notification) -> LineMessage {
     const LOG_TRACE: &'static str = "$/logTrace";
 
     match msg {
-        Notification::LogTraceNotification(LogTraceNotification { params }) => {
+        Notification::LogTraceNotification { params } => {
             LineMessage::NotificationMessage(NotificationMessage {
                 jsonrpc: JSONRPC_VER.to_string(),
                 method: LOG_TRACE.to_string(),
@@ -620,7 +607,7 @@ mod tests {
 
         assert!(matches!(
             notif,
-            Message::Notification(Notification::ExitNotification(_))
+            Message::Notification(Notification::ExitNotification { .. })
         ));
     }
 
@@ -636,7 +623,7 @@ mod tests {
 
         assert!(matches!(
             notif,
-            Message::Notification(Notification::InitializedNotification(_))
+            Message::Notification(Notification::InitializedNotification { .. })
         ));
     }
 
@@ -659,7 +646,7 @@ mod tests {
 
         assert!(matches!(
             req,
-            Message::Request(Request::InitializeRequest(_))
+            Message::Request(Request::InitializeRequest { .. })
         ));
     }
 
@@ -674,7 +661,10 @@ mod tests {
 
         let req = deserialize_msg(msg).expect("Should not fail.");
 
-        assert!(matches!(req, Message::Request(Request::ShutdownRequest(_))));
+        assert!(matches!(
+            req,
+            Message::Request(Request::ShutdownRequest { .. })
+        ));
     }
 
     #[test]
@@ -696,7 +686,10 @@ mod tests {
 
         let req = deserialize_msg(msg).expect("Should not fail.");
 
-        assert!(matches!(req, Message::Request(Request::GoToDefinition(_))));
+        assert!(matches!(
+            req,
+            Message::Request(Request::GoToDefinition { .. })
+        ));
     }
 
     #[test]
@@ -713,7 +706,7 @@ mod tests {
 
         assert!(matches!(
             notif,
-            Message::Notification(Notification::SetTraceNotification(_))
+            Message::Notification(Notification::SetTraceNotification { .. })
         ));
     }
 
@@ -736,7 +729,7 @@ mod tests {
 
         assert!(matches!(
             notif,
-            Message::Notification(Notification::DidOpenTextDocumentNotification(_))
+            Message::Notification(Notification::DidOpenTextDocumentNotification { .. })
         ));
     }
 
@@ -770,7 +763,7 @@ mod tests {
 
         assert!(matches!(
             notif,
-            Message::Notification(Notification::DidChangeTextDocumentNotification(_))
+            Message::Notification(Notification::DidChangeTextDocumentNotification { .. })
         ));
     }
 
@@ -790,7 +783,7 @@ mod tests {
 
         assert!(matches!(
             notif,
-            Message::Notification(Notification::DidCloseTextDocumentNotification(_))
+            Message::Notification(Notification::DidCloseTextDocumentNotification { .. })
         ));
     }
 
@@ -923,12 +916,12 @@ mod tests {
     fn can_create_log_trace_notification() {
         let expected = r#"{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"Log message","verbose":"Verbose log message"}}"#;
 
-        let msg = Message::Notification(Notification::LogTraceNotification(LogTraceNotification {
+        let msg = Message::Notification(Notification::LogTraceNotification {
             params: LogTraceParams {
                 message: "Log message".to_string(),
                 verbose: Some("Verbose log message".to_string()),
             },
-        }));
+        });
         let notif = serialize_msg(msg);
 
         assert_eq!(notif, expected.to_string());
