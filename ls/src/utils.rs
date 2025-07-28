@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2024 Christoph Sax <c_sax@mailbox.org>
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 use std::{convert::From, ops::Range};
 
 use tree_sitter::Range as TRange;
