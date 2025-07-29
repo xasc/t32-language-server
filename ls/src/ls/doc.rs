@@ -218,6 +218,31 @@ mod test {
     }
 
     #[test]
+    fn can_find_end_of_subroutines_from_labeled_expression() {
+        let file_idx = FileIndex::new();
+
+        let file =
+            Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
+                .unwrap();
+
+        let (doc, _, LangExpressions { subroutines, .. }) =
+            read_doc(file, file_idx).expect("Must not fail.");
+
+        assert!(!subroutines.clone().is_none_or(|s| s.is_empty()));
+
+        for name in ["subN", "subO"].iter() {
+            assert!(
+                subroutines
+                    .as_ref()
+                    .unwrap()
+                    .iter()
+                    .find_map(|s| (doc.text[s.name.clone()] == **name).then_some(()))
+                    .is_some()
+            );
+        }
+    }
+
+    #[test]
     fn can_find_global_scoped_macros() {
         let file_idx = FileIndex::new();
 

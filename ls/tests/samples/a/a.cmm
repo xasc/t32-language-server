@@ -138,3 +138,22 @@ GLOBAL &def_after_sub
 LOCAL &inf
 
 PRINT "&from_c_cmm"
+
+subN:
+    PRINT "StartN"
+
+    PRINT "EndN"
+    (
+        RETURN
+    )
+
+subO:
+    PRINT "StartO"
+
+    PRIVATE &a
+    &a="EndO"
+
+    silent.RETURN &a
+
+labelA:
+    Data.In D:0x8000

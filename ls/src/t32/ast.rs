@@ -41,8 +41,10 @@ const BLOCK_OPENERS: [NodeKind; 6] = [
     NodeKind::RepeatBlock,
 ];
 
+pub const KEYWORD_GOTO: &'static str = "GOTO";
 pub const KEYWORD_SUBROUTINE_ENTRY: &'static str = "ENTRY";
 pub const KEYWORD_SUBROUTINE_PARAMETERS: &'static str = "PARAMETERS";
+pub const KEYWORD_SUBROUTINE_RETURN: &'static str = "RETURN";
 pub const KEYWORDS_SCRIPT_CALL: [&'static str; 2] = ["DO", "RUN"];
 pub const KEYWORDS_SCRIPT_END: [&'static str; 2] = ["END", "ENDDO"];
 

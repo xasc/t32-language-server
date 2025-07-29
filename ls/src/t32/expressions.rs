@@ -56,9 +56,10 @@ use crate::{
     t32::{
         FileIndex, LangExpressions, MacroDefinitionResult, NodeKind,
         ast::{
-            KEYWORD_SUBROUTINE_ENTRY, KEYWORD_SUBROUTINE_PARAMETERS, KEYWORDS_SCRIPT_CALL,
-            KEYWORDS_SCRIPT_END, get_block_opener_ids, get_string_body, get_subroutine_ids,
-            node_into_id, start_on_adjacent_lines,
+            KEYWORD_GOTO, KEYWORD_SUBROUTINE_ENTRY, KEYWORD_SUBROUTINE_PARAMETERS,
+            KEYWORD_SUBROUTINE_RETURN, KEYWORDS_SCRIPT_CALL, KEYWORDS_SCRIPT_END,
+            get_block_opener_ids, get_string_body, get_subroutine_ids, node_into_id,
+            start_on_adjacent_lines,
         },
         path::locate_script,
     },
@@ -325,8 +326,13 @@ pub fn find_all_macro_definitions(text: &str, tree: &Tree) -> MacroDefinitions {
     MacroDefinitions::build(privates, locals, globals)
 }
 
-pub fn find_all_subroutines(_text: &str, tree: &Tree) -> Option<Vec<Subroutine>> {
+pub fn find_all_subroutines(text: &str, tree: &Tree) -> Option<Vec<Subroutine>> {
     let id_subroutines = get_subroutine_ids(&tree.language());
+
+    let lang = tree.language();
+
+    let labeled_expr = NodeKind::LabeledExpression.into_id(&lang);
+    let _subroutine_block = NodeKind::SubroutineBlock.into_id(&lang);
 
     let mut cursor = tree.walk();
     if !cursor.goto_first_child() {
@@ -339,7 +345,11 @@ pub fn find_all_subroutines(_text: &str, tree: &Tree) -> Option<Vec<Subroutine>>
         let id = node.kind_id();
 
         if id_subroutines.contains(&id) {
-            let subroutine = extract_subroutine_def(&mut cursor);
+            let subroutine = if id == labeled_expr {
+                try_extract_subroutine_def_from_label(text, &mut cursor)
+            } else {
+                extract_subroutine_def(&mut cursor)
+            };
             debug_assert!(id_subroutines.contains(&cursor.node().kind_id()));
 
             if subroutine.is_some() {
@@ -1273,24 +1283,25 @@ fn extract_subroutine_def(cursor: &mut TreeCursor) -> Option<Subroutine> {
     let def = cursor.node();
     let lang = def.language();
 
-    debug_assert!(get_subroutine_ids(&lang).contains(&cursor.node().kind_id()));
+    debug_assert_eq!(
+        cursor.node().kind_id(),
+        NodeKind::SubroutineBlock.into_id(&lang)
+    );
 
     if !cursor.goto_first_child() {
         return None;
     }
 
-    if def.kind_id() == node_into_id(&lang, NodeKind::SubroutineBlock) {
-        if !cursor.goto_next_sibling() {
-            return None;
-        }
-    }
-
-    let id_identifier = node_into_id(&lang, NodeKind::Identifier);
-    if cursor.node().kind_id() != id_identifier {
+    if !cursor.goto_next_sibling() {
         cursor.goto_parent();
         return None;
     }
+
     let name = cursor.node();
+    if name.kind_id() != node_into_id(&lang, NodeKind::Identifier) {
+        cursor.goto_parent();
+        return None;
+    }
 
     cursor.goto_parent();
     Some(Subroutine {
@@ -1298,6 +1309,133 @@ fn extract_subroutine_def(cursor: &mut TreeCursor) -> Option<Subroutine> {
         definition: def.byte_range(),
         docstring: None,
     })
+}
+
+fn try_extract_subroutine_def_from_label(
+    text: &str,
+    cursor: &mut TreeCursor,
+) -> Option<Subroutine> {
+    let start = cursor.clone();
+
+    let def = start.node();
+    let lang = def.language();
+
+    debug_assert_eq!(
+        cursor.node().kind_id(),
+        NodeKind::LabeledExpression.into_id(&lang)
+    );
+
+    if !cursor.goto_first_child() {
+        return None;
+    }
+
+    if cursor.node().kind_id() != NodeKind::Identifier.into_id(&lang) {
+        cursor.goto_parent();
+        return None;
+    }
+    let name = cursor.node();
+
+    if !cursor.goto_next_sibling() {
+        cursor.goto_parent();
+        return None;
+    }
+    let command = NodeKind::CommandExpression.into_id(&lang);
+
+    // Check for block or command after colon.
+    if cursor.goto_next_sibling() {
+        if cursor.node().kind_id() == NodeKind::Block.into_id(&lang) {
+            cursor.goto_parent();
+            return Some(Subroutine {
+                name: name.byte_range(),
+                definition: def.byte_range(),
+                docstring: None,
+            });
+        } else {
+            // Command is on the same line as label.
+            let node = cursor.node();
+            if node.kind_id() == command
+                && cursor.goto_first_child()
+                && node.kind_id() == NodeKind::Identifier.into_id(&lang)
+                && text[node.byte_range()].eq_ignore_ascii_case(KEYWORD_SUBROUTINE_RETURN)
+            {
+                cursor.goto_parent();
+                cursor.goto_parent();
+                return Some(Subroutine {
+                    name: name.byte_range(),
+                    definition: def.byte_range(),
+                    docstring: None,
+                });
+            }
+        }
+        cursor.goto_parent();
+        return None;
+    }
+
+    // Find return from subroutine command after label.
+    cursor.goto_parent();
+    if !cursor.goto_next_sibling() {
+        return None;
+    }
+
+    let block = NodeKind::Block.into_id(&lang);
+    let labeled_expr = NodeKind::LabeledExpression.into_id(&lang);
+    let subroutine = NodeKind::SubroutineBlock.into_id(&lang);
+
+    let mut nest_level: i32 = 0;
+    let mut ii = 0;
+    loop {
+        let node = cursor.node();
+        let kind = node.kind_id();
+
+        if kind == command {
+            if cursor.goto_first_child() {
+                let Some(cmd) = text[cursor.node().byte_range()].split(".").last() else {
+                    unreachable!("Command must not be empty.");
+                };
+
+                if cmd.eq_ignore_ascii_case(KEYWORD_SUBROUTINE_RETURN) {
+                    cursor.goto_parent();
+                    let end = cursor.node().end_byte();
+
+                    cursor.clone_from(&start);
+                    return Some(Subroutine {
+                        name: name.byte_range(),
+                        definition: Range {
+                            start: def.start_byte(),
+                            end,
+                        },
+                        docstring: None,
+                    });
+                } else if cmd.eq_ignore_ascii_case(KEYWORD_GOTO)
+                    || KEYWORDS_SCRIPT_END
+                        .iter()
+                        .any(|k| k.eq_ignore_ascii_case(cmd))
+                {
+                    break;
+                }
+                cursor.goto_parent();
+            }
+        } else if kind == labeled_expr || kind == subroutine {
+            break;
+        } else if kind == block && cursor.goto_first_child() {
+            nest_level += 1;
+            continue;
+        }
+
+        if !cursor.goto_next_sibling() {
+            if nest_level < 0 || !cursor.goto_parent() {
+                break;
+            }
+            nest_level -= 1;
+        }
+
+        ii += 1;
+        if ii > 10 {
+            break;
+        }
+    }
+    cursor.clone_from(&start);
+    None
 }
 
 fn extract_subroutine_call(cursor: &mut TreeCursor) -> Option<CallExpression> {
