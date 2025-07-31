@@ -55,6 +55,7 @@
 //!   1. Having a `(block)` after a label always starts a subroutine.
 //!   2. `(labeled_expression)` without `(block)` only starts a subroutine, if
 //!      it ends with `RETURN` and contains no `GOTO` statement.
+//!   3. Block or command indentation do not matter.
 //!
 //!
 //! # [Note] Parameter Passing
