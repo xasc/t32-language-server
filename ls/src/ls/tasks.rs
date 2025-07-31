@@ -48,9 +48,6 @@ use crate::{
 
 #[derive(Debug)]
 pub enum OngoingTask {
-    TextDocUpdate {
-        uri: String,
-    },
     GoToDefinitionExtMeta(NumberOrString, Instant),
     GoToExternalMacroDefinition {
         id: NumberOrString,
@@ -61,6 +58,10 @@ pub enum OngoingTask {
         origin: ExtMacroDefOrigin,
         preliminary: Vec<LocationLink>,
         ops: Option<ExtMacroDefOperations>,
+    },
+    TextDocUpdate {
+        uri: String,
+        onset: Instant,
     },
 }
 
@@ -73,6 +74,16 @@ pub struct ExtMacroDefOperations {
 pub enum OngoingTaskHandle {
     Identifier(NumberOrString),
     Uri(Uri),
+}
+
+impl OngoingTask {
+    fn get_onset(&self) -> &Instant {
+        match self {
+            OngoingTask::GoToExternalMacroDefinition { onset, .. }
+            | OngoingTask::GoToDefinitionExtMeta(.., onset)
+            | OngoingTask::TextDocUpdate { onset, .. } => onset,
+        }
+    }
 }
 
 pub fn recv_completed_tasks(
@@ -183,20 +194,23 @@ fn process_completed_task(
         }
         TaskDone::TextDocNew(doc, tree, globals) => {
             if cfg.trace_level != TraceValue::Off {
-                outgoing.push(Some(trace_doc_change(&doc, &tree)));
+                let onset = get_task_onset_by_doc(&doc.uri, &ts.ongoing);
+                outgoing.push(Some(trace_doc_change(&doc, &tree, Instant::now() - *onset)));
             }
             docs.add(doc, tree, globals, TextDocStatus::Open);
         }
         TaskDone::TextDocEdit(doc, tree, globals) => {
             if cfg.trace_level != TraceValue::Off {
-                outgoing.push(Some(trace_doc_change(&doc, &tree)));
+                let onset = get_task_onset_by_doc(&doc.uri, &ts.ongoing);
+                outgoing.push(Some(trace_doc_change(&doc, &tree, Instant::now() - *onset)));
             }
             docs.update(doc, tree, globals);
         }
         TaskDone::WorkspaceFileScan(res) => match res {
             Ok((doc, tree, globals)) => {
                 if cfg.trace_level != TraceValue::Off {
-                    outgoing.push(Some(trace_doc_change(&doc, &tree)));
+                    let onset = get_task_onset_by_doc(&doc.uri, &ts.ongoing);
+                    outgoing.push(Some(trace_doc_change(&doc, &tree, Instant::now() - *onset)));
                 }
                 docs.add(doc, tree, globals, TextDocStatus::Closed);
             }
@@ -272,11 +286,11 @@ fn task_blocked(job: &Task, ongoing: &[OngoingTask]) -> bool {
         )
         | Task::TextDocEdit(TextDoc { uri, .. }, ..)
         | Task::TextDocNew(TextDocumentItem { uri, .. }, ..) => ongoing.iter().any(|o| match o {
-            OngoingTask::TextDocUpdate { uri: file } => file == uri,
+            OngoingTask::TextDocUpdate { uri: file, .. } => file == uri,
             _ => false,
         }),
         Task::WorkspaceFileScan(url, ..) => ongoing.iter().any(|o| match o {
-            OngoingTask::TextDocUpdate { uri: file } => file == url.as_str(),
+            OngoingTask::TextDocUpdate { uri: file, .. } => file == url.as_str(),
             _ => false,
         }),
         _ => false,
@@ -292,11 +306,13 @@ fn add_task_status_tracking(job: &Task, ongoing: &mut Vec<OngoingTask>) {
             OngoingTask::GoToDefinitionExtMeta(id.clone(), Instant::now())
         }
         Task::TextDocNew(TextDocumentItem { uri, .. }, ..)
-        | Task::TextDocEdit(TextDoc { uri, .. }, ..) => {
-            OngoingTask::TextDocUpdate { uri: uri.clone() }
-        }
+        | Task::TextDocEdit(TextDoc { uri, .. }, ..) => OngoingTask::TextDocUpdate {
+            uri: uri.clone(),
+            onset: Instant::now(),
+        },
         Task::WorkspaceFileScan(url, ..) => OngoingTask::TextDocUpdate {
             uri: url.to_string(),
+            onset: Instant::now(),
         },
         _ => return,
     };
@@ -470,6 +486,11 @@ fn process_goto_definition_req(
     Ok(())
 }
 
+fn get_task_onset_by_doc<'a>(doc: &str, ongoing: &'a [OngoingTask]) -> &'a Instant {
+    let idx = find_ongoing_task_by_doc(doc, ongoing);
+    ongoing[idx].get_onset()
+}
+
 fn find_ongoing_task_by_id(identifier: &NumberOrString, ongoing: &[OngoingTask]) -> usize {
     ongoing
         .iter()
@@ -485,7 +506,7 @@ fn find_ongoing_task_by_doc(doc: &str, ongoing: &[OngoingTask]) -> usize {
     ongoing
         .iter()
         .position(|t| match t {
-            OngoingTask::TextDocUpdate { uri } => uri == doc,
+            OngoingTask::TextDocUpdate { uri, .. } => uri == doc,
             _ => unreachable!("No other tasks can by selected by document."),
         })
         .expect("Must be a registered task.")

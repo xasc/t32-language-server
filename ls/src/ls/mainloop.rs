@@ -114,6 +114,7 @@ fn parse_files(
         Err(_) => u32::MAX,
     };
 
+    let start = Instant::now();
     for file in workspace.files.iter() {
         try_schedule(
             &mut tasks.runner,
@@ -130,7 +131,7 @@ fn parse_files(
             Ok(TaskDone::WorkspaceFileScan(res)) => match res {
                 Ok((doc, tree, expr)) => {
                     if cfg.trace_level != TraceValue::Off {
-                        outgoing.push(Some(trace_doc_change(&doc, &tree)));
+                        outgoing.push(Some(trace_doc_change(&doc, &tree, Instant::now() - start)));
                     }
                     results.push((doc, tree, expr));
                 }
@@ -217,13 +218,14 @@ fn trace_root_invalid(roots: &[Uri]) -> Message {
     })
 }
 
-pub fn trace_doc_change(doc: &TextDoc, tree: &Tree) -> Message {
-    // TODO: Add duration of operation
+pub fn trace_doc_change(doc: &TextDoc, tree: &Tree, duration: Duration) -> Message {
     Message::Notification(Notification::LogTraceNotification {
         params: LogTraceParams {
             message: format!(
-                "INFO: Text document \"{}\" was updated to version {}.",
-                doc.uri, doc.version
+                "INFO: Text document \"{}\" was updated to version {} in {:.4} seconds.",
+                doc.uri,
+                doc.version,
+                duration.as_secs_f32()
             ),
             verbose: Some(
                 json!({

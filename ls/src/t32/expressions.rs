@@ -46,6 +46,44 @@
 //! analysis alone. This is something that can only reliably be done at runtime.
 //! To work around this problem we assume that any `GLOBAL` macro with matching
 //! name is a possible candidate.
+//!
+//! # [Note] Subroutines Definitions from `(labeled_expression)`
+//!
+//! `(labeled_expression)` can either start a subroutine or act as a plain
+//! label. We are using a number of criteria for differentiating one from the
+//! other:
+//!   1. Having a `(block)` after a label always starts a subroutine.
+//!   2. `(labeled_expression)` without `(block)` only starts a subroutine, if
+//!      it ends with `RETURN` and contains no `GOTO` statement.
+//!
+//!
+//! # [Note] Parameter Passing
+//!
+//! The grammar is classifying `RETURNVALUES` as `(parameter_declaration)`.
+//! Check out this example:
+//!
+//! ```ignore
+//!   PRIVATE &a &b
+//!
+//!   GOSUB subA
+//!   RETURNVALUES &a
+//!
+//!   GOSUB subB "Oh, wow! What superb language design!"
+//!
+//!   ENDDO
+//!
+//!
+//!   subA:
+//!   RETURN "TEST"
+//!
+//!   subB:
+//!   PRIVATE &b
+//!   RETURNVALUES &b
+//!
+//!   PRINT "&b"
+//!   RETURN
+//! ```
+//!
 
 use std::ops::Range;
 
@@ -1311,6 +1349,10 @@ fn extract_subroutine_def(cursor: &mut TreeCursor) -> Option<Subroutine> {
     })
 }
 
+/// Differentiate labels starting a subroutine from plain labels.
+/// See [Note: Subroutines Definitions from `(labeled_expression)`]
+/// for the selection criteria.
+///
 fn try_extract_subroutine_def_from_label(
     text: &str,
     cursor: &mut TreeCursor,
