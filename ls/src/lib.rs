@@ -19,7 +19,7 @@ pub enum ReturnCode {
     NoInputErr = 66,
     UnavailableErr = 69,
     IoErr = 74,
-    ProtcolErr = 76,
+    ProtocolErr = 76,
 }
 
 pub fn run(args: Vec<String>) -> ReturnCode {

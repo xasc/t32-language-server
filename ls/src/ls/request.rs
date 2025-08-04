@@ -7,7 +7,7 @@ use std::fmt;
 use crate::protocol::{
     DefinitionParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, InitializeParams, InitializedParams, LogTraceParams, NumberOrString,
-    SetTraceParams,
+    RenameFilesParams, SetTraceParams,
 };
 
 // Requests from client to server.
@@ -36,6 +36,9 @@ pub enum Notification {
     },
     DidOpenTextDocumentNotification {
         params: DidOpenTextDocumentParams,
+    },
+    DidRenameFilesNotification {
+        params: RenameFilesParams,
     },
     ExitNotification {},
     InitializedNotification {

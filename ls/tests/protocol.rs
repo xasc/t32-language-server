@@ -88,7 +88,7 @@ fn exits_on_wrong_parent_pid() {
 
     assert_eq!(
         output.status.code(),
-        Some(t32_language_server::ReturnCode::ProtcolErr as i32)
+        Some(t32_language_server::ReturnCode::ProtocolErr as i32)
     );
 
     assert!(
@@ -117,7 +117,7 @@ fn exits_on_wrong_parent_pid() {
 
     assert_eq!(
         output.status.code(),
-        Some(t32_language_server::ReturnCode::ProtcolErr as i32)
+        Some(t32_language_server::ReturnCode::ProtocolErr as i32)
     );
 
     assert!(

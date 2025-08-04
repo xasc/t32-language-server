@@ -97,7 +97,7 @@ pub fn serve(mut cfg: Config) -> ReturnCode {
                     id: Some(id),
                     error,
                 })));
-                return ReturnCode::ProtcolErr;
+                return ReturnCode::ProtocolErr;
             } else {
                 let result = InitializeResult::build(ServerCapabilities::build());
                 channel.send_msg(Message::Response(Response::InitializeResponse(
@@ -234,6 +234,7 @@ fn process_initialize_params(
     cfg.workspace_folders_supported = params
         .capabilities
         .workspace
+        .as_ref()
         .is_some_and(|ws| ws.workspace_folders.unwrap_or(false));
 
     // Check whether the client support `LocationLink` in the response results.
@@ -242,6 +243,11 @@ fn process_initialize_params(
             td.definition
                 .is_some_and(|def| def.link_support.unwrap_or(false))
         });
+
+    cfg.did_rename_files_supported = params.capabilities.workspace.is_some_and(|ws| {
+        ws.file_operations
+            .is_some_and(|fop| fop.did_rename.unwrap_or(false))
+    });
 
     Ok(())
 }

@@ -20,7 +20,7 @@ use crate::{
     protocol::{
         DefinitionParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
         DidOpenTextDocumentParams, ErrorCodes, InitializeParams, InitializedParams, NumberOrString,
-        ResponseError, SetTraceParams,
+        RenameFilesParams, ResponseError, SetTraceParams,
     },
 };
 
@@ -325,6 +325,7 @@ fn deserialize_request(msg: RequestMessage) -> Result<Message, ErrorResponse> {
 
 fn deserialize_notif(msg: NotificationMessage) -> Result<Message, ErrorResponse> {
     const EXIT: &'static str = "exit";
+    const FILES_DID_RENAME: &'static str = "workspace/didRenameFiles";
     const INITIALIZED: &'static str = "initialized";
     const SET_TRACE: &'static str = "$/setTrace";
     const TEXTDOC_DID_CLOSE: &'static str = "textDocument/didClose";
@@ -333,6 +334,15 @@ fn deserialize_notif(msg: NotificationMessage) -> Result<Message, ErrorResponse>
 
     match msg.method.as_str() {
         EXIT => Ok(Message::Notification(Notification::ExitNotification {})),
+        FILES_DID_RENAME => match deserialize_msg_params::<RenameFilesParams>(msg.params) {
+            Ok(params) => Ok(Message::Notification(
+                Notification::DidRenameFilesNotification { params },
+            )),
+            Err(err) => Err(ErrorResponse {
+                id: None,
+                error: err,
+            }),
+        },
         INITIALIZED => match deserialize_msg_params::<InitializedParams>(msg.params) {
             Ok(params) => Ok(Message::Notification(
                 Notification::InitializedNotification { params },

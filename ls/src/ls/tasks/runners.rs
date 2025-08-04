@@ -23,8 +23,8 @@ use crate::{
     config::Workspace,
     ls::{
         doc::{TextDoc, TextDocData},
-        language::{ExtMacroDefOrigin, GotoDefinitionResult},
-        tasks::OngoingTaskHandle,
+        language::GotoDefinitionResult,
+        tasks::{ExtMacroDefLookup, OngoingTaskHandle, RenameFileOperations},
         workspace::{FileIndex, WorkspaceMembers},
     },
     protocol::{
@@ -36,6 +36,10 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub enum Task {
+    #[allow(dead_code)]
+    DidRenameFiles {
+        renamed: RenameFileOperations,
+    },
     GoToDefinitionExtMeta(
         NumberOrString,
         TextDocData,
@@ -80,6 +84,8 @@ pub enum Task {
 
 #[derive(Debug)]
 pub enum TaskDone {
+    #[allow(dead_code)]
+    DidRenameFiles(NumberOrString),
     GoToDefinitionExtMeta(NumberOrString, Option<GotoDefinitionResult>),
     GoToExternalMacroDefinitionExtMeta(NumberOrString, Vec<LocationLink>),
     GoToExternalMacroDefinitionSync(NumberOrString, Option<GotoDefinitionResult>, Uri, Vec<Uri>),
@@ -88,12 +94,6 @@ pub enum TaskDone {
     WorkspaceFileDiscovery(WorkspaceMembers),
     WorkspaceFileScan(Result<(TextDoc, Tree, LangExpressions), Uri>),
     WorkspaceFileIndexNew(FileIndex),
-}
-#[derive(Clone, Debug)]
-pub struct ExtMacroDefLookup {
-    pub origin: ExtMacroDefOrigin,
-    pub find:
-        fn(TextDocData, Vec<Uri>, ExtMacroDefOrigin) -> (Option<GotoDefinitionResult>, Vec<Uri>),
 }
 
 pub struct TaskSystem {
@@ -235,6 +235,7 @@ impl TaskSystem {
 
     fn execute(job: Task) -> TaskDone {
         match job {
+            Task::DidRenameFiles { .. } => todo!(),
             Task::GoToDefinitionExtMeta(id, textdoc, loc, find) => {
                 TaskDone::GoToDefinitionExtMeta(id, find(textdoc, loc))
             }

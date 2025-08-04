@@ -557,24 +557,20 @@ pub struct InitializeParams {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub locale: Option<String>,
 
-    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub root_path: Option<String>,
 
-    #[allow(dead_code)]
     pub root_uri: Option<Uri>,
 
     #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub initialization_options: Option<Value>,
 
-    #[allow(dead_code)]
     pub capabilities: ClientCapabilities,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub trace: Option<TraceValue>,
 
-    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub workspace_folders: Option<Vec<WorkspaceFolder>>,
 
@@ -618,7 +614,6 @@ pub struct ClientCapabilities {
     pub experimental: Option<Value>,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceClientCapabilities {
@@ -661,7 +656,6 @@ pub struct WorkspaceClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code_lens: Option<CodeLensWorkspaceClientCapabilities>,
 
-    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file_operations: Option<FileOperationsWorkspaceClientCapabilities>,
 
@@ -792,28 +786,33 @@ pub struct CodeLensWorkspaceClientCapabilities {
     refresh_support: Option<bool>,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileOperationsWorkspaceClientCapabilities {
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     did_create: Option<bool>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     will_create: Option<bool>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    did_rename: Option<bool>,
+    pub did_rename: Option<bool>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     will_rename: Option<bool>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     did_delete: Option<bool>,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing_if = "Option::is_none")]
     will_delete: Option<bool>,
 }
@@ -2255,52 +2254,53 @@ pub struct WorkspaceFoldersServerCapabilities {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct WorkspaceFileOperations {
     #[serde(skip_serializing_if = "Option::is_none")]
-    did_create: Option<FileOperationRegistrationOptions>,
+    pub did_create: Option<FileOperationRegistrationOptions>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    will_create: Option<FileOperationRegistrationOptions>,
+    pub will_create: Option<FileOperationRegistrationOptions>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    did_rename: Option<FileOperationRegistrationOptions>,
+    pub did_rename: Option<FileOperationRegistrationOptions>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    will_rename: Option<FileOperationRegistrationOptions>,
+    pub will_rename: Option<FileOperationRegistrationOptions>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    did_delete: Option<FileOperationRegistrationOptions>,
+    pub did_delete: Option<FileOperationRegistrationOptions>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    will_delete: Option<FileOperationRegistrationOptions>,
+    pub will_delete: Option<FileOperationRegistrationOptions>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct FileOperationRegistrationOptions {
-    filters: Vec<FileOperationFilter>,
+    pub filters: Vec<FileOperationFilter>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct FileOperationFilter {
     #[serde(skip_serializing_if = "Option::is_none")]
-    scheme: Option<String>,
+    pub scheme: Option<String>,
 
-    pattern: FileOperationPattern,
+    pub pattern: FileOperationPattern,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct FileOperationPattern {
-    glob: String,
+    pub glob: String,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    matches: Option<FileOperationPatternKind>,
+    pub matches: Option<FileOperationPatternKind>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    options: Option<FileOperationPatternOptions>,
+    pub options: Option<FileOperationPatternOptions>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FileOperationPatternOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
-    ignore_case: Option<bool>,
+    pub ignore_case: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -2537,4 +2537,16 @@ pub struct LocationLink {
     pub target_uri: DocumentUri,
     pub target_range: Range,
     pub target_selection_range: Range,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct RenameFilesParams {
+    pub files: Vec<FileRename>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileRename {
+    pub old_uri: DocumentUri,
+    pub new_uri: DocumentUri,
 }

@@ -37,6 +37,7 @@ pub struct Config {
     pub trace_level: TraceValue,
     pub position_encoding: PositionEncodingKind,
     pub location_links: LocationLinkSupport,
+    pub did_rename_files_supported: bool,
 }
 
 pub struct LocationLinkSupport {
@@ -109,6 +110,7 @@ impl Config {
             location_links: LocationLinkSupport {
                 definitions_supported: false,
             },
+            did_rename_files_supported: false,
             trace_level,
         })
     }

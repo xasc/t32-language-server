@@ -24,12 +24,12 @@ use crate::{
     ls::{
         State, Tasks,
         doc::{TextDoc, TextDocData, TextDocs},
-        language::ExtMacroDefOrigin,
+        language::{ExtMacroDefOrigin, GotoDefinitionResult},
         mainloop::{trace_doc_cannot_read, trace_doc_change},
         tasks::{
             docsync::{process_doc_change_notif, process_doc_close_notif, process_doc_open_notif},
             lang::{process_goto_definition_result, process_goto_external_macro_def_sync},
-            runners::ExtMacroDefLookup,
+            workspace::process_files_did_rename_notif,
         },
     },
     ls::{
@@ -40,7 +40,7 @@ use crate::{
     },
     protocol::{
         DefinitionParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams, ErrorCodes,
-        LogTraceParams, ResponseError, SetTraceParams,
+        FileRename, LogTraceParams, ResponseError, SetTraceParams,
     },
     protocol::{LocationLink, NumberOrString, TextDocumentItem, TraceValue, Uri},
     t32::{LANGUAGE_ID, lang_id_supported},
@@ -48,6 +48,8 @@ use crate::{
 
 #[derive(Debug)]
 pub enum OngoingTask {
+    #[allow(dead_code)]
+    DidRenameFiles(NumberOrString, Vec<Uri>, Instant),
     GoToDefinitionExtMeta(NumberOrString, Instant),
     GoToExternalMacroDefinition {
         id: NumberOrString,
@@ -65,24 +67,53 @@ pub enum OngoingTask {
     },
 }
 
+pub enum OngoingTaskHandle {
+    Identifier(NumberOrString),
+    Uri(Uri),
+}
+
 #[derive(Debug)]
 pub struct ExtMacroDefOperations {
     pub scripts: Vec<Uri>,
     pub callees: Vec<Uri>,
 }
 
-pub enum OngoingTaskHandle {
-    Identifier(NumberOrString),
-    Uri(Uri),
+#[derive(Clone, Debug)]
+pub struct ExtMacroDefLookup {
+    pub origin: ExtMacroDefOrigin,
+    pub find:
+        fn(TextDocData, Vec<Uri>, ExtMacroDefOrigin) -> (Option<GotoDefinitionResult>, Vec<Uri>),
+}
+
+#[derive(Clone, Debug)]
+pub struct RenameFileOperations {
+    #[allow(dead_code)]
+    old: Vec<Uri>,
+    #[allow(dead_code)]
+    new: Vec<Uri>,
 }
 
 impl OngoingTask {
     fn get_onset(&self) -> &Instant {
         match self {
+            OngoingTask::DidRenameFiles(..) => todo!(),
             OngoingTask::GoToExternalMacroDefinition { onset, .. }
             | OngoingTask::GoToDefinitionExtMeta(.., onset)
             | OngoingTask::TextDocUpdate { onset, .. } => onset,
         }
+    }
+}
+
+impl From<Vec<FileRename>> for RenameFileOperations {
+    fn from(renamed: Vec<FileRename>) -> Self {
+        let mut old: Vec<Uri> = Vec::with_capacity(renamed.len());
+        let mut new: Vec<Uri> = Vec::with_capacity(renamed.len());
+
+        for op in renamed {
+            old.push(op.old_uri);
+            new.push(op.new_uri);
+        }
+        RenameFileOperations { old, new }
     }
 }
 
@@ -149,6 +180,7 @@ fn process_completed_task(
     outgoing: &mut Vec<Option<Message>>,
 ) -> Result<(), ReturnCode> {
     match done {
+        TaskDone::DidRenameFiles(..) => todo!(),
         TaskDone::GoToDefinitionExtMeta(id, goto_def) => {
             if let Some(resp) = process_goto_definition_result(docs, &id, goto_def, ts) {
                 if cfg.trace_level != TraceValue::Off {
@@ -352,6 +384,9 @@ fn process_msg(
         }
         Message::Notification(Notification::DidChangeTextDocumentNotification { params }) => {
             process_doc_change_notif(params, &g.docs, &mut g.tasks, outgoing)?;
+        }
+        Message::Notification(Notification::DidRenameFilesNotification { params }) => {
+            process_files_did_rename_notif(params.files, &mut g.docs);
         }
         Message::Notification(Notification::SetTraceNotification {
             params: SetTraceParams { value },

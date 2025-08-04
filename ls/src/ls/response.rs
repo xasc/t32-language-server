@@ -2,13 +2,19 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::protocol::{
-    DefinitionOptions, DefinitionProvider, InitializeResult, Location, LocationLink,
-    NumberOrString, PositionEncodingKind, ResponseError, ServerCapabilities, ServerInfo,
-    TextDocumentSyncKind, TextDocumentSyncOptions, TextDocumentSyncServerCapabilities,
-    WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
-};
 use serde::{Deserialize, Serialize};
+
+use crate::{
+    protocol::{
+        DefinitionOptions, DefinitionProvider, FileOperationFilter, FileOperationPattern,
+        FileOperationPatternKind, FileOperationPatternOptions, FileOperationRegistrationOptions,
+        InitializeResult, Location, LocationLink, NumberOrString, PositionEncodingKind,
+        ResponseError, ServerCapabilities, ServerInfo, TextDocumentSyncKind,
+        TextDocumentSyncOptions, TextDocumentSyncServerCapabilities, WorkspaceFileOperations,
+        WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
+    },
+    t32::SUFFIXES,
+};
 
 // Responses sent from server to client
 #[derive(Debug, Deserialize, Serialize)]
@@ -103,7 +109,35 @@ impl ServerCapabilities {
                     supported: Some(true),
                     change_notifications: None,
                 }),
-                file_operations: None,
+                file_operations: Some(WorkspaceFileOperations {
+                    did_create: None,
+                    will_create: None,
+                    did_rename: Some(FileOperationRegistrationOptions {
+                        filters: vec![
+                            FileOperationFilter {
+                                scheme: Some("file".to_string()),
+                                pattern: FileOperationPattern {
+                                    glob: format!("**/*.{}", SUFFIXES.join(",")),
+                                    matches: Some(FileOperationPatternKind::File),
+                                    options: Some(FileOperationPatternOptions {
+                                        ignore_case: Some(true),
+                                    }),
+                                },
+                            },
+                            FileOperationFilter {
+                                scheme: Some("file".to_string()),
+                                pattern: FileOperationPattern {
+                                    glob: "**/*".to_string(),
+                                    matches: Some(FileOperationPatternKind::Folder),
+                                    options: None,
+                                },
+                            },
+                        ],
+                    }),
+                    will_rename: None,
+                    did_delete: None,
+                    will_delete: None,
+                }),
             }),
             experimental: None,
         }
