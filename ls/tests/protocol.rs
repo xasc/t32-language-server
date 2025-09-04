@@ -326,6 +326,38 @@ fn supports_docsync_did_close_notification() {
 }
 
 #[test]
+fn supports_did_rename_files_notification() {
+    let pid = process::id();
+
+    let mut ls = utils::start_ls(
+        &[&format!("--clientProcessId={}", process::id().to_string())],
+        false,
+    );
+    let mut stdin = ls.stdin.take().unwrap();
+
+    let init = utils::make_initialize_request_with_root_uri(1, pid);
+    utils::to_stdin(&mut stdin, &init);
+
+    let notif = utils::make_set_trace_notification(utils::TraceValue::Messages);
+    utils::to_stdin(&mut stdin, &notif);
+
+    let notif = utils::make_did_rename_files_notification();
+    utils::to_stdin(&mut stdin, &notif);
+
+    thread::sleep(time::Duration::from_secs(1));
+
+    utils::stop_ls(&mut ls, Some(&mut stdin), Some(2));
+    let output = ls.wait_with_output().expect("Cannot capture output");
+
+    assert!(
+        std::str::from_utf8(&output.stdout)
+            .unwrap()
+            .contains("Files were renamed")
+    );
+    assert_eq!(output.status.code(), Some(0));
+}
+
+#[test]
 fn supports_lang_goto_definition_request() {
     for ((dir, line, character), (start, end)) in [
         (

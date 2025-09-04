@@ -53,7 +53,8 @@ pub fn handle_requests(channel: &mut StdioChannel, mut cfg: Config) -> Result<()
         shutdown_request_recv: false,
         exit_requested: false,
         heartbeat: ProcHeartbeat::build(&cfg),
-        docs: TextDocs::from_workspace(files, file_data),
+        docs: TextDocs::from_workspace(file_data),
+        files: files,
         tasks,
     };
 
@@ -61,7 +62,7 @@ pub fn handle_requests(channel: &mut StdioChannel, mut cfg: Config) -> Result<()
 
     loop {
         recv_incoming(channel, &mut g.heartbeat, &mut incoming)?;
-        recv_completed_tasks(&cfg, &mut g.tasks, &mut g.docs, &mut outgoing)?;
+        recv_completed_tasks(&cfg, &mut g.tasks, &mut g.docs, &mut g.files, &mut outgoing)?;
 
         schedule_tasks(&mut incoming, &mut g, &mut cfg, &mut outgoing)?;
 

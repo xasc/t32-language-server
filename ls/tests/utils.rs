@@ -251,6 +251,23 @@ pub fn make_did_open_text_doc_notification() -> String {
 }
 
 #[allow(dead_code)]
+pub fn make_did_rename_files_notification() -> String {
+    let dir = env::current_dir().unwrap().join("tests").join("samples");
+
+    let content = json!({
+        "jsonrpc": "2.0",
+        "method": "workspace/didRenameFiles",
+        "params": {
+            "files": [{
+                "oldUri": Url::from_file_path(dir.join("c.cmm")).unwrap().to_string(),
+                "newUri": Url::from_file_path(dir.join("c1.cmm")).unwrap().to_string(),
+            }]
+        }
+    });
+    build_msg(&content.to_string())
+}
+
+#[allow(dead_code)]
 pub fn make_did_change_text_doc_notification() -> String {
     let content = json!({
         "jsonrpc": "2.0",

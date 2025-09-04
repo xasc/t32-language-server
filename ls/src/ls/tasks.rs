@@ -29,8 +29,9 @@ use crate::{
         tasks::{
             docsync::{process_doc_change_notif, process_doc_close_notif, process_doc_open_notif},
             lang::{process_goto_definition_result, process_goto_external_macro_def_sync},
-            workspace::process_files_did_rename_notif,
+            workspace::{process_files_did_rename_notif, process_rename_files_result},
         },
+        workspace::{FileIndex, ResolvedRenameFileOperations},
     },
     ls::{
         doc::TextDocStatus,
@@ -48,8 +49,7 @@ use crate::{
 
 #[derive(Debug)]
 pub enum OngoingTask {
-    #[allow(dead_code)]
-    DidRenameFiles(NumberOrString, Vec<Uri>, Instant),
+    DidRenameFiles(Instant),
     GoToDefinitionExtMeta(NumberOrString, Instant),
     GoToExternalMacroDefinition {
         id: NumberOrString,
@@ -87,16 +87,14 @@ pub struct ExtMacroDefLookup {
 
 #[derive(Clone, Debug)]
 pub struct RenameFileOperations {
-    #[allow(dead_code)]
-    old: Vec<Uri>,
-    #[allow(dead_code)]
-    new: Vec<Uri>,
+    pub old: Vec<Uri>,
+    pub new: Vec<Uri>,
 }
 
 impl OngoingTask {
     fn get_onset(&self) -> &Instant {
         match self {
-            OngoingTask::DidRenameFiles(..) => todo!(),
+            OngoingTask::DidRenameFiles(onset) => onset,
             OngoingTask::GoToExternalMacroDefinition { onset, .. }
             | OngoingTask::GoToDefinitionExtMeta(.., onset)
             | OngoingTask::TextDocUpdate { onset, .. } => onset,
@@ -121,6 +119,7 @@ pub fn recv_completed_tasks(
     cfg: &Config,
     ts: &mut Tasks,
     docs: &mut TextDocs,
+    files: &mut FileIndex,
     outgoing: &mut Vec<Option<Message>>,
 ) -> Result<(), ReturnCode> {
     let mut completed: Vec<TaskDone> = Vec::new();
@@ -135,7 +134,7 @@ pub fn recv_completed_tasks(
 
     for done in completed {
         let handle = done.get_task_handle();
-        process_completed_task(done, cfg, ts, docs, outgoing)?;
+        process_completed_task(done, cfg, ts, docs, files, outgoing)?;
 
         if let Some(handle) = handle {
             mark_ongoing_task_completed(handle, &mut ts.ongoing);
@@ -177,10 +176,33 @@ fn process_completed_task(
     cfg: &Config,
     ts: &mut Tasks,
     docs: &mut TextDocs,
+    files: &mut FileIndex,
     outgoing: &mut Vec<Option<Message>>,
 ) -> Result<(), ReturnCode> {
     match done {
-        TaskDone::DidRenameFiles(..) => todo!(),
+        TaskDone::DidRenameFiles(
+            ResolvedRenameFileOperations {
+                renamed,
+                missing_dirs,
+                missing_files,
+            },
+            new_files,
+        ) => {
+            process_rename_files_result(&renamed, new_files, docs, files);
+
+            if cfg.trace_level != TraceValue::Off {
+                let onset = get_rename_task_onset(&ts.ongoing);
+                outgoing.push(Some(trace_doc_rename(&renamed, Instant::now() - *onset)));
+
+                for dir in missing_dirs {
+                    outgoing.push(Some(trace_dir_unknown(&dir)));
+                }
+
+                for file in missing_files {
+                    outgoing.push(Some(trace_doc_unknown(&file)));
+                }
+            }
+        }
         TaskDone::GoToDefinitionExtMeta(id, goto_def) => {
             if let Some(resp) = process_goto_definition_result(docs, &id, goto_def, ts) {
                 if cfg.trace_level != TraceValue::Off {
@@ -306,6 +328,8 @@ fn try_schedule_blocked(
 /// Document lookup operations like *Go to Definition* should use the latest
 /// document version, so we delay the corresponding task until the document
 /// update has been completed.
+/// Rename operations delay all file updates, because they may target a file
+/// which is in the process of being renamed.
 fn task_blocked(job: &Task, ongoing: &[OngoingTask]) -> bool {
     match job {
         Task::GoToDefinitionExtMeta(
@@ -318,10 +342,19 @@ fn task_blocked(job: &Task, ongoing: &[OngoingTask]) -> bool {
         )
         | Task::TextDocEdit(TextDoc { uri, .. }, ..)
         | Task::TextDocNew(TextDocumentItem { uri, .. }, ..) => ongoing.iter().any(|o| match o {
+            OngoingTask::DidRenameFiles(..) => true,
             OngoingTask::TextDocUpdate { uri: file, .. } => file == uri,
             _ => false,
         }),
+        Task::DidRenameFiles(RenameFileOperations { old, .. }, ..) => {
+            ongoing.iter().any(|o| match o {
+                OngoingTask::DidRenameFiles(..) => true,
+                OngoingTask::TextDocUpdate { uri: file, .. } => old.contains(file),
+                _ => false,
+            })
+        }
         Task::WorkspaceFileScan(url, ..) => ongoing.iter().any(|o| match o {
+            OngoingTask::DidRenameFiles(..) => true,
             OngoingTask::TextDocUpdate { uri: file, .. } => file == url.as_str(),
             _ => false,
         }),
@@ -334,6 +367,7 @@ fn task_blocked(job: &Task, ongoing: &[OngoingTask]) -> bool {
 /// processing an update.
 fn add_task_status_tracking(job: &Task, ongoing: &mut Vec<OngoingTask>) {
     let t = match job {
+        Task::DidRenameFiles { .. } => OngoingTask::DidRenameFiles(Instant::now()),
         Task::GoToDefinitionExtMeta(id, ..) => {
             OngoingTask::GoToDefinitionExtMeta(id.clone(), Instant::now())
         }
@@ -377,16 +411,16 @@ fn process_msg(
             params: DidOpenTextDocumentParams { text_document },
         }) => {
             if lang_id_supported(&text_document.language_id) {
-                process_doc_open_notif(text_document, g.docs.get_file_idx().clone(), &mut g.tasks)?;
+                process_doc_open_notif(text_document, g.files.clone(), &mut g.tasks)?;
             } else {
                 outgoing.push(Some(error_lang_id_unsupported(&text_document.language_id)));
             }
         }
         Message::Notification(Notification::DidChangeTextDocumentNotification { params }) => {
-            process_doc_change_notif(params, &g.docs, &mut g.tasks, outgoing)?;
+            process_doc_change_notif(params, &g.docs, g.files.clone(), &mut g.tasks, outgoing)?;
         }
         Message::Notification(Notification::DidRenameFilesNotification { params }) => {
-            process_files_did_rename_notif(params.files, &mut g.docs);
+            process_files_did_rename_notif(&mut g.tasks, params.files, g.files.clone())?;
         }
         Message::Notification(Notification::SetTraceNotification {
             params: SetTraceParams { value },
@@ -526,6 +560,11 @@ fn get_task_onset_by_doc<'a>(doc: &str, ongoing: &'a [OngoingTask]) -> &'a Insta
     ongoing[idx].get_onset()
 }
 
+fn get_rename_task_onset<'a>(ongoing: &'a [OngoingTask]) -> &'a Instant {
+    let idx = find_ongoing_rename_task(ongoing);
+    ongoing[idx].get_onset()
+}
+
 fn find_ongoing_task_by_id(identifier: &NumberOrString, ongoing: &[OngoingTask]) -> usize {
     ongoing
         .iter()
@@ -543,6 +582,16 @@ fn find_ongoing_task_by_doc(doc: &str, ongoing: &[OngoingTask]) -> usize {
         .position(|t| match t {
             OngoingTask::TextDocUpdate { uri, .. } => uri == doc,
             _ => unreachable!("No other tasks can by selected by document."),
+        })
+        .expect("Must be a registered task.")
+}
+
+fn find_ongoing_rename_task<'a>(ongoing: &'a [OngoingTask]) -> usize {
+    ongoing
+        .iter()
+        .position(|t| match t {
+            OngoingTask::DidRenameFiles(..) => true,
+            _ => false,
         })
         .expect("Must be a registered task.")
 }
@@ -571,6 +620,35 @@ fn error_shutdown_seq(id: NumberOrString) -> Message {
             data: None,
         },
     }))
+}
+
+fn trace_dir_unknown(uri: &str) -> Message {
+    Message::Notification(Notification::LogTraceNotification {
+        params: LogTraceParams {
+            message: format!("WARNING: Directory \"{}\" is not known.", uri),
+            verbose: None,
+        },
+    })
+}
+
+fn trace_doc_rename(renamed: &RenameFileOperations, duration: Duration) -> Message {
+    let mut changes: Vec<FileRename> = Vec::with_capacity(renamed.old.len());
+    for (old, new) in renamed.old.iter().zip(renamed.new.iter()) {
+        changes.push(FileRename {
+            old_uri: old.clone(),
+            new_uri: new.clone(),
+        });
+    }
+
+    Message::Notification(Notification::LogTraceNotification {
+        params: LogTraceParams {
+            message: format!(
+                "INFO: Files were renamed in {:.4} seconds.",
+                duration.as_secs_f32()
+            ),
+            verbose: Some(json!(changes).to_string()),
+        },
+    })
 }
 
 fn trace_doc_unknown(uri: &str) -> Message {

@@ -25,7 +25,7 @@ use crate::{
         doc::{TextDoc, TextDocData},
         language::GotoDefinitionResult,
         tasks::{ExtMacroDefLookup, OngoingTaskHandle, RenameFileOperations},
-        workspace::{FileIndex, WorkspaceMembers},
+        workspace::{FileIndex, ResolvedRenameFileOperations, WorkspaceMembers},
     },
     protocol::{
         LocationLink, NumberOrString, Position, TextDocumentContentChangeEvent, TextDocumentItem,
@@ -36,10 +36,11 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub enum Task {
-    #[allow(dead_code)]
-    DidRenameFiles {
-        renamed: RenameFileOperations,
-    },
+    DidRenameFiles(
+        RenameFileOperations,
+        FileIndex,
+        fn(RenameFileOperations, &mut FileIndex) -> ResolvedRenameFileOperations,
+    ),
     GoToDefinitionExtMeta(
         NumberOrString,
         TextDocData,
@@ -84,8 +85,7 @@ pub enum Task {
 
 #[derive(Debug)]
 pub enum TaskDone {
-    #[allow(dead_code)]
-    DidRenameFiles(NumberOrString),
+    DidRenameFiles(ResolvedRenameFileOperations, FileIndex),
     GoToDefinitionExtMeta(NumberOrString, Option<GotoDefinitionResult>),
     GoToExternalMacroDefinitionExtMeta(NumberOrString, Vec<LocationLink>),
     GoToExternalMacroDefinitionSync(NumberOrString, Option<GotoDefinitionResult>, Uri, Vec<Uri>),
@@ -235,7 +235,10 @@ impl TaskSystem {
 
     fn execute(job: Task) -> TaskDone {
         match job {
-            Task::DidRenameFiles { .. } => todo!(),
+            Task::DidRenameFiles(renamed, mut file_idx, rename_files) => {
+                let operations = rename_files(renamed, &mut file_idx);
+                TaskDone::DidRenameFiles(operations, file_idx)
+            }
             Task::GoToDefinitionExtMeta(id, textdoc, loc, find) => {
                 TaskDone::GoToDefinitionExtMeta(id, find(textdoc, loc))
             }

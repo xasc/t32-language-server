@@ -1634,7 +1634,7 @@ fn resides_in_subroutine(
     sub.iter().find(|s| s.definition.contains(&offset))
 }
 
-fn goto_subroutine(tree: &Tree, offset: usize) -> TreeCursor {
+fn goto_subroutine(tree: &Tree, offset: usize) -> TreeCursor<'_> {
     let mut cursor = tree.walk();
     let ids = get_subroutine_ids(&tree.language());
     loop {

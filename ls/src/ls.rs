@@ -61,6 +61,7 @@ struct State {
     heartbeat: ProcHeartbeat,
     tasks: Tasks,
     docs: TextDocs,
+    files: FileIndex,
 }
 
 impl ProcHeartbeat {

@@ -1331,7 +1331,7 @@ mod tests {
             members.push((doc, tree, expr));
         }
 
-        let docs = TextDocs::from_workspace(FileIndex::new(), members);
+        let docs = TextDocs::from_workspace(members);
 
         let globals = docs.get_all_global_macros().expect("Must not fail.");
 

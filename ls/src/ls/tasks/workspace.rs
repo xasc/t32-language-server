@@ -10,7 +10,7 @@ use crate::{
     ls::{
         doc::TextDocs,
         tasks::{RenameFileOperations, Task, TaskDone, Tasks, try_schedule},
-        workspace::{FileIndex, WorkspaceMembers, index_files, locate_files},
+        workspace::{FileIndex, WorkspaceMembers, index_files, locate_files, rename_files},
     },
     protocol::FileRename,
     t32::SUFFIXES,
@@ -57,9 +57,29 @@ pub fn categorize_files(tasks: &mut Tasks, files: Vec<Url>) -> Result<FileIndex,
     file_index
 }
 
-pub fn process_files_did_rename_notif(renamed: Vec<FileRename>, _docs: &mut TextDocs) {
-    let _job = Task::DidRenameFiles {
-        renamed: RenameFileOperations::from(renamed),
-    };
-    todo!();
+pub fn process_files_did_rename_notif(
+    tasks: &mut Tasks,
+    renamed: Vec<FileRename>,
+    files: FileIndex,
+) -> Result<(), ReturnCode> {
+    let job = Task::DidRenameFiles(RenameFileOperations::from(renamed), files, rename_files);
+    try_schedule(
+        &mut tasks.runner,
+        job,
+        &mut tasks.ongoing,
+        &mut tasks.blocked,
+    )
+}
+
+pub fn process_rename_files_result(
+    changes: &RenameFileOperations,
+    new_files: FileIndex,
+    docs: &mut TextDocs,
+    files: &mut FileIndex,
+) {
+    if changes.old.len() <= 0 {
+        return;
+    }
+    *files = new_files;
+    docs.rename_files(changes);
 }

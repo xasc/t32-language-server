@@ -17,6 +17,7 @@ use crate::{
 pub fn process_doc_change_notif(
     params: DidChangeTextDocumentParams,
     docs: &TextDocs,
+    files: FileIndex,
     ts: &mut Tasks,
     outgoing: &mut Vec<Option<Message>>,
 ) -> Result<(), ReturnCode> {
@@ -33,13 +34,7 @@ pub fn process_doc_change_notif(
     };
     try_schedule(
         &mut ts.runner,
-        Task::TextDocEdit(
-            doc,
-            tree.clone(),
-            docs.get_file_idx().clone(),
-            params.content_changes,
-            update_doc,
-        ),
+        Task::TextDocEdit(doc, tree.clone(), files, params.content_changes, update_doc),
         &mut ts.ongoing,
         &mut ts.blocked,
     )

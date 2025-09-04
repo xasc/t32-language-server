@@ -117,7 +117,7 @@ impl ServerCapabilities {
                             FileOperationFilter {
                                 scheme: Some("file".to_string()),
                                 pattern: FileOperationPattern {
-                                    glob: format!("**/*.{}", SUFFIXES.join(",")),
+                                    glob: format!("**/*.{{{}}}", SUFFIXES.join(",")),
                                     matches: Some(FileOperationPatternKind::File),
                                     options: Some(FileOperationPatternOptions {
                                         ignore_case: Some(true),

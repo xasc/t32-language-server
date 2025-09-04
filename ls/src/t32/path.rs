@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use std::{
-    collections::HashSet,
     fs,
     path::{Path, PathBuf},
 };
@@ -56,7 +55,7 @@ fn matches_conflict(script: &Path, files: &FileIndex) -> Option<Vec<String>> {
     let conflicts = files.conflict_resolutions.as_ref()?;
 
     let mut hits: Vec<Uri> = Vec::new();
-    for candidate in find_possible_call_targets(script, &files.directories) {
+    for candidate in find_possible_call_targets(script, files.by_directory.keys()) {
         for (conflict, uri) in conflicts.0.iter().zip(conflicts.1.iter()) {
             if candidate.ends_with(conflict) {
                 hits.push(uri.to_string());
@@ -66,7 +65,10 @@ fn matches_conflict(script: &Path, files: &FileIndex) -> Option<Vec<String>> {
     if hits.len() > 0 { Some(hits) } else { None }
 }
 
-fn find_possible_call_targets(script: &Path, directories: &HashSet<PathBuf>) -> Vec<PathBuf> {
+fn find_possible_call_targets<'a, I>(script: &Path, directories: I) -> Vec<PathBuf>
+where
+    I: IntoIterator<Item = &'a PathBuf>,
+{
     if script.is_absolute() {
         return vec![script.to_path_buf()];
     } else {

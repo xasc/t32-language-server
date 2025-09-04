@@ -2544,7 +2544,7 @@ pub struct RenameFilesParams {
     pub files: Vec<FileRename>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileRename {
     pub old_uri: DocumentUri,

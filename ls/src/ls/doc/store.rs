@@ -2,31 +2,31 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use tree_sitter::Tree;
 
 use crate::{
     ls::{
         doc::textdoc::{TextDoc, TextDocStatus},
-        workspace::FileIndex,
+        tasks::RenameFileOperations,
     },
     protocol::Uri,
     t32::{LangExpressions, MacroDefinition},
 };
 
+/// TODO: Reduce size to 64 bit or less.
 #[derive(Clone, Copy, Debug)]
 struct DocIndex(TextDocStatus, usize);
 
 pub struct TextDocs {
     docs: DocStore,
     trees: TreeStore,
-    file_idx: FileIndex,
 
     callers: CallerStore,
     t32: LangExpressionStore,
 
-    registry: HashMap<Uri, DocIndex>,
+    registry: BTreeMap<Uri, DocIndex>,
     free_list: FreeLists,
 }
 
@@ -77,7 +77,7 @@ pub struct GlobalMacroDefIndex<'a>(
 
 impl<'a> TextDocs {
     #[allow(dead_code)]
-    fn new(files: FileIndex) -> Self {
+    fn new() -> Self {
         TextDocs {
             docs: DocStore {
                 open: Vec::new(),
@@ -91,12 +91,11 @@ impl<'a> TextDocs {
                 open: Vec::new(),
                 closed: Vec::new(),
             },
-            registry: HashMap::new(),
+            registry: BTreeMap::new(),
             free_list: FreeLists {
                 open: Vec::new(),
                 closed: Vec::new(),
             },
-            file_idx: files,
             callers: CallerStore {
                 open: Vec::new(),
                 closed: Vec::new(),
@@ -104,7 +103,7 @@ impl<'a> TextDocs {
         }
     }
 
-    pub fn with_capacity(files: FileIndex, num: usize) -> Self {
+    pub fn with_capacity(num: usize) -> Self {
         TextDocs {
             docs: DocStore {
                 open: Vec::new(),
@@ -118,12 +117,11 @@ impl<'a> TextDocs {
                 open: Vec::new(),
                 closed: Vec::with_capacity(num),
             },
-            registry: HashMap::with_capacity(num),
+            registry: BTreeMap::new(),
             free_list: FreeLists {
                 open: Vec::new(),
                 closed: Vec::new(),
             },
-            file_idx: files,
             callers: CallerStore {
                 open: Vec::new(),
                 closed: Vec::with_capacity(num),
@@ -131,11 +129,8 @@ impl<'a> TextDocs {
         }
     }
 
-    pub fn from_workspace(
-        file_idx: FileIndex,
-        members: Vec<(TextDoc, Tree, LangExpressions)>,
-    ) -> Self {
-        let mut store = TextDocs::with_capacity(file_idx, members.len());
+    pub fn from_workspace(members: Vec<(TextDoc, Tree, LangExpressions)>) -> Self {
+        let mut store = TextDocs::with_capacity(members.len());
 
         debug_assert_eq!(store.docs.closed.len(), 0);
         for file in members {
@@ -223,6 +218,41 @@ impl<'a> TextDocs {
         }
     }
 
+    pub fn rename_files(&mut self, renamed: &RenameFileOperations) {
+        debug_assert!(renamed.old.len() > 0);
+        debug_assert_eq!(renamed.old.len(), renamed.new.len());
+
+        let RenameFileOperations { old, new } = renamed;
+        let mut slots: Vec<Option<DocIndex>> = Vec::with_capacity(old.len());
+
+        for (old, new) in old.iter().zip(new.iter()) {
+            if let Some(loc) = self.registry.remove(new) {
+                match loc {
+                    DocIndex(TextDocStatus::Open, slot) => {
+                        debug_assert!(!self.free_list.open.contains(&slot));
+                        self.free_list.open.push(slot);
+                    }
+                    DocIndex(TextDocStatus::Closed, slot) => {
+                        debug_assert!(!self.free_list.closed.contains(&slot));
+                        self.free_list.closed.push(slot);
+                    }
+                }
+                self.remove_data(loc);
+            }
+
+            if let Some(loc) = self.registry.remove(old) {
+                self.registry.insert(new.clone(), loc);
+                slots.push(Some(loc));
+            } else {
+                slots.push(None);
+            }
+        }
+        self.rename_docs(&slots, &new);
+
+        self.rename_lang_expr(&old, &new);
+        self.rename_callers(&old, &new);
+    }
+
     #[allow(dead_code)]
     pub fn get_doc(&self, uri: &str) -> Option<&TextDoc> {
         match self.registry.get(uri) {
@@ -282,10 +312,6 @@ impl<'a> TextDocs {
         } else {
             None
         }
-    }
-
-    pub fn get_file_idx(&self) -> &FileIndex {
-        &self.file_idx
     }
 
     pub fn get_doc_data(&self, uri: &str) -> Option<(&TextDoc, &Tree, &LangExpressions)> {
@@ -427,6 +453,33 @@ impl<'a> TextDocs {
         }
     }
 
+    fn remove_data(&mut self, slot: DocIndex) {
+        match slot {
+            DocIndex(TextDocStatus::Open, idx) => {
+                debug_assert!(self.docs.open[idx].is_some());
+                debug_assert!(self.trees.open[idx].is_some());
+                debug_assert!(self.t32.open[idx].is_some());
+                debug_assert!(self.callers.open[idx].is_some());
+
+                self.docs.open[idx] = None;
+                self.trees.open[idx] = None;
+                self.t32.open[idx] = None;
+                self.callers.open[idx] = None;
+            }
+            DocIndex(TextDocStatus::Closed, idx) => {
+                debug_assert!(self.docs.closed[idx].is_some());
+                debug_assert!(self.trees.closed[idx].is_some());
+                debug_assert!(self.t32.closed[idx].is_some());
+                debug_assert!(self.callers.closed[idx].is_some());
+
+                self.docs.closed[idx] = None;
+                self.trees.closed[idx] = None;
+                self.t32.closed[idx] = None;
+                self.callers.closed[idx] = None;
+            }
+        }
+    }
+
     fn register_all_callers(&mut self, calls: CallRelations) {
         for (DocIndex(status, target), source) in calls
             .target_slots
@@ -505,7 +558,7 @@ impl<'a> TextDocs {
         let mut callers: Vec<Uri> = Vec::new();
 
         fn extract_calls(
-            registry: &HashMap<Uri, DocIndex>,
+            registry: &BTreeMap<Uri, DocIndex>,
             docs: &Vec<Option<TextDoc>>,
             lang: &Vec<Option<LangExpressions>>,
         ) -> (Vec<DocIndex>, Vec<Uri>) {
@@ -623,6 +676,75 @@ impl<'a> TextDocs {
 
         (files, nums, names, macros)
     }
+
+    fn rename_docs(&mut self, slots: &Vec<Option<DocIndex>>, new: &Vec<Uri>) {
+        debug_assert!(new.len() > 0);
+        debug_assert_eq!(new.len(), slots.len());
+
+        for (ii, slot) in slots.iter().enumerate().filter(|s| s.1.is_some()) {
+            match slot.unwrap() {
+                DocIndex(TextDocStatus::Open, idx) => {
+                    self.docs.open[idx].as_mut().unwrap().uri = new[ii].clone()
+                }
+                DocIndex(TextDocStatus::Closed, idx) => {
+                    self.docs.closed[idx].as_mut().unwrap().uri = new[ii].clone()
+                }
+            }
+        }
+    }
+
+    fn rename_lang_expr(&mut self, old: &Vec<Uri>, new: &Vec<Uri>) {
+        debug_assert!(old.len() > 0);
+        debug_assert_eq!(old.len(), new.len());
+
+        for t32 in self
+            .t32
+            .open
+            .iter_mut()
+            .filter(|e| e.is_some())
+            .chain(self.t32.closed.iter_mut().filter(|e| e.is_some()))
+        {
+            let t32 = t32.as_mut().unwrap();
+            if t32.calls.scripts.is_none() {
+                continue;
+            }
+
+            for target in t32
+                .calls
+                .scripts
+                .as_mut()
+                .unwrap()
+                .targets
+                .iter_mut()
+                .filter(|t| t.is_some())
+            {
+                let target = target.as_mut().unwrap();
+                if let Some(ii) = old.iter().position(|uri| *uri == *target) {
+                    *target = new[ii].clone();
+                }
+            }
+        }
+    }
+
+    fn rename_callers(&mut self, old: &Vec<Uri>, new: &Vec<Uri>) {
+        debug_assert!(old.len() > 0);
+        debug_assert_eq!(old.len(), new.len());
+
+        for callers in self
+            .callers
+            .open
+            .iter_mut()
+            .filter(|c| c.is_some())
+            .chain(self.callers.closed.iter_mut().filter(|c| c.is_some()))
+        {
+            let callers = callers.as_mut().unwrap();
+            for caller in callers {
+                if let Some(ii) = old.iter().position(|uri| *uri == *caller) {
+                    *caller = new[ii].clone();
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -639,7 +761,7 @@ mod test {
                 find_macro_definitions, find_parameter_declarations, find_subroutines, read_doc,
                 textdoc::create_line_map_for_text,
             },
-            workspace::index_files,
+            workspace::{FileIndex, index_files, rename_files},
         },
         t32::{self, CallExpressions, LANGUAGE_ID},
     };
@@ -676,6 +798,15 @@ mod test {
         index_files(files)
     }
 
+    fn create_doc_store(files: &Vec<Url>, index: &FileIndex) -> TextDocs {
+        let mut members: Vec<(TextDoc, Tree, LangExpressions)> = Vec::new();
+        for uri in files {
+            let (doc, tree, expr) = read_doc(uri.clone(), index.clone()).expect("Must not fail.");
+            members.push((doc, tree, expr));
+        }
+        TextDocs::from_workspace(members)
+    }
+
     fn create_doc(uri: &str) -> (TextDoc, Tree, LangExpressions) {
         let text = "PRINT \"Hello, World!\"\n";
         let lines = create_line_map_for_text(&text, None, None);
@@ -710,7 +841,7 @@ mod test {
 
     #[test]
     fn can_open_documents() {
-        let mut docs = TextDocs::new(FileIndex::new());
+        let mut docs = TextDocs::new();
 
         let files = ["file:///a.cmm", "file:///b.cmm"];
         for uri in files.iter() {
@@ -743,7 +874,7 @@ mod test {
 
     #[test]
     fn can_close_documents() {
-        let mut docs = TextDocs::new(FileIndex::new());
+        let mut docs = TextDocs::new();
 
         let uri = "file:///test.cmm";
         let (doc, tree, expr) = create_doc(uri);
@@ -762,15 +893,7 @@ mod test {
     fn can_import_workspace() {
         let files = files();
         let file_idx = create_file_idx();
-
-        let mut members: Vec<(TextDoc, Tree, LangExpressions)> = Vec::new();
-        for uri in files {
-            let (doc, tree, expr) =
-                read_doc(uri.clone(), file_idx.clone()).expect("Must not fail.");
-            members.push((doc, tree, expr));
-        }
-
-        let docs = TextDocs::from_workspace(FileIndex::new(), members);
+        let docs = create_doc_store(&files, &file_idx);
 
         let checks: Vec<(String, String)> = vec![
             (
@@ -839,14 +962,7 @@ mod test {
     fn can_update_callers() {
         let files = files();
         let file_idx = create_file_idx();
-
-        let mut members: Vec<(TextDoc, Tree, LangExpressions)> = Vec::new();
-        for uri in files {
-            let (doc, tree, expr) =
-                read_doc(uri.clone(), file_idx.clone()).expect("Must not fail.");
-            members.push((doc, tree, expr));
-        }
-        let mut docs = TextDocs::from_workspace(FileIndex::new(), members);
+        let mut docs = create_doc_store(&files, &file_idx);
 
         let uri =
             Url::from_file_path(path::absolute("tests/samples/c.cmm").expect("File must exist."))
@@ -868,5 +984,94 @@ mod test {
             .expect("Must not be empty.");
 
         assert!(!all_callers.contains(&caller.to_string()));
+    }
+
+    #[test]
+    fn can_rename_files() {
+        let files = files();
+        let mut file_idx = create_file_idx();
+        let mut docs = create_doc_store(&files, &file_idx);
+
+        let old_files = [
+            "tests/samples/c.cmm",
+            "tests/samples/same.cmm",
+            "tests/samples/a/a.cmm",
+            "tests/samples/a/d/d.cmmt",
+        ];
+        let old_dir = "tests/samples/b";
+
+        let new_files = [
+            "tests/samples/c1.cmm",
+            "tests/samples/a.cmm",
+            "tests/samples/a/a1.cmm",
+            "tests/samples/a/d/d1.cmmt",
+        ];
+        let new_dir = "tests/samples/b1";
+
+        let mut renamed = RenameFileOperations {
+            old: Vec::with_capacity(old_files.len() + old_dir.len()),
+            new: Vec::with_capacity(new_files.len() + new_dir.len()),
+        };
+
+        for (old, new) in old_files.iter().zip(new_files.iter()) {
+            renamed.old.push(
+                Url::from_file_path(path::absolute(old).expect("File must exist."))
+                    .unwrap()
+                    .to_string(),
+            );
+            renamed.new.push(
+                Url::from_file_path(path::absolute(new).expect("File must exist."))
+                    .unwrap()
+                    .to_string(),
+            );
+        }
+
+        renamed.old.push(
+            Url::from_directory_path(path::absolute(old_dir).expect("Directory must exist."))
+                .unwrap()
+                .to_string(),
+        );
+        renamed.new.push(
+            Url::from_directory_path(path::absolute(new_dir).expect("Directory must exist."))
+                .unwrap()
+                .to_string(),
+        );
+
+        // Add non-existent file
+        renamed.old.push(
+            Url::from_directory_path(
+                path::absolute("unknown_file.cmm").expect("Directory must exist."),
+            )
+            .unwrap()
+            .to_string(),
+        );
+        renamed.new.push(
+            Url::from_directory_path(path::absolute("file.cmm").expect("Directory must exist."))
+                .unwrap()
+                .to_string(),
+        );
+
+        let changes = rename_files(renamed.clone(), &mut file_idx);
+        docs.rename_files(&changes.renamed);
+
+        for new in new_files
+            .iter()
+            .chain(["tests/samples/b1/b.cmm", "tests/samples/b1/same.cmm"].iter())
+        {
+            let path = path::absolute(&new).expect("File must exist.");
+            let target = Url::from_file_path(path).unwrap().to_string();
+
+            assert!(docs.get_doc(&target).is_some());
+        }
+
+        for old in old_files
+            .iter()
+            .chain(["tests/samples/b/b.cmm", "tests/samples/b/same.cmm"].iter())
+        {
+            let path = path::absolute(&old).expect("File must exist.");
+            let target = Url::from_file_path(path).unwrap().to_string();
+
+            assert!(docs.get_doc(&target).is_none());
+        }
     }
 }
