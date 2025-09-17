@@ -6,6 +6,5 @@
 
 members = [
     "ls",
-    "ls-transport-stdio",
 ]
 resolver = "2"

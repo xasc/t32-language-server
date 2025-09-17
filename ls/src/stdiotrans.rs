@@ -2,14 +2,14 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! # Simple Listener Process for stdin
+//! # Language server child process for non-blocking stdio read operations
 //!
 //! This applications returns everything it receives via stdin via stdout.
 //! All read and write operations are blocking.
 
 use std::io::{self, BufRead, Error, Write};
 
-fn main() {
+pub fn receive() -> ! {
     let mut cin = io::stdin().lock();
     let mut cout = io::stdout().lock();
     let mut cerr = io::stderr().lock();

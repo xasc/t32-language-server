@@ -6,6 +6,7 @@
 mod config;
 mod ls;
 mod protocol;
+mod stdiotrans;
 mod t32;
 mod utils;
 
@@ -22,10 +23,17 @@ pub enum ReturnCode {
     ProtocolErr = 76,
 }
 
+use config::OperationMode;
+
 pub fn run(args: Vec<String>) -> ReturnCode {
     let cfg = match config::Config::build(&args) {
         Ok(conf) => conf,
         Err(rc) => return rc,
     };
-    ls::serve(cfg)
+
+    if cfg.mode == OperationMode::Server {
+        ls::serve(cfg)
+    } else {
+        stdiotrans::receive();
+    }
 }

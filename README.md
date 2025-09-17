@@ -108,7 +108,7 @@ This language server implements version 3.18 of the language server protocol.
 | `workspace/willCreateFiles`             | ➖             |
 | `workspace/didCreateFiles`              | ➖             |
 | `workspace/willRenameFiles`             | ➖             |
-| `workspace/didRenameFiles`              | ➖             |
+| `workspace/didRenameFiles`              | ✅             |
 | `workspace/willDeleteFiles`             | ➖             |
 | `workspace/didDeleteFiles`              | ➖             |
 | `workspace/didChangeWatchedFiles`       | ➖             |

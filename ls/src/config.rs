@@ -22,6 +22,12 @@ pub enum ChannelKind {
     Stdio,
 }
 
+#[derive(PartialEq)]
+pub enum OperationMode {
+    Server,
+    StdioTransport,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub enum Workspace {
     Root(Option<Uri>),
@@ -32,6 +38,7 @@ pub struct Config {
     pub parent_pid: Option<u32>,
     pub pid_check_interval: Duration,
     pub channel: ChannelKind,
+    pub mode: OperationMode,
     pub workspace: Workspace,
     pub workspace_folders_supported: bool,
     pub trace_level: TraceValue,
@@ -57,11 +64,24 @@ impl FromStr for TraceValue {
     }
 }
 
+impl FromStr for OperationMode {
+    type Err = ();
+
+    fn from_str(val: &str) -> Result<Self, Self::Err> {
+        match val {
+            "server" => Ok(OperationMode::Server),
+            "stdio-transport" => Ok(OperationMode::StdioTransport),
+            _ => Err(()),
+        }
+    }
+}
+
 impl Config {
     pub fn build(args: &[String]) -> Result<Self, ReturnCode> {
         let mut ppid: Option<u32> = None;
         let mut show_help: bool = false;
         let mut trace_level: TraceValue = TraceValue::Off;
+        let mut mode: OperationMode = OperationMode::Server;
 
         debug_assert!(args.len() > 0);
         let len = args[1..].len();
@@ -72,7 +92,7 @@ impl Config {
                 None
             };
 
-            match Self::parse_flag_value::<u32>("--clientProcessId=", "-c", arg, next) {
+            match Self::parse_flag_value::<u32>("--clientProcessId=", Some("-c"), arg, next) {
                 Err(err) => return Err(err),
                 Ok(Some(num)) => {
                     ppid = Some(num);
@@ -81,7 +101,7 @@ impl Config {
                 Ok(None) => (),
             }
 
-            match Self::parse_flag_value::<TraceValue>("--trace=", "-t", arg, next) {
+            match Self::parse_flag_value::<TraceValue>("--trace=", Some("-t"), arg, next) {
                 Err(err) => return Err(err),
                 Ok(Some(level)) => {
                     trace_level = level;
@@ -89,6 +109,16 @@ impl Config {
                 }
                 Ok(None) => (),
             }
+
+            match Self::parse_flag_value::<OperationMode>("--mode=", None, arg, next) {
+                Err(err) => return Err(err),
+                Ok(Some(opmode)) => {
+                    mode = opmode;
+                    continue;
+                }
+                Ok(None) => (),
+            }
+
 
             if Self::parse_flag("--help", "-h", arg) {
                 show_help = true;
@@ -98,6 +128,11 @@ impl Config {
         if show_help {
             usage(&mut io::stdout());
             return Err(ReturnCode::OkExit);
+        }
+
+        if ppid.is_none() {
+            error_missing(&mut io::stderr(),"--clientProcessId=PID");
+            return Err(ReturnCode::UsageErr);
         }
 
         Ok(Config {
@@ -112,18 +147,19 @@ impl Config {
             },
             did_rename_files_supported: false,
             trace_level,
+            mode,
         })
     }
 
     fn parse_flag_value<T: std::str::FromStr>(
         long: &str,
-        short: &str,
+        short: Option<&str>,
         arg: &str,
         next: Option<&str>,
     ) -> Result<Option<T>, ReturnCode> {
-        if arg == short {
+        if let Some(sh) = short && sh == arg {
             if let None = next {
-                error_format_value(&mut io::stderr(), short);
+                error_format_value(&mut io::stderr(), sh);
                 return Err(ReturnCode::UsageErr);
             }
 
@@ -176,7 +212,6 @@ fn error_format_value(writer: &mut impl Write, param: &str) {
     );
 }
 
-#[allow(dead_code)]
 fn error_missing(writer: &mut impl Write, param: &str) {
     let _ = writeln!(writer, "Error: Missing argument \"{param}\"");
 }

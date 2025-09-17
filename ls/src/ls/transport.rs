@@ -65,7 +65,7 @@ impl StdioChannel {
         };
 
         let mut bin = PathBuf::from(dir.parent().expect("Executable must have one parent."));
-        bin.push("t32-language-server-transport-stdio");
+        bin.push("t32-language-server");
 
         // All read operations on stdin are blocking by default. We can move
         // them to a separate thread, but then it becomes impossible to clean
@@ -76,7 +76,9 @@ impl StdioChannel {
         // stdin input is then simply piped back to the parent process. In
         // contrast to a thread, a child process can be cleanly shut down.
         //
-        let mut listener = Command::new(bin).stdout(Stdio::piped()).spawn().unwrap();
+        let mut listener = Command::new(bin)
+            .args(["--clientProcessId=42", "--mode=stdio-transport"])
+            .stdout(Stdio::piped()).spawn().unwrap();
 
         let mut cin = listener.stdout.take().unwrap();
 
