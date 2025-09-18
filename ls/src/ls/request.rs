@@ -7,12 +7,16 @@ use std::fmt;
 use crate::protocol::{
     DefinitionParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, InitializeParams, InitializedParams, LogTraceParams, NumberOrString,
-    RenameFilesParams, SetTraceParams,
+    ReferenceParams, RenameFilesParams, SetTraceParams,
 };
 
 // Requests from client to server.
 #[derive(Debug)]
 pub enum Request {
+    FindReferences {
+        id: NumberOrString,
+        params: ReferenceParams,
+    },
     GoToDefinition {
         id: NumberOrString,
         params: DefinitionParams,
@@ -58,6 +62,7 @@ impl Request {
         match self {
             Request::GoToDefinition { id, .. } => Some(id),
             Request::InitializeRequest { id, .. } => Some(id),
+            Request::FindReferences { id, .. } => Some(id),
             Request::ShutdownRequest { id } => Some(id),
         }
     }

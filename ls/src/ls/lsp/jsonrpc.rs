@@ -20,7 +20,7 @@ use crate::{
     protocol::{
         DefinitionParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
         DidOpenTextDocumentParams, ErrorCodes, InitializeParams, InitializedParams, NumberOrString,
-        RenameFilesParams, ResponseError, SetTraceParams,
+        ReferenceParams, RenameFilesParams, ResponseError, SetTraceParams,
     },
 };
 
@@ -293,6 +293,7 @@ fn deserialize_request(msg: RequestMessage) -> Result<Message, ErrorResponse> {
     const INITIALIZE: &'static str = "initialize";
     const SHUTDOWN: &'static str = "shutdown";
     const TEXTDOC_DEFINITION: &'static str = "textDocument/definition";
+    const TEXTDOC_REFERENCES: &'static str = "textDocument/references";
 
     match msg.method.as_str() {
         INITIALIZE => match deserialize_msg_params::<InitializeParams>(msg.params) {
@@ -308,6 +309,16 @@ fn deserialize_request(msg: RequestMessage) -> Result<Message, ErrorResponse> {
         SHUTDOWN => Ok(Message::Request(Request::ShutdownRequest { id: msg.id })),
         TEXTDOC_DEFINITION => match deserialize_msg_params::<DefinitionParams>(msg.params) {
             Ok(params) => Ok(Message::Request(Request::GoToDefinition {
+                id: msg.id,
+                params,
+            })),
+            Err(err) => Err(ErrorResponse {
+                id: Some(msg.id),
+                error: err,
+            }),
+        },
+        TEXTDOC_REFERENCES => match deserialize_msg_params::<ReferenceParams>(msg.params) {
+            Ok(params) => Ok(Message::Request(Request::FindReferences {
                 id: msg.id,
                 params,
             })),

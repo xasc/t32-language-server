@@ -18,7 +18,7 @@ use crate::{
     ReturnCode,
     config::Config,
     ls::language::{
-        find_definition, find_external_macro_definition, find_global_macro_definitions,
+        find_external_macro_definition, find_global_macro_definitions,
     },
     ls::lsp::Message,
     ls::{
@@ -28,7 +28,7 @@ use crate::{
         mainloop::{trace_doc_cannot_read, trace_doc_change},
         tasks::{
             docsync::{process_doc_change_notif, process_doc_close_notif, process_doc_open_notif},
-            lang::{process_goto_definition_result, process_goto_external_macro_def_sync},
+            lang::{process_find_references_req, process_goto_definition_req, process_goto_definition_result, process_goto_external_macro_def_sync},
             workspace::{process_files_did_rename_notif, process_rename_files_result},
         },
         workspace::{FileIndex, ResolvedRenameFileOperations},
@@ -40,7 +40,7 @@ use crate::{
         response::{ErrorResponse, GoToDefinitionResponse, LocationResult, NullResponse, Response},
     },
     protocol::{
-        DefinitionParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams, ErrorCodes,
+        DidCloseTextDocumentParams, DidOpenTextDocumentParams, ErrorCodes,
         FileRename, LogTraceParams, ResponseError, SetTraceParams,
     },
     protocol::{LocationLink, NumberOrString, TextDocumentItem, TraceValue, Uri},
@@ -427,8 +427,11 @@ fn process_msg(
         }) => {
             cfg.trace_level = value;
         }
+        Message::Request(Request::FindReferences { id: _id, params: _params }) => {
+            process_find_references_req()?;
+        }
         Message::Request(Request::GoToDefinition { id, params }) => {
-            process_goto_definition_req(id, params, g, cfg.trace_level, outgoing)?;
+            process_goto_definition_req(id, params, cfg.trace_level, &mut g.docs, &mut g.tasks, outgoing)?;
         }
         Message::Request(Request::ShutdownRequest { id }) => {
             g.shutdown_request_recv = true;
@@ -514,44 +517,6 @@ fn progress_multi_part_tasks(docs: &TextDocs, ts: &mut Tasks) -> Result<(), Retu
     for job in tasks {
         try_schedule(&mut ts.runner, job, &mut ts.ongoing, &mut ts.blocked)?;
     }
-    Ok(())
-}
-
-fn process_goto_definition_req(
-    id: NumberOrString,
-    params: DefinitionParams,
-    g: &mut State,
-    trace_level: TraceValue,
-    outgoing: &mut Vec<Option<Message>>,
-) -> Result<(), ReturnCode> {
-    let (doc, tree, t32) = match g.docs.get_doc_data(&params.text_document.uri) {
-        Some((doc, tree, t32)) => (doc, tree, t32),
-        None => {
-            if trace_level != TraceValue::Off {
-                outgoing.push(Some(trace_doc_unknown(&params.text_document.uri)));
-            }
-            outgoing.push(Some(Message::Response(Response::NullResponse(
-                NullResponse { id },
-            ))));
-            return Ok(());
-        }
-    };
-
-    try_schedule(
-        &mut g.tasks.runner,
-        Task::GoToDefinitionExtMeta(
-            id,
-            TextDocData {
-                doc: doc.clone(),
-                tree: tree.clone(),
-                t32: t32.clone(),
-            },
-            params.position,
-            find_definition,
-        ),
-        &mut g.tasks.ongoing,
-        &mut g.tasks.blocked,
-    )?;
     Ok(())
 }
 

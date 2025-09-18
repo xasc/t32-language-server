@@ -1876,7 +1876,7 @@ pub struct ImplementationRegistrationOptions {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ReferenceOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
-    work_done_progress: Option<bool>,
+    pub work_done_progress: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -2549,4 +2549,29 @@ pub struct RenameFilesParams {
 pub struct FileRename {
     pub old_uri: DocumentUri,
     pub new_uri: DocumentUri,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ReferenceParams {
+    #[allow(dead_code)]
+    pub context: ReferenceContext,
+
+    #[allow(dead_code)]
+    pub text_document: TextDocumentIdentifier,
+
+    #[allow(dead_code)]
+    pub position: Position,
+
+    #[allow(dead_code)]
+    pub work_done_token: Option<WorkDoneProgressParams>,
+
+    #[allow(dead_code)]
+    pub partial_result_token: Option<NumberOrString>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReferenceContext {
+    #[allow(dead_code)]
+    pub include_declaration: bool,
 }

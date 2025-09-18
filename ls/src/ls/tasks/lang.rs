@@ -4,15 +4,56 @@
 
 use crate::{
     ls::{
-        doc::TextDocs,
-        language::{ExtMacroDefOrigin, GotoDefinitionResult},
-        response::{GoToDefinitionResponse, LocationResult},
-        tasks::{ExtMacroDefOperations, OngoingTask, Tasks, find_ongoing_task_by_id},
+        ReturnCode,
+        doc::{TextDocData, TextDocs},
+        language::{ExtMacroDefOrigin, GotoDefinitionResult, find_definition},
+        lsp::Message,
+        response::{GoToDefinitionResponse, LocationResult, NullResponse, Response},
+        tasks::{ExtMacroDefOperations, OngoingTask, Task, Tasks, find_ongoing_task_by_id, trace_doc_unknown, try_schedule},
     },
-    protocol::{LocationLink, NumberOrString, Uri},
+    protocol::{DefinitionParams, LocationLink, NumberOrString, TraceValue, Uri},
 };
 
 const ITERATIONS_MACRO_DEF: u32 = 3;
+
+pub fn process_goto_definition_req(
+    id: NumberOrString,
+    params: DefinitionParams,
+    trace_level: TraceValue,
+    docs: &mut TextDocs,
+    ts: &mut Tasks,
+    outgoing: &mut Vec<Option<Message>>,
+) -> Result<(), ReturnCode> {
+    let (doc, tree, t32) = match docs.get_doc_data(&params.text_document.uri) {
+        Some((doc, tree, t32)) => (doc, tree, t32),
+        None => {
+            if trace_level != TraceValue::Off {
+                outgoing.push(Some(trace_doc_unknown(&params.text_document.uri)));
+            }
+            outgoing.push(Some(Message::Response(Response::NullResponse(
+                NullResponse { id },
+            ))));
+            return Ok(());
+        }
+    };
+
+    try_schedule(
+        &mut ts.runner,
+        Task::GoToDefinitionExtMeta(
+            id,
+            TextDocData {
+                doc: doc.clone(),
+                tree: tree.clone(),
+                t32: t32.clone(),
+            },
+            params.position,
+            find_definition,
+        ),
+        &mut ts.ongoing,
+        &mut ts.blocked,
+    )?;
+    Ok(())
+}
 
 pub fn process_goto_definition_result(
     docs: &TextDocs,
@@ -158,4 +199,8 @@ fn goto_external_macro_def(
         ops: Some(ExtMacroDefOperations { scripts, callees }),
     };
     ongoing.push(task);
+}
+
+pub fn process_find_references_req() -> Result<(), ReturnCode> {
+    Ok(())
 }
