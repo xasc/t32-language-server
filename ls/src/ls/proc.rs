@@ -3,8 +3,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
 
-use libc::kill;
 use std::io::Error;
+
+#[cfg(unix)]
+use libc::kill;
+
+#[cfg(windows)]
+use windows_sys::Win32::{
+    System::Threading::{GetExitCodeProcess , OpenProcess},
+    Foundation::{HANDLE, STILL_ACTIVE},
+};
 
 #[derive(Debug, PartialEq)]
 pub enum ProcState {
@@ -13,6 +21,7 @@ pub enum ProcState {
     Unknown,
 }
 
+#[cfg(unix)]
 pub fn proc_alive(pid: u32) -> ProcState {
     let proc = pid.try_into();
     // pid is out of range
@@ -35,6 +44,33 @@ pub fn proc_alive(pid: u32) -> ProcState {
     } else {
         // EPERM: No permission to send signal
         ProcState::Unknown
+    }
+}
+
+#[cfg(windows)]
+pub fn proc_alive(pid: u32) -> ProcState {
+    const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+    const FALSE: i32 = 0;
+
+    let handle = unsafe {
+        let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+        if handle.is_null() {
+            return ProcState::Unknown;
+        }
+        h
+    };
+
+    let exit_code: u32 = 0;
+    unsafe {
+        if GetExitCodeProcess(handle, exit_code.as_mut_ptr()) == 0 {
+            return ProcState::Unknown;
+        }
+    }
+
+    if exit_code == STILL_ACTIVE {
+        ProcState::Alive
+    } else {
+        ProcState::Dead
     }
 }
 
