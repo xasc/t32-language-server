@@ -6,7 +6,6 @@ use std::{
     cmp::min,
     env,
     io::{self, Read, Write},
-    path::PathBuf,
     process::{self, Command, Stdio},
     sync::mpsc,
     thread, time,
@@ -54,18 +53,7 @@ impl StdioChannel {
     pub fn build() -> Result<Self, ReturnCode> {
         let (tx, rx) = mpsc::channel::<RecvMessage>();
 
-        let dir = match env::current_exe() {
-            Ok(path) => path,
-            Err(err) => {
-                let _ = io::stderr().write_all(
-                    format!("Error: Cannot get directory of this executable: {}", err).as_bytes(),
-                );
-                return Err(ReturnCode::NoInputErr);
-            }
-        };
-
-        let mut bin = PathBuf::from(dir.parent().expect("Executable must have one parent."));
-        bin.push("t32-language-server");
+        let bin = env::current_exe().expect("Operation must not fail.");
 
         // All read operations on stdin are blocking by default. We can move
         // them to a separate thread, but then it becomes impossible to clean
@@ -78,7 +66,9 @@ impl StdioChannel {
         //
         let mut listener = Command::new(bin)
             .args(["--clientProcessId=42", "--mode=stdio-transport"])
-            .stdout(Stdio::piped()).spawn().unwrap();
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
 
         let mut cin = listener.stdout.take().unwrap();
 

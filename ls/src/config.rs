@@ -119,7 +119,6 @@ impl Config {
                 Ok(None) => (),
             }
 
-
             if Self::parse_flag("--help", "-h", arg) {
                 show_help = true;
             }
@@ -131,7 +130,7 @@ impl Config {
         }
 
         if ppid.is_none() {
-            error_missing(&mut io::stderr(),"--clientProcessId=PID");
+            error_missing(&mut io::stderr(), "--clientProcessId=PID");
             return Err(ReturnCode::UsageErr);
         }
 
@@ -157,7 +156,9 @@ impl Config {
         arg: &str,
         next: Option<&str>,
     ) -> Result<Option<T>, ReturnCode> {
-        if let Some(sh) = short && sh == arg {
+        if let Some(sh) = short
+            && sh == arg
+        {
             if let None = next {
                 error_format_value(&mut io::stderr(), sh);
                 return Err(ReturnCode::UsageErr);

@@ -77,7 +77,7 @@ pub struct GlobalMacroDefIndex<'a>(
 
 impl<'a> TextDocs {
     #[allow(dead_code)]
-    fn new() -> Self {
+    pub fn new() -> Self {
         TextDocs {
             docs: DocStore {
                 open: Vec::new(),

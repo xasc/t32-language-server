@@ -9,9 +9,9 @@ use crate::{
         DefinitionOptions, DefinitionProvider, FileOperationFilter, FileOperationPattern,
         FileOperationPatternKind, FileOperationPatternOptions, FileOperationRegistrationOptions,
         InitializeResult, Location, LocationLink, NumberOrString, PositionEncodingKind,
-        ReferencesProvider, ReferenceOptions, ResponseError, ServerCapabilities, ServerInfo,
-        TextDocumentSyncKind, TextDocumentSyncOptions, TextDocumentSyncServerCapabilities, WorkspaceFileOperations,
-        WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
+        ReferenceOptions, ReferencesProvider, ResponseError, ServerCapabilities, ServerInfo,
+        TextDocumentSyncKind, TextDocumentSyncOptions, TextDocumentSyncServerCapabilities,
+        WorkspaceFileOperations, WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
     },
     t32::SUFFIXES,
 };

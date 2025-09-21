@@ -10,25 +10,29 @@ mod workspace;
 pub use runners::{Task, TaskDone, TaskSystem};
 pub use workspace::{categorize_files, discover_files};
 
-use std::time::{Duration, Instant};
+use std::{
+    collections::BTreeMap,
+    time::{Duration, Instant},
+};
 
 use serde_json::json;
 
 use crate::{
     ReturnCode,
     config::Config,
-    ls::language::{
-        find_external_macro_definition, find_global_macro_definitions,
-    },
     ls::lsp::Message,
     ls::{
         State, Tasks,
         doc::{TextDoc, TextDocData, TextDocs},
-        language::{ExtMacroDefOrigin, GotoDefinitionResult},
+        language::ExtMacroDefOrigin,
         mainloop::{trace_doc_cannot_read, trace_doc_change},
         tasks::{
             docsync::{process_doc_change_notif, process_doc_close_notif, process_doc_open_notif},
-            lang::{process_find_references_req, process_goto_definition_req, process_goto_definition_result, process_goto_external_macro_def_sync},
+            lang::{
+                process_find_references_req, process_goto_definition_req,
+                process_goto_definition_result, process_goto_external_macro_def_sync,
+                progress_goto_external_macro_def,
+            },
             workspace::{process_files_did_rename_notif, process_rename_files_result},
         },
         workspace::{FileIndex, ResolvedRenameFileOperations},
@@ -40,8 +44,8 @@ use crate::{
         response::{ErrorResponse, GoToDefinitionResponse, LocationResult, NullResponse, Response},
     },
     protocol::{
-        DidCloseTextDocumentParams, DidOpenTextDocumentParams, ErrorCodes,
-        FileRename, LogTraceParams, ResponseError, SetTraceParams,
+        DidCloseTextDocumentParams, DidOpenTextDocumentParams, ErrorCodes, FileRename,
+        LogTraceParams, ResponseError, SetTraceParams,
     },
     protocol::{LocationLink, NumberOrString, TextDocumentItem, TraceValue, Uri},
     t32::{LANGUAGE_ID, lang_id_supported},
@@ -50,16 +54,15 @@ use crate::{
 #[derive(Debug)]
 pub enum OngoingTask {
     DidRenameFiles(Instant),
-    GoToDefinitionExtMeta(NumberOrString, Instant),
-    GoToExternalMacroDefinition {
+    GoToDefinition(NumberOrString, Instant),
+    GoToExternalMacroDef {
         id: NumberOrString,
-        completed: u32,
-        total: u32,
-        depth: u32,
         onset: Instant,
+        progress: TaskProgress,
         origin: ExtMacroDefOrigin,
-        preliminary: Vec<LocationLink>,
-        ops: Option<ExtMacroDefOperations>,
+        visited: BTreeMap<Uri, Vec<Uri>>,
+        undone: ExtMacroDefLookups,
+        results: Vec<LocationLink>,
     },
     TextDocUpdate {
         uri: String,
@@ -73,16 +76,20 @@ pub enum OngoingTaskHandle {
 }
 
 #[derive(Debug)]
-pub struct ExtMacroDefOperations {
-    pub scripts: Vec<Uri>,
-    pub callees: Vec<Uri>,
+pub struct TaskProgress {
+    completed: u32,
+    pub total: u32,
+    cycles: u32,
+    max_cycles: u32,
 }
 
-#[derive(Clone, Debug)]
-pub struct ExtMacroDefLookup {
-    pub origin: ExtMacroDefOrigin,
-    pub find:
-        fn(TextDocData, Vec<Uri>, ExtMacroDefOrigin) -> (Option<GotoDefinitionResult>, Vec<Uri>),
+/// To find macro defintions in other files, we need to check for the presence
+/// of script calls. `LOCAL` and `GLOBAL` macro definitions remain valid in
+/// subscripts.
+#[derive(Debug)]
+pub struct ExtMacroDefLookups {
+    pub files: Vec<Uri>,
+    pub callees: Vec<Uri>,
 }
 
 #[derive(Clone, Debug)]
@@ -92,13 +99,91 @@ pub struct RenameFileOperations {
 }
 
 impl OngoingTask {
+    fn get_id(&self) -> &NumberOrString {
+        match self {
+            OngoingTask::GoToExternalMacroDef { id, .. } | OngoingTask::GoToDefinition(id, ..) => {
+                id
+            }
+            _ => unreachable!("Other types have not ID field."),
+        }
+    }
+
     fn get_onset(&self) -> &Instant {
         match self {
             OngoingTask::DidRenameFiles(onset) => onset,
-            OngoingTask::GoToExternalMacroDefinition { onset, .. }
-            | OngoingTask::GoToDefinitionExtMeta(.., onset)
+            OngoingTask::GoToExternalMacroDef { onset, .. }
+            | OngoingTask::GoToDefinition(.., onset)
             | OngoingTask::TextDocUpdate { onset, .. } => onset,
         }
+    }
+
+    fn aborted(&self) -> bool {
+        match self {
+            OngoingTask::GoToExternalMacroDef { progress, .. } => progress.aborted(),
+            _ => false,
+        }
+    }
+}
+
+impl TaskProgress {
+    pub fn new(total: u32) -> Self {
+        TaskProgress {
+            completed: 0,
+            cycles: 0,
+            total,
+            max_cycles: u32::MAX,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn with_limit(progress: Self, max_cycles: u32) -> Self {
+        TaskProgress {
+            max_cycles,
+            ..progress
+        }
+    }
+
+    pub fn finished(&self) -> bool {
+        self.total <= 0
+    }
+
+    /// Next task step ready for execution.
+    pub fn ready(&self) -> bool {
+        self.total > 0 && self.completed <= 0
+    }
+
+    pub fn aborted(&self) -> bool {
+        self.total <= 0 && self.completed <= 0
+    }
+
+    pub fn advance(&mut self) {
+        self.completed += 1;
+        if self.completed >= self.total {
+            self.cycles += 1;
+            self.completed = 0;
+
+            if self.cycles >= self.max_cycles {
+                self.total = 0;
+            }
+        }
+    }
+
+    pub fn abort(&mut self) {
+        self.total = 0
+    }
+}
+
+impl ExtMacroDefLookups {
+    pub fn is_empty(&self) -> bool {
+        debug_assert_eq!(self.files.len(), self.callees.len());
+        self.files.is_empty()
+    }
+
+    pub fn clear(&mut self) {
+        debug_assert_eq!(self.files.len(), self.callees.len());
+
+        self.files.clear();
+        self.callees.clear();
     }
 }
 
@@ -166,7 +251,7 @@ pub fn schedule_tasks(
         process_msg(msg, g, cfg, outgoing)?;
     }
 
-    progress_multi_part_tasks(&g.docs, &mut g.tasks)?;
+    progress_multi_part_tasks(cfg, &g.docs, &mut g.tasks, outgoing)?;
 
     Ok(())
 }
@@ -203,11 +288,11 @@ fn process_completed_task(
                 }
             }
         }
-        TaskDone::GoToDefinitionExtMeta(id, goto_def) => {
+        TaskDone::GoToDefinition(id, goto_def) => {
             if let Some(resp) = process_goto_definition_result(docs, &id, goto_def, ts) {
                 if cfg.trace_level != TraceValue::Off {
                     let idx = find_ongoing_task_by_id(&id, &ts.ongoing);
-                    let OngoingTask::GoToDefinitionExtMeta(_, onset) = &ts.ongoing[idx] else {
+                    let OngoingTask::GoToDefinition(_, onset) = &ts.ongoing[idx] else {
                         unreachable!("No other type possible.");
                     };
                     outgoing.push(Some(trace_goto_def(
@@ -220,7 +305,7 @@ fn process_completed_task(
                 ))));
             }
         }
-        TaskDone::GoToExternalMacroDefinitionExtMeta(id, links) => {
+        TaskDone::GoToExternalMacroDef(id, links) => {
             let result = if links.is_empty() {
                 None
             } else {
@@ -229,8 +314,7 @@ fn process_completed_task(
 
             if cfg.trace_level != TraceValue::Off {
                 let idx = find_ongoing_task_by_id(&id, &ts.ongoing);
-                let OngoingTask::GoToExternalMacroDefinition { onset, .. } = &ts.ongoing[idx]
-                else {
+                let OngoingTask::GoToExternalMacroDef { onset, .. } = &ts.ongoing[idx] else {
                     unreachable!("No other type possible.");
                 };
                 outgoing.push(Some(trace_goto_def(
@@ -243,7 +327,7 @@ fn process_completed_task(
                 GoToDefinitionResponse { id, result },
             ))));
         }
-        TaskDone::GoToExternalMacroDefinitionSync(id, defs, script, callers) => {
+        TaskDone::GoToExternalMacroDefSync(id, defs, script, callers) => {
             process_goto_external_macro_def_sync(id, script, defs, callers, &mut ts.ongoing);
         }
         TaskDone::TextDocNew(doc, tree, globals) => {
@@ -332,7 +416,7 @@ fn try_schedule_blocked(
 /// which is in the process of being renamed.
 fn task_blocked(job: &Task, ongoing: &[OngoingTask]) -> bool {
     match job {
-        Task::GoToDefinitionExtMeta(
+        Task::GoToDefinition(
             _,
             TextDocData {
                 doc: TextDoc { uri, .. },
@@ -368,9 +452,7 @@ fn task_blocked(job: &Task, ongoing: &[OngoingTask]) -> bool {
 fn add_task_status_tracking(job: &Task, ongoing: &mut Vec<OngoingTask>) {
     let t = match job {
         Task::DidRenameFiles { .. } => OngoingTask::DidRenameFiles(Instant::now()),
-        Task::GoToDefinitionExtMeta(id, ..) => {
-            OngoingTask::GoToDefinitionExtMeta(id.clone(), Instant::now())
-        }
+        Task::GoToDefinition(id, ..) => OngoingTask::GoToDefinition(id.clone(), Instant::now()),
         Task::TextDocNew(TextDocumentItem { uri, .. }, ..)
         | Task::TextDocEdit(TextDoc { uri, .. }, ..) => OngoingTask::TextDocUpdate {
             uri: uri.clone(),
@@ -427,11 +509,21 @@ fn process_msg(
         }) => {
             cfg.trace_level = value;
         }
-        Message::Request(Request::FindReferences { id: _id, params: _params }) => {
+        Message::Request(Request::FindReferences {
+            id: _id,
+            params: _params,
+        }) => {
             process_find_references_req()?;
         }
         Message::Request(Request::GoToDefinition { id, params }) => {
-            process_goto_definition_req(id, params, cfg.trace_level, &mut g.docs, &mut g.tasks, outgoing)?;
+            process_goto_definition_req(
+                id,
+                params,
+                cfg.trace_level,
+                &mut g.docs,
+                &mut g.tasks,
+                outgoing,
+            )?;
         }
         Message::Request(Request::ShutdownRequest { id }) => {
             g.shutdown_request_recv = true;
@@ -447,68 +539,25 @@ fn process_msg(
     Ok(())
 }
 
-fn progress_multi_part_tasks(docs: &TextDocs, ts: &mut Tasks) -> Result<(), ReturnCode> {
+fn progress_multi_part_tasks(
+    cfg: &Config,
+    docs: &TextDocs,
+    ts: &mut Tasks,
+    outgoing: &mut Vec<Option<Message>>,
+) -> Result<(), ReturnCode> {
     let mut tasks: Vec<Task> = Vec::new();
 
     for job in ts.ongoing.iter_mut() {
+        if cfg.trace_level != TraceValue::Off && job.aborted() {
+            outgoing.push(Some(trace_task_aborted(
+                Instant::now() - *job.get_onset(),
+                job.get_id(),
+            )));
+        }
+
         match job {
-            OngoingTask::GoToExternalMacroDefinition {
-                id,
-                completed,
-                total,
-                origin,
-                ops,
-                preliminary,
-                ..
-            } => {
-                if *total <= 0 {
-                    let globals = docs.get_all_global_macros();
-                    if globals.is_some() {
-                        preliminary.append(&mut find_global_macro_definitions(
-                            docs,
-                            globals.unwrap(),
-                            origin.clone(),
-                        ));
-                    }
-
-                    ts.completed
-                        .push(Some(TaskDone::GoToExternalMacroDefinitionExtMeta(
-                            id.clone(),
-                            preliminary.clone(),
-                        )));
-                } else if *completed <= 0 {
-                    if let Some(operations) = ops {
-                        debug_assert!(operations.scripts.len() == operations.callees.len());
-
-                        for (script, callee) in
-                            operations.scripts.iter().zip(operations.callees.iter())
-                        {
-                            let (doc, tree, t32) = docs.get_doc_data(script).unwrap();
-                            let callers = match docs.get_callers(script) {
-                                Some(files) => files.clone(),
-                                None => Vec::new(),
-                            };
-
-                            tasks.push(Task::GoToExternalMacroDefinition {
-                                id: id.clone(),
-                                textdoc: TextDocData {
-                                    doc: doc.clone(),
-                                    tree: tree.clone(),
-                                    t32: t32.clone(),
-                                },
-                                callers: callers,
-                                lookup: ExtMacroDefLookup {
-                                    origin: ExtMacroDefOrigin {
-                                        uri: callee.clone(),
-                                        ..origin.clone()
-                                    },
-                                    find: find_external_macro_definition,
-                                },
-                            });
-                        }
-                    }
-                    *ops = None;
-                }
+            OngoingTask::GoToExternalMacroDef { .. } => {
+                progress_goto_external_macro_def(docs, job, &mut tasks, &mut ts.completed)?
             }
             _ => (),
         }
@@ -534,8 +583,9 @@ fn find_ongoing_task_by_id(identifier: &NumberOrString, ongoing: &[OngoingTask])
     ongoing
         .iter()
         .position(|t| match t {
-            OngoingTask::GoToDefinitionExtMeta(id, ..)
-            | OngoingTask::GoToExternalMacroDefinition { id, .. } => id == identifier,
+            OngoingTask::GoToDefinition(id, ..) | OngoingTask::GoToExternalMacroDef { id, .. } => {
+                id == identifier
+            }
             _ => unreachable!("No other tasks can by selected by id."),
         })
         .expect("Must be a registered task.")
@@ -637,6 +687,19 @@ fn trace_goto_def(duration: Duration, defs: Option<LocationResult>) -> Message {
             } else {
                 None
             },
+        },
+    })
+}
+
+fn trace_task_aborted(duration: Duration, id: &NumberOrString) -> Message {
+    Message::Notification(Notification::LogTraceNotification {
+        params: LogTraceParams {
+            message: format!(
+                "WARNING: Processing of request with ID {} aborted after {:.4} seconds.",
+                id,
+                duration.as_secs_f32()
+            ),
+            verbose: None,
         },
     })
 }

@@ -2,6 +2,8 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use std::fmt;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use serde_repr::{Deserialize_repr, Serialize_repr};
@@ -2528,7 +2530,7 @@ pub struct Location {
     pub range: Range,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LocationLink {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2574,4 +2576,13 @@ pub struct ReferenceParams {
 pub struct ReferenceContext {
     #[allow(dead_code)]
     pub include_declaration: bool,
+}
+
+impl fmt::Display for NumberOrString {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            NumberOrString::String(s) => write!(f, "{}", s),
+            NumberOrString::Number(n) => write!(f, "{}", n),
+        }
+    }
 }

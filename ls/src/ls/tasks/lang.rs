@@ -2,19 +2,25 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+use std::collections::BTreeMap;
+
 use crate::{
     ls::{
         ReturnCode,
         doc::{TextDocData, TextDocs},
-        language::{ExtMacroDefOrigin, GotoDefinitionResult, find_definition},
+        language::{
+            ExtMacroDefOrigin, GotoDefinitionResult, find_definition,
+            find_external_macro_definition, find_global_macro_definitions,
+        },
         lsp::Message,
         response::{GoToDefinitionResponse, LocationResult, NullResponse, Response},
-        tasks::{ExtMacroDefOperations, OngoingTask, Task, Tasks, find_ongoing_task_by_id, trace_doc_unknown, try_schedule},
+        tasks::{
+            ExtMacroDefLookups, OngoingTask, Task, TaskDone, TaskProgress, Tasks,
+            find_ongoing_task_by_id, trace_doc_unknown, try_schedule,
+        },
     },
     protocol::{DefinitionParams, LocationLink, NumberOrString, TraceValue, Uri},
 };
-
-const ITERATIONS_MACRO_DEF: u32 = 3;
 
 pub fn process_goto_definition_req(
     id: NumberOrString,
@@ -39,7 +45,7 @@ pub fn process_goto_definition_req(
 
     try_schedule(
         &mut ts.runner,
-        Task::GoToDefinitionExtMeta(
+        Task::GoToDefinition(
             id,
             TextDocData {
                 doc: doc.clone(),
@@ -73,7 +79,7 @@ pub fn process_goto_definition_result(
                         uri,
                     },
                     links,
-                    callers.clone(), // TODO: Remove duplicate copies
+                    callers.clone(),
                     &mut ts.ongoing,
                 );
                 return None;
@@ -102,67 +108,124 @@ pub fn process_goto_external_macro_def_sync(
     ongoing: &mut Vec<OngoingTask>,
 ) {
     let idx = find_ongoing_task_by_id(&id, ongoing);
-    let OngoingTask::GoToExternalMacroDefinition {
-        completed,
-        total,
-        depth,
-        preliminary,
-        ops,
+    let OngoingTask::GoToExternalMacroDef {
+        progress,
+        results,
+        undone,
         ..
     } = &mut ongoing[idx]
     else {
         unreachable!("No other type possible.");
     };
 
-    debug_assert!(
-        ops.is_none() || ops.as_ref().unwrap().scripts.len() == ops.as_ref().unwrap().callees.len()
-    );
+    debug_assert_eq!(undone.files.len(), undone.callees.len());
 
     if let Some(GotoDefinitionResult::PartialMacro(..)) = defs
         && !callers.is_empty()
     {
-        match ops {
-            Some(operations) => {
-                callers
-                    .iter()
-                    .for_each(|_| operations.callees.push(script.clone()));
-                operations.scripts.append(&mut callers);
+        callers
+            .iter()
+            .for_each(|_| undone.callees.push(script.clone()));
+        undone.files.append(&mut callers);
 
-                debug_assert_eq!(operations.scripts.len(), operations.callees.len());
-            }
-            None => {
-                let mut callees: Vec<Uri> = Vec::with_capacity(callers.len());
-                callers.iter().for_each(|_| callees.push(script.clone()));
-
-                *ops = Some(ExtMacroDefOperations {
-                    callees,
-                    scripts: callers,
-                })
-            }
-        }
+        debug_assert_eq!(undone.files.len(), undone.callees.len());
     }
-    debug_assert!(
-        ops.is_none() || ops.as_ref().unwrap().scripts.len() == ops.as_ref().unwrap().callees.len()
-    );
+    debug_assert_eq!(undone.files.len(), undone.callees.len());
 
     if let Some(res) = defs {
         match res {
             GotoDefinitionResult::Final(mut loc)
             | GotoDefinitionResult::PartialMacro(_, _, _, mut loc) => {
-                preliminary.append(&mut loc); // TODO: Remove duplicate copies
+                loc.retain(|l| !results.contains(l));
+                results.append(&mut loc);
             }
         }
     }
 
-    *completed += 1;
-    if completed >= total {
-        *depth += 1;
-        *completed = 0;
-
-        if *depth >= ITERATIONS_MACRO_DEF || ops.is_none() {
-            *total = 0;
-        }
+    progress.advance();
+    if progress.ready() && undone.is_empty() {
+        progress.abort();
     }
+}
+
+pub fn progress_goto_external_macro_def(
+    docs: &TextDocs,
+    task: &mut OngoingTask,
+    outgoing: &mut Vec<Task>,
+    done: &mut Vec<Option<TaskDone>>,
+) -> Result<(), ReturnCode> {
+    let OngoingTask::GoToExternalMacroDef {
+        id,
+        progress,
+        origin,
+        undone,
+        visited,
+        results,
+        ..
+    } = task
+    else {
+        unreachable!("No other type is possible.");
+    };
+
+    if progress.finished() {
+        let globals = docs.get_all_global_macros();
+        if globals.is_some() {
+            results.append(&mut find_global_macro_definitions(
+                docs,
+                globals.unwrap(),
+                origin.clone(),
+            ));
+        }
+
+        done.push(Some(TaskDone::GoToExternalMacroDef(
+            id.clone(),
+            results.clone(),
+        )));
+    } else if progress.ready() {
+        if !undone.is_empty() {
+            let mut total: u32 = 0;
+            for (script, callee) in undone.files.iter().zip(undone.callees.iter()) {
+                if let Some(seen) = visited.get(script)
+                    && seen.contains(callee)
+                {
+                    continue;
+                }
+                total += 1;
+
+                let (doc, tree, t32) = docs.get_doc_data(script).unwrap();
+                let callers = match docs.get_callers(script) {
+                    Some(files) => files.clone(),
+                    None => Vec::new(),
+                };
+
+                outgoing.push(Task::GoToExternalMacroDef {
+                    id: id.clone(),
+                    textdoc: TextDocData {
+                        doc: doc.clone(),
+                        tree: tree.clone(),
+                        t32: t32.clone(),
+                    },
+                    callers: callers,
+                    origin: ExtMacroDefOrigin {
+                        uri: callee.clone(),
+                        ..origin.clone()
+                    },
+                    find: find_external_macro_definition,
+                });
+
+                if let Some(seen) = visited.get_mut(script) {
+                    if !seen.contains(callee) {
+                        seen.push(callee.clone());
+                    }
+                } else {
+                    visited.insert(script.clone(), vec![callee.clone()]);
+                }
+            }
+            progress.total = total;
+        }
+        undone.clear();
+    }
+    Ok(())
 }
 
 fn goto_external_macro_def(
@@ -184,23 +247,89 @@ fn goto_external_macro_def(
     }
 
     let idx = find_ongoing_task_by_id(&id, &ongoing);
-    let OngoingTask::GoToDefinitionExtMeta(_, onset) = &ongoing[idx] else {
+    let OngoingTask::GoToDefinition(_, onset) = &ongoing[idx] else {
         unreachable!("No other type possible.");
     };
 
-    let task = OngoingTask::GoToExternalMacroDefinition {
+    let task = OngoingTask::GoToExternalMacroDef {
         id,
-        completed: 0,
-        total: num as u32,
-        depth: 0,
         onset: onset.clone(),
+        progress: TaskProgress::new(num as u32),
         origin,
-        preliminary: defs,
-        ops: Some(ExtMacroDefOperations { scripts, callees }),
+        visited: BTreeMap::new(),
+        results: defs,
+        undone: ExtMacroDefLookups {
+            files: scripts,
+            callees,
+        },
     };
     ongoing.push(task);
 }
 
 pub fn process_find_references_req() -> Result<(), ReturnCode> {
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::time::Instant;
+
+    use crate::protocol::{Position, Range};
+
+    #[test]
+    fn skips_redundant_external_macro_def_checks() {
+        let docs = TextDocs::new();
+
+        let mut visited: BTreeMap<Uri, Vec<Uri>> = BTreeMap::new();
+        visited.insert(
+            "file:///sample/a.cmm".to_string(),
+            vec!["file:///sample/b.cmm".to_string()],
+        );
+
+        let mut task = OngoingTask::GoToExternalMacroDef {
+            id: NumberOrString::Number(1),
+            onset: Instant::now(),
+            progress: TaskProgress {
+                completed: 0,
+                total: 3,
+                cycles: 0,
+                max_cycles: u32::MAX,
+            },
+            origin: ExtMacroDefOrigin {
+                name: "test".to_string(),
+                span: Range {
+                    start: Position {
+                        line: 0,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 0,
+                        character: 1,
+                    },
+                },
+                uri: "file:///sample/test.cmm".to_string(),
+            },
+            visited,
+            undone: ExtMacroDefLookups {
+                files: vec!["file:///sample/a.cmm".to_string()],
+                callees: vec!["file:///sample/b.cmm".to_string()],
+            },
+            results: Vec::new(),
+        };
+
+        let mut outgoing: Vec<Task> = Vec::new();
+        let mut completed: Vec<Option<TaskDone>> = Vec::new();
+
+        progress_goto_external_macro_def(&docs, &mut task, &mut outgoing, &mut completed).unwrap();
+
+        assert!(outgoing.is_empty());
+        assert!(completed.is_empty());
+
+        progress_goto_external_macro_def(&docs, &mut task, &mut outgoing, &mut completed).unwrap();
+
+        assert!(outgoing.is_empty());
+        assert!(!completed.is_empty());
+    }
 }

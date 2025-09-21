@@ -24,7 +24,7 @@ use crate::{
     ls::{
         doc::{TextDoc, TextDocData},
         language::GotoDefinitionResult,
-        tasks::{ExtMacroDefLookup, OngoingTaskHandle, RenameFileOperations},
+        tasks::{ExtMacroDefOrigin, OngoingTaskHandle, RenameFileOperations},
         workspace::{FileIndex, ResolvedRenameFileOperations, WorkspaceMembers},
     },
     protocol::{
@@ -41,17 +41,22 @@ pub enum Task {
         FileIndex,
         fn(RenameFileOperations, &mut FileIndex) -> ResolvedRenameFileOperations,
     ),
-    GoToDefinitionExtMeta(
+    GoToDefinition(
         NumberOrString,
         TextDocData,
         Position,
         fn(TextDocData, Position) -> Option<GotoDefinitionResult>,
     ),
-    GoToExternalMacroDefinition {
+    GoToExternalMacroDef {
         id: NumberOrString,
         textdoc: TextDocData,
         callers: Vec<Uri>,
-        lookup: ExtMacroDefLookup,
+        origin: ExtMacroDefOrigin,
+        find: fn(
+            TextDocData,
+            Vec<Uri>,
+            ExtMacroDefOrigin,
+        ) -> (Option<GotoDefinitionResult>, Vec<Uri>),
     },
     TextDocNew(
         TextDocumentItem,
@@ -86,9 +91,9 @@ pub enum Task {
 #[derive(Debug)]
 pub enum TaskDone {
     DidRenameFiles(ResolvedRenameFileOperations, FileIndex),
-    GoToDefinitionExtMeta(NumberOrString, Option<GotoDefinitionResult>),
-    GoToExternalMacroDefinitionExtMeta(NumberOrString, Vec<LocationLink>),
-    GoToExternalMacroDefinitionSync(NumberOrString, Option<GotoDefinitionResult>, Uri, Vec<Uri>),
+    GoToDefinition(NumberOrString, Option<GotoDefinitionResult>),
+    GoToExternalMacroDef(NumberOrString, Vec<LocationLink>),
+    GoToExternalMacroDefSync(NumberOrString, Option<GotoDefinitionResult>, Uri, Vec<Uri>),
     TextDocNew(TextDoc, Tree, LangExpressions),
     TextDocEdit(TextDoc, Tree, LangExpressions),
     WorkspaceFileDiscovery(WorkspaceMembers),
@@ -112,8 +117,7 @@ pub struct JobQueue {
 impl TaskDone {
     pub fn get_task_handle(&self) -> Option<OngoingTaskHandle> {
         match self {
-            TaskDone::GoToDefinitionExtMeta(id, ..)
-            | TaskDone::GoToExternalMacroDefinitionExtMeta(id, ..) => {
+            TaskDone::GoToDefinition(id, ..) | TaskDone::GoToExternalMacroDef(id, ..) => {
                 Some(OngoingTaskHandle::Identifier(id.clone()))
             }
             TaskDone::TextDocEdit(doc, ..)
@@ -239,19 +243,20 @@ impl TaskSystem {
                 let operations = rename_files(renamed, &mut file_idx);
                 TaskDone::DidRenameFiles(operations, file_idx)
             }
-            Task::GoToDefinitionExtMeta(id, textdoc, loc, find) => {
-                TaskDone::GoToDefinitionExtMeta(id, find(textdoc, loc))
+            Task::GoToDefinition(id, textdoc, loc, find) => {
+                TaskDone::GoToDefinition(id, find(textdoc, loc))
             }
-            Task::GoToExternalMacroDefinition {
+            Task::GoToExternalMacroDef {
                 id,
                 textdoc,
                 callers,
-                lookup,
+                origin,
+                find,
             } => {
                 let uri = textdoc.doc.uri.clone();
-                let defs = (lookup.find)(textdoc, callers, lookup.origin);
+                let defs = (find)(textdoc, callers, origin);
 
-                TaskDone::GoToExternalMacroDefinitionSync(id, defs.0, uri, defs.1)
+                TaskDone::GoToExternalMacroDefSync(id, defs.0, uri, defs.1)
             }
             Task::TextDocNew(doc, files, transform) => {
                 let (doc, tree, t32) = transform(doc, files);

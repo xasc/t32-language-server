@@ -10,8 +10,8 @@ use libc::kill;
 
 #[cfg(windows)]
 use windows_sys::Win32::{
-    System::Threading::{GetExitCodeProcess , OpenProcess},
     Foundation::{HANDLE, STILL_ACTIVE},
+    System::Threading::{GetExitCodeProcess, OpenProcess},
 };
 
 #[derive(Debug, PartialEq)]
