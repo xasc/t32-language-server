@@ -2,8 +2,6 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use std::collections::BTreeMap;
-
 use crate::{
     ls::{
         ReturnCode,
@@ -15,7 +13,7 @@ use crate::{
         lsp::Message,
         response::{GoToDefinitionResponse, LocationResult, NullResponse, Response},
         tasks::{
-            ExtMacroDefLookups, OngoingTask, Task, TaskDone, TaskProgress, Tasks,
+            ExtMacroDefLookups, FileCallMap, OngoingTask, Task, TaskDone, TaskProgress, Tasks,
             find_ongoing_task_by_id, trace_doc_unknown, try_schedule,
         },
     },
@@ -213,13 +211,7 @@ pub fn progress_goto_external_macro_def(
                     find: find_external_macro_definition,
                 });
 
-                if let Some(seen) = visited.get_mut(script) {
-                    if !seen.contains(callee) {
-                        seen.push(callee.clone());
-                    }
-                } else {
-                    visited.insert(script.clone(), vec![callee.clone()]);
-                }
+                visited.insert(script.clone(), callee.clone());
             }
             progress.total = total;
         }
@@ -256,7 +248,7 @@ fn goto_external_macro_def(
         onset: onset.clone(),
         progress: TaskProgress::new(num as u32),
         origin,
-        visited: BTreeMap::new(),
+        visited: FileCallMap::new(),
         results: defs,
         undone: ExtMacroDefLookups {
             files: scripts,
@@ -282,11 +274,8 @@ mod tests {
     fn skips_redundant_external_macro_def_checks() {
         let docs = TextDocs::new();
 
-        let mut visited: BTreeMap<Uri, Vec<Uri>> = BTreeMap::new();
-        visited.insert(
-            "file:///sample/a.cmm".to_string(),
-            vec!["file:///sample/b.cmm".to_string()],
-        );
+        let mut visited = FileCallMap::new();
+        visited.insert("file:///sample/a.cmm".to_string(), "file:///sample/b.cmm".to_string());
 
         let mut task = OngoingTask::GoToExternalMacroDef {
             id: NumberOrString::Number(1),

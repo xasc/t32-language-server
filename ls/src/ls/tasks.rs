@@ -11,7 +11,6 @@ pub use runners::{Task, TaskDone, TaskSystem};
 pub use workspace::{categorize_files, discover_files};
 
 use std::{
-    collections::BTreeMap,
     time::{Duration, Instant},
 };
 
@@ -60,7 +59,7 @@ pub enum OngoingTask {
         onset: Instant,
         progress: TaskProgress,
         origin: ExtMacroDefOrigin,
-        visited: BTreeMap<Uri, Vec<Uri>>,
+        visited: FileCallMap,
         undone: ExtMacroDefLookups,
         results: Vec<LocationLink>,
     },
@@ -90,6 +89,12 @@ pub struct TaskProgress {
 pub struct ExtMacroDefLookups {
     pub files: Vec<Uri>,
     pub callees: Vec<Uri>,
+}
+
+#[derive(Debug)]
+pub struct FileCallMap {
+    files: Vec<(Uri, u32)>,
+    calls: Vec<Vec<Uri>>,
 }
 
 #[derive(Clone, Debug)]
@@ -184,6 +189,43 @@ impl ExtMacroDefLookups {
 
         self.files.clear();
         self.callees.clear();
+    }
+}
+
+impl FileCallMap {
+    pub fn new() -> Self {
+        FileCallMap {
+            files: Vec::new(),
+            calls: Vec::new(),
+        }
+    }
+
+    pub fn get(&self, file: &Uri) -> Option<&Vec<Uri>> {
+        debug_assert_eq!(self.files.len(), self.calls.len());
+
+        if let Some((_, idx)) = self.files.iter().find(|(uri, _)| *uri == *file) {
+            Some(&self.calls[*idx as usize])
+        } else {
+            None
+        }
+    }
+
+    pub fn insert(&mut self, file: Uri, call: Uri) {
+        debug_assert_eq!(self.files.len(), self.calls.len());
+
+        if let Ok(idx) = self.files.binary_search_by(|(a, _)| a.cmp(&file)) {
+            if !self.calls[self.files[idx].1 as usize].contains(&call) {
+                self.calls[self.files[idx].1 as usize].push(call);
+            }
+        } else {
+            let idx = self.files.len() as u32;
+
+            self.files.push((file, idx));
+            self.calls.push(vec![call]);
+
+            self.files.sort_by(|(a, _), (b, _)| a.cmp(b));
+        }
+        debug_assert_eq!(self.files.len(), self.calls.len());
     }
 }
 
