@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2024 Christoph Sax <c_sax@mailbox.org>
 //
-// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-License-Identifier: EUPL-1.2
 
 use std::fmt;
 
@@ -15,7 +15,8 @@ use crate::{
     ls::lsp::Message,
     ls::request::{Notification, Request},
     ls::response::{
-        ErrorResponse, GoToDefinitionResponse, InitializeResponse, NullResponse, Response,
+        ErrorResponse, FindReferencesResponse, GoToDefinitionResponse, InitializeResponse,
+        NullResponse, Response,
     },
     protocol::{
         DefinitionParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
@@ -440,6 +441,11 @@ fn serialize_response(msg: Response) -> LineMessage {
     let (id, result, error): (Option<NumberOrString>, Option<Value>, Option<ResponseError>) =
         match msg {
             Response::ErrorResponse(ErrorResponse { id, error }) => (id, None, Some(error)),
+            Response::FindReferencesResponse(FindReferencesResponse { id, result }) => (
+                Some(id),
+                Some(serde_json::to_value(result).expect("Serialization must not fail.")),
+                None,
+            ),
             Response::GoToDefinitionResponse(GoToDefinitionResponse { id, result }) => (
                 Some(id),
                 Some(serde_json::to_value(result).expect("Serialization must not fail.")),

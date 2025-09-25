@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2024 Christoph Sax <c_sax@mailbox.org>
 //
-// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-License-Identifier: EUPL-1.2
 
 use std::ops::Range;
 
@@ -8,7 +8,7 @@ use tree_sitter::{Tree, TreeCursor};
 
 use crate::{
     ls::doc::{GlobalMacroDefIndex, TextDoc, TextDocData, TextDocs},
-    protocol::{LocationLink, Position, Range as LRange, Uri},
+    protocol::{Location, LocationLink, Position, Range as LRange, Uri},
     t32::{
         MacroDefinition, MacroDefinitionResult, NodeKind, Subroutine, get_goto_ref_ids,
         goto_external_macro_definition, goto_file, goto_macro_definition,
@@ -16,6 +16,19 @@ use crate::{
     },
     utils::BRange,
 };
+
+#[allow(dead_code)]
+#[derive(Debug)]
+pub enum FindReferencesResult {
+    Final(Vec<Location>),
+    ExternalMacro {
+        uri: Uri,
+        r#macro: String,
+        origin: LRange,
+        definitions: Vec<Location>,
+    },
+    FileTarget,
+}
 
 #[derive(Debug)]
 pub enum GotoDefinitionResult {
@@ -92,6 +105,11 @@ impl LocationLink {
 /// Retrieves definitions for `(macro)`, `(subroutine_call_expression)`, and
 /// `(command_expression)` nodes. `(command_expression)` nodes capture
 /// `DO` and `RUN` commands for subscripts calls.
+///   - Macros may have multiple definitions in other files due to the
+///     `LOCAL` keyword. `GLOBAL` macro definitions are ignored.
+///   - Subscript calls return the start of the script file.
+///   - Subroutine definitions are limited to the current file.
+///
 pub fn find_definition(textdoc: TextDocData, position: Position) -> Option<GotoDefinitionResult> {
     let offset = textdoc.doc.to_byte_offset(&position);
 
@@ -228,6 +246,8 @@ pub fn find_external_macro_definition(
         ..
     } = origin;
 
+    // TODO: `RUN` clears the PRACTICE stack, so it cannot propagate
+    // `LOCAL` macros.
     match goto_external_macro_definition(
         &textdoc.doc.text,
         &textdoc.tree,
@@ -310,6 +330,19 @@ pub fn find_global_macro_definitions(
         base += num;
     }
     links
+}
+
+/// Retrieves references for `(macro)`, `(subroutine_call_expression)`, and
+/// `(command_expression)` nodes. `(command_expression)` nodes capture
+/// `DO` and `RUN` commands for subscripts calls.
+///    - Macro references may be located in other files if `LOCAL` was used
+///      to define the macro.
+///    - Subroutine references are restricted to the current file.
+///    - Even though subscript calls should return all similar calls in other
+///      functions this is not covered here.
+///
+pub fn find_references(_textdoc: TextDocData, _position: Position) -> Option<FindReferencesResult> {
+    None
 }
 
 fn find_deepest_node<'a>(tree: &'a Tree, offset: usize, stop_at: &[u16]) -> Option<TreeCursor<'a>> {

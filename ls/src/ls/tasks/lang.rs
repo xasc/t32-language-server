@@ -1,23 +1,27 @@
 // SPDX-FileCopyrightText: 2024 Christoph Sax <c_sax@mailbox.org>
 //
-// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-License-Identifier: EUPL-1.2
 
 use crate::{
     ls::{
         ReturnCode,
         doc::{TextDocData, TextDocs},
         language::{
-            ExtMacroDefOrigin, GotoDefinitionResult, find_definition,
-            find_external_macro_definition, find_global_macro_definitions,
+            ExtMacroDefOrigin, FindReferencesResult, GotoDefinitionResult, find_definition,
+            find_external_macro_definition, find_global_macro_definitions, find_references,
         },
         lsp::Message,
-        response::{GoToDefinitionResponse, LocationResult, NullResponse, Response},
+        response::{
+            FindReferencesResponse, GoToDefinitionResponse, LocationResult, NullResponse, Response,
+        },
         tasks::{
-            ExtMacroDefLookups, FileCallMap, OngoingTask, Task, TaskDone, TaskProgress, Tasks,
-            find_ongoing_task_by_id, trace_doc_unknown, try_schedule,
+            ExtMacroDefLookups, FileCallMap, OngoingTask, Task, TaskDone, TaskPhasesFindReferences,
+            TaskProgress, Tasks, find_ongoing_task_by_id, trace_doc_unknown, try_schedule,
         },
     },
-    protocol::{DefinitionParams, LocationLink, NumberOrString, TraceValue, Uri},
+    protocol::{
+        DefinitionParams, Location, LocationLink, NumberOrString, ReferenceParams, TraceValue, Uri,
+    },
 };
 
 pub fn process_goto_definition_req(
@@ -69,6 +73,7 @@ pub fn process_goto_definition_result(
         Some(GotoDefinitionResult::Final(links)) => Some(LocationResult::ExtMeta(links)),
         Some(GotoDefinitionResult::PartialMacro(uri, r#macro, origin, links)) => {
             if let Some(callers) = docs.get_callers(&uri) {
+                // Queues the follow-up task for definitions in external files
                 goto_external_macro_def(
                     id.clone(),
                     ExtMacroDefOrigin {
@@ -83,7 +88,7 @@ pub fn process_goto_definition_result(
                 return None;
             }
 
-            if links.is_empty() {
+            if !links.is_empty() {
                 Some(LocationResult::ExtMeta(links))
             } else {
                 None
@@ -157,7 +162,6 @@ pub fn progress_goto_external_macro_def(
         progress,
         origin,
         undone,
-        visited,
         results,
         ..
     } = task
@@ -179,45 +183,85 @@ pub fn progress_goto_external_macro_def(
             id.clone(),
             results.clone(),
         )));
-    } else if progress.ready() {
-        if !undone.is_empty() {
-            let mut total: u32 = 0;
-            for (script, callee) in undone.files.iter().zip(undone.callees.iter()) {
-                if let Some(seen) = visited.get(script)
-                    && seen.contains(callee)
-                {
-                    continue;
-                }
-                total += 1;
-
-                let (doc, tree, t32) = docs.get_doc_data(script).unwrap();
-                let callers = match docs.get_callers(script) {
-                    Some(files) => files.clone(),
-                    None => Vec::new(),
-                };
-
-                outgoing.push(Task::GoToExternalMacroDef {
-                    id: id.clone(),
-                    textdoc: TextDocData {
-                        doc: doc.clone(),
-                        tree: tree.clone(),
-                        t32: t32.clone(),
-                    },
-                    callers: callers,
-                    origin: ExtMacroDefOrigin {
-                        uri: callee.clone(),
-                        ..origin.clone()
-                    },
-                    find: find_external_macro_definition,
-                });
-
-                visited.insert(script.clone(), callee.clone());
-            }
-            progress.total = total;
-        }
-        undone.clear();
+    } else if progress.ready() && !undone.is_empty() {
+        next_lookups_goto_external_macro_def(docs, task, outgoing);
     }
     Ok(())
+}
+
+fn next_lookups_goto_external_macro_def(
+    docs: &TextDocs,
+    task: &mut OngoingTask,
+    outgoing: &mut Vec<Task>,
+) {
+    let (id, origin, progress, undone, visited): (
+        &NumberOrString,
+        &ExtMacroDefOrigin,
+        &mut TaskProgress,
+        &mut ExtMacroDefLookups,
+        &mut FileCallMap,
+    ) = match task {
+        OngoingTask::GoToExternalMacroDef {
+            id,
+            progress,
+            origin,
+            undone,
+            visited,
+            ..
+        }
+        | OngoingTask::FindExternalMacroReferences {
+            id,
+            progress,
+            phase:
+                TaskPhasesFindReferences::FindExternalDefinitions {
+                    origin,
+                    visited,
+                    undone,
+                    ..
+                },
+            ..
+        } => {
+            if undone.is_empty() {
+                return;
+            }
+            (id, origin, progress, undone, visited)
+        }
+        _ => unreachable!("No other type supported."),
+    };
+
+    let mut total: u32 = 0;
+    for (script, callee) in undone.files.iter().zip(undone.callees.iter()) {
+        if let Some(seen) = visited.get(script)
+            && seen.contains(callee)
+        {
+            continue;
+        }
+        total += 1;
+
+        let (doc, tree, t32) = docs.get_doc_data(script).unwrap();
+        let callers = match docs.get_callers(script) {
+            Some(files) => files.clone(),
+            None => Vec::new(),
+        };
+
+        outgoing.push(Task::GoToExternalMacroDef {
+            id: id.clone(),
+            textdoc: TextDocData {
+                doc: doc.clone(),
+                tree: tree.clone(),
+                t32: t32.clone(),
+            },
+            callers: callers,
+            origin: ExtMacroDefOrigin {
+                uri: callee.clone(),
+                ..origin.clone()
+            },
+            find: find_external_macro_definition,
+        });
+        visited.insert(script.clone(), callee.clone());
+    }
+    progress.total = total;
+    undone.clear();
 }
 
 fn goto_external_macro_def(
@@ -258,8 +302,203 @@ fn goto_external_macro_def(
     ongoing.push(task);
 }
 
-pub fn process_find_references_req() -> Result<(), ReturnCode> {
+pub fn process_find_references_req(
+    id: NumberOrString,
+    params: ReferenceParams,
+    trace_level: TraceValue,
+    docs: &mut TextDocs,
+    ts: &mut Tasks,
+    outgoing: &mut Vec<Option<Message>>,
+) -> Result<(), ReturnCode> {
+    let (doc, tree, t32) = match docs.get_doc_data(&params.text_document.uri) {
+        Some((doc, tree, t32)) => (doc, tree, t32),
+        None => {
+            if trace_level != TraceValue::Off {
+                outgoing.push(Some(trace_doc_unknown(&params.text_document.uri)));
+            }
+            outgoing.push(Some(Message::Response(Response::NullResponse(
+                NullResponse { id },
+            ))));
+            return Ok(());
+        }
+    };
+
+    try_schedule(
+        &mut ts.runner,
+        Task::FindReferences(
+            id,
+            TextDocData {
+                doc: doc.clone(),
+                tree: tree.clone(),
+                t32: t32.clone(),
+            },
+            params.position,
+            find_references,
+        ),
+        &mut ts.ongoing,
+        &mut ts.blocked,
+    )?;
     Ok(())
+}
+
+pub fn process_find_references_result(
+    docs: &TextDocs,
+    id: &NumberOrString,
+    references: Option<FindReferencesResult>,
+    ts: &mut Tasks,
+) -> Option<FindReferencesResponse> {
+    let result = match references {
+        Some(FindReferencesResult::Final(refs)) => Some(refs),
+        Some(FindReferencesResult::ExternalMacro {
+            uri,
+            r#macro,
+            origin,
+            definitions,
+        }) => {
+            let origin = ExtMacroDefOrigin {
+                name: r#macro,
+                span: origin,
+                uri,
+            };
+            if let Some(callers) = docs.get_callers(&origin.uri) {
+                // Queues the follow-up task for definitions in external files.
+                find_external_definitions(
+                    id.clone(),
+                    origin,
+                    definitions,
+                    callers.clone(),
+                    &mut ts.ongoing,
+                );
+                return None;
+            }
+
+            if !definitions.is_empty() {
+                // Queues the follow-up task for all references in the file.
+                find_definition_references(id.clone(), origin, definitions, &mut ts.ongoing);
+                return None;
+            }
+            // TODO: Find implicit definition & references in file.
+            None
+        }
+        Some(FindReferencesResult::FileTarget) => None,
+        None => None,
+    };
+
+    Some(FindReferencesResponse {
+        id: id.clone(),
+        result,
+    })
+}
+
+pub fn progress_find_external_references(
+    docs: &TextDocs,
+    task: &mut OngoingTask,
+    outgoing: &mut Vec<Task>,
+    _done: &mut Vec<Option<TaskDone>>,
+) -> Result<(), ReturnCode> {
+    let OngoingTask::FindExternalMacroReferences {
+        progress, phase, ..
+    } = task
+    else {
+        unreachable!("No other variant is supported.");
+    };
+
+    match phase {
+        TaskPhasesFindReferences::FindExternalDefinitions {
+            origin,
+            definitions,
+            ..
+        } => {
+            if progress.finished() {
+                *phase = TaskPhasesFindReferences::FindReferences {
+                    origin: origin.clone(),
+                    definitions: definitions.clone(),
+                }
+            } else if progress.ready() {
+                next_lookups_goto_external_macro_def(docs, task, outgoing);
+            }
+        }
+        TaskPhasesFindReferences::FindReferences { .. } => {
+            if progress.finished() {
+                todo!();
+            } else if progress.ready() {
+                next_lookups_find_macro_references(docs, task, outgoing);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn find_external_definitions(
+    id: NumberOrString,
+    origin: ExtMacroDefOrigin,
+    definitions: Vec<Location>,
+    callers: Vec<Uri>,
+    ongoing: &mut Vec<OngoingTask>,
+) {
+    debug_assert!(callers.len() > 0);
+    let num = callers.len();
+
+    let (mut scripts, mut callees): (Vec<Uri>, Vec<Uri>) =
+        (Vec::with_capacity(num), Vec::with_capacity(num));
+
+    for file in callers {
+        scripts.push(file.clone());
+        callees.push(origin.uri.clone());
+    }
+
+    let idx = find_ongoing_task_by_id(&id, &ongoing);
+    let OngoingTask::FindReferences(_, onset) = &ongoing[idx] else {
+        unreachable!("No other type possible.");
+    };
+
+    let task = OngoingTask::FindExternalMacroReferences {
+        id,
+        onset: onset.clone(),
+        progress: TaskProgress::new(num as u32),
+        phase: TaskPhasesFindReferences::FindExternalDefinitions {
+            origin,
+            visited: FileCallMap::new(),
+            undone: ExtMacroDefLookups {
+                files: scripts,
+                callees,
+            },
+            definitions,
+        },
+        results: Vec::new(),
+    };
+    ongoing.push(task);
+}
+
+fn find_definition_references(
+    id: NumberOrString,
+    origin: ExtMacroDefOrigin,
+    definitions: Vec<Location>,
+    ongoing: &mut Vec<OngoingTask>,
+) {
+    let idx = find_ongoing_task_by_id(&id, &ongoing);
+    let OngoingTask::FindReferences(_, onset) = &ongoing[idx] else {
+        unreachable!("No other type possible.");
+    };
+
+    let task = OngoingTask::FindExternalMacroReferences {
+        id,
+        onset: onset.clone(),
+        progress: TaskProgress::new(1),
+        phase: TaskPhasesFindReferences::FindReferences {
+            origin,
+            definitions,
+        },
+        results: Vec::new(),
+    };
+    ongoing.push(task);
+}
+
+fn next_lookups_find_macro_references(
+    _docs: &TextDocs,
+    _task: &mut OngoingTask,
+    _outgoing: &mut Vec<Task>,
+) {
 }
 
 #[cfg(test)]
@@ -275,7 +514,10 @@ mod tests {
         let docs = TextDocs::new();
 
         let mut visited = FileCallMap::new();
-        visited.insert("file:///sample/a.cmm".to_string(), "file:///sample/b.cmm".to_string());
+        visited.insert(
+            "file:///sample/a.cmm".to_string(),
+            "file:///sample/b.cmm".to_string(),
+        );
 
         let mut task = OngoingTask::GoToExternalMacroDef {
             id: NumberOrString::Number(1),

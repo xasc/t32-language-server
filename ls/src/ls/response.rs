@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2024 Christoph Sax <c_sax@mailbox.org>
 //
-// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-License-Identifier: EUPL-1.2
 
 use serde::{Deserialize, Serialize};
 
@@ -20,21 +20,28 @@ use crate::{
 #[derive(Debug, Deserialize, Serialize)]
 pub enum Response {
     ErrorResponse(ErrorResponse),
+    FindReferencesResponse(FindReferencesResponse),
     GoToDefinitionResponse(GoToDefinitionResponse),
     InitializeResponse(InitializeResponse),
     NullResponse(NullResponse),
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct GoToDefinitionResponse {
-    pub id: NumberOrString,
-    pub result: Option<LocationResult>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
 pub struct ErrorResponse {
     pub id: Option<NumberOrString>,
     pub error: ResponseError,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct FindReferencesResponse {
+    pub id: NumberOrString,
+    pub result: Option<Vec<Location>>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct GoToDefinitionResponse {
+    pub id: NumberOrString,
+    pub result: Option<LocationResult>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

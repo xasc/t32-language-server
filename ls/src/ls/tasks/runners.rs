@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2024 Christoph Sax <c_sax@mailbox.org>
 //
-// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-License-Identifier: EUPL-1.2
 
 //! Task system with one queue per worker and task stealing. Based on
 //! this [talk](https://youtu.be/zULU6Hhp42w) from Sean Parent.
@@ -23,13 +23,13 @@ use crate::{
     config::Workspace,
     ls::{
         doc::{TextDoc, TextDocData},
-        language::GotoDefinitionResult,
+        language::{FindReferencesResult, GotoDefinitionResult},
         tasks::{ExtMacroDefOrigin, OngoingTaskHandle, RenameFileOperations},
         workspace::{FileIndex, ResolvedRenameFileOperations, WorkspaceMembers},
     },
     protocol::{
-        LocationLink, NumberOrString, Position, TextDocumentContentChangeEvent, TextDocumentItem,
-        Uri,
+        Location, LocationLink, NumberOrString, Position, TextDocumentContentChangeEvent,
+        TextDocumentItem, Uri,
     },
     t32::LangExpressions,
 };
@@ -40,6 +40,12 @@ pub enum Task {
         RenameFileOperations,
         FileIndex,
         fn(RenameFileOperations, &mut FileIndex) -> ResolvedRenameFileOperations,
+    ),
+    FindReferences(
+        NumberOrString,
+        TextDocData,
+        Position,
+        fn(TextDocData, Position) -> Option<FindReferencesResult>,
     ),
     GoToDefinition(
         NumberOrString,
@@ -91,6 +97,11 @@ pub enum Task {
 #[derive(Debug)]
 pub enum TaskDone {
     DidRenameFiles(ResolvedRenameFileOperations, FileIndex),
+
+    #[allow(dead_code)]
+    FindExternalReferences(NumberOrString, Vec<Location>),
+
+    FindReferences(NumberOrString, Option<FindReferencesResult>),
     GoToDefinition(NumberOrString, Option<GotoDefinitionResult>),
     GoToExternalMacroDef(NumberOrString, Vec<LocationLink>),
     GoToExternalMacroDefSync(NumberOrString, Option<GotoDefinitionResult>, Uri, Vec<Uri>),
@@ -242,6 +253,9 @@ impl TaskSystem {
             Task::DidRenameFiles(renamed, mut file_idx, rename_files) => {
                 let operations = rename_files(renamed, &mut file_idx);
                 TaskDone::DidRenameFiles(operations, file_idx)
+            }
+            Task::FindReferences(id, textdoc, loc, find) => {
+                TaskDone::FindReferences(id, find(textdoc, loc))
             }
             Task::GoToDefinition(id, textdoc, loc, find) => {
                 TaskDone::GoToDefinition(id, find(textdoc, loc))
