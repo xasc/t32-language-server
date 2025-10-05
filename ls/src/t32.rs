@@ -29,7 +29,7 @@ use std::ops::Range;
 
 use expressions::{
     defines_named_macro, find_all_references_for_subroutine, find_file_target,
-    find_macro_definition, find_subroutine_definition, locate_subscript,
+    find_macro_definition, find_subroutine, find_subroutine_definition, locate_subscript,
 };
 
 pub enum MacroDefinitionResult {
@@ -171,6 +171,29 @@ pub fn find_subroutine_call_references(
     }
 
     let Some(def) = find_subroutine_definition(text, subroutines, call) else {
+        return None;
+    };
+    Some(find_all_references_for_subroutine(text, &def, tree))
+}
+
+pub fn find_subroutine_references(
+    text: &str,
+    subroutines: &Vec<Subroutine>,
+    subroutine: TreeCursor,
+    tree: &Tree,
+) -> Option<Vec<Range<usize>>> {
+    debug_assert!(
+        subroutine.node().kind_id()
+            == NodeKind::SubroutineBlock.into_id(&subroutine.node().language())
+            || subroutine.node().kind_id()
+                == NodeKind::LabeledExpression.into_id(&subroutine.node().language())
+    );
+
+    if subroutine.node().end_byte() >= text.len() {
+        return None;
+    }
+
+    let Some(def) = find_subroutine(subroutines, &subroutine) else {
         return None;
     };
     Some(find_all_references_for_subroutine(text, &def, tree))

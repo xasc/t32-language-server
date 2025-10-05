@@ -4,15 +4,15 @@
 
 use std::ops::Range;
 
-use tree_sitter::{Tree, TreeCursor};
+use tree_sitter::{Node, Tree, TreeCursor};
 
 use crate::{
     ls::doc::{GlobalMacroDefIndex, TextDoc, TextDocData, TextDocs},
     protocol::{Location, LocationLink, Position, Range as LRange, Uri},
     t32::{
         MacroDefinition, MacroDefinitionResult, NodeKind, Subroutine,
-        find_subroutine_call_references, get_find_ref_ids, get_goto_def_ids,
-        goto_external_macro_definition, goto_file, goto_macro_definition,
+        find_subroutine_call_references, find_subroutine_references, get_find_ref_ids,
+        get_goto_def_ids, goto_external_macro_definition, goto_file, goto_macro_definition,
         goto_subroutine_definition, id_into_node,
     },
     utils::BRange,
@@ -356,7 +356,29 @@ pub fn find_references(textdoc: TextDocData, position: Position) -> Option<FindR
 
     match id_into_node(&lang, node.kind_id()) {
         NodeKind::CommandExpression => todo!(),
-        NodeKind::LabeledExpression => todo!(),
+        NodeKind::LabeledExpression => {
+            if !position_aligned_with_node_start(&position, &textdoc.doc, &node) {
+                return None;
+            }
+
+            if textdoc.t32.subroutines.is_none() {
+                return None;
+            }
+
+            let mut loc: Vec<Location> = Vec::new();
+            for r#ref in find_subroutine_references(
+                &textdoc.doc.text,
+                &textdoc.t32.subroutines.unwrap(),
+                origin,
+                &textdoc.tree,
+            )? {
+                loc.push(Location {
+                    uri: textdoc.doc.uri.clone(),
+                    range: textdoc.doc.to_range(r#ref.start, r#ref.end),
+                });
+            }
+            Some(FindReferencesResult::Final(loc))
+        }
         NodeKind::Macro => todo!(),
         NodeKind::SubroutineCallExpression => {
             if textdoc.t32.subroutines.is_none() {
@@ -378,12 +400,27 @@ pub fn find_references(textdoc: TextDocData, position: Position) -> Option<FindR
             Some(FindReferencesResult::Final(loc))
         }
         NodeKind::SubroutineBlock => {
-            let start = textdoc.doc.to_position(node.start_byte());
-            if start.line != position.line {
+            if !position_aligned_with_node_start(&position, &textdoc.doc, &node) {
                 return None;
             }
 
-            None
+            if textdoc.t32.subroutines.is_none() {
+                return None;
+            }
+
+            let mut loc: Vec<Location> = Vec::new();
+            for r#ref in find_subroutine_references(
+                &textdoc.doc.text,
+                &textdoc.t32.subroutines.unwrap(),
+                origin,
+                &textdoc.tree,
+            )? {
+                loc.push(Location {
+                    uri: textdoc.doc.uri.clone(),
+                    range: textdoc.doc.to_range(r#ref.start, r#ref.end),
+                });
+            }
+            Some(FindReferencesResult::Final(loc))
         }
         _ => None,
     }
@@ -405,6 +442,11 @@ fn find_deepest_node<'a>(tree: &'a Tree, offset: usize, stop_at: &[u16]) -> Opti
         }
     }
     sel
+}
+
+fn position_aligned_with_node_start(position: &Position, doc: &TextDoc, node: &Node) -> bool {
+    let start = doc.to_position(node.start_byte());
+    start.line == position.line
 }
 
 #[cfg(test)]
@@ -1563,6 +1605,94 @@ mod tests {
             },
         ]) {
             assert_eq!(loc, expected);
+        }
+    }
+
+    #[test]
+    fn can_find_references_for_subroutine_defintion() {
+        let uri =
+            Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
+                .unwrap()
+                .to_string();
+
+        for (loc, expected) in [
+            Position {
+                line: 113,
+                character: 11,
+            },
+            Position {
+                line: 80,
+                character: 0,
+            },
+        ]
+        .into_iter()
+        .zip([
+            [
+                Location {
+                    uri: uri.clone(),
+                    range: Range {
+                        start: Position {
+                            line: 113,
+                            character: 11,
+                        },
+                        end: Position {
+                            line: 113,
+                            character: 15,
+                        },
+                    },
+                },
+                Location {
+                    uri: uri.clone(),
+                    range: Range {
+                        start: Position {
+                            line: 110,
+                            character: 10,
+                        },
+                        end: Position {
+                            line: 110,
+                            character: 14,
+                        },
+                    },
+                },
+            ],
+            [
+                Location {
+                    uri: uri.clone(),
+                    range: Range {
+                        start: Position {
+                            line: 80,
+                            character: 0,
+                        },
+                        end: Position {
+                            line: 80,
+                            character: 4,
+                        },
+                    },
+                },
+                Location {
+                    uri: uri.clone(),
+                    range: Range {
+                        start: Position {
+                            line: 118,
+                            character: 6,
+                        },
+                        end: Position {
+                            line: 118,
+                            character: 10,
+                        },
+                    },
+                },
+            ],
+        ]) {
+            let refs = find_refs("tests/samples/a/a.cmm", loc);
+
+            let Some(FindReferencesResult::Final(refs)) = refs else {
+                panic!();
+            };
+
+            for (loc, expected) in refs.into_iter().zip(expected) {
+                assert_eq!(loc, expected);
+            }
         }
     }
 }

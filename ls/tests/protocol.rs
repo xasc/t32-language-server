@@ -428,18 +428,30 @@ fn supports_lang_goto_definition_request() {
 
 #[test]
 fn supports_lang_find_references_request() {
-    for ((dir, line, character), (start, end)) in [(
-        env::current_dir()
-            .unwrap()
-            .join("tests")
-            .join("samples")
-            .join("a")
-            .join("a.cmm"),
-        78,
-        8,
-    )]
+    for ((dir, line, character), (start, end)) in [
+        (
+            env::current_dir()
+                .unwrap()
+                .join("tests")
+                .join("samples")
+                .join("a")
+                .join("a.cmm"),
+            78,
+            8,
+        ),
+        (
+            env::current_dir()
+                .unwrap()
+                .join("tests")
+                .join("samples")
+                .join("a")
+                .join("a.cmm"),
+            125,
+            0,
+        ),
+    ]
     .into_iter()
-    .zip([((63, 11), (78, 6))])
+    .zip([((63, 11), (78, 6)), ((125, 0), (122, 10))])
     {
         let mut ls = utils::start_ls_with_workspace(&[
             &format!("--clientProcessId={}", process::id().to_string()),

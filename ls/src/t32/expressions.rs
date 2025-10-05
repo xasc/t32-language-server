@@ -287,6 +287,25 @@ pub fn find_subroutine_definition(
     None
 }
 
+pub fn find_subroutine<'a>(
+    subroutines: &'a Vec<Subroutine>,
+    cursor: &TreeCursor,
+) -> Option<&'a Subroutine> {
+    let node = cursor.node();
+
+    debug_assert!(
+        node.kind_id() == NodeKind::SubroutineBlock.into_id(&node.language())
+            || node.kind_id() == NodeKind::LabeledExpression.into_id(&node.language())
+    );
+
+    for subroutine in subroutines {
+        if subroutine.definition.contains(&node.start_byte()) {
+            return Some(subroutine);
+        }
+    }
+    None
+}
+
 pub fn find_file_target(calls: &SubscriptCalls, command: TreeCursor) -> Option<Uri> {
     debug_assert_eq!(
         command.node().kind_id(),
