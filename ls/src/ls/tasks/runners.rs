@@ -45,6 +45,7 @@ pub enum Task {
         NumberOrString,
         TextDocData,
         Position,
+        bool,
         fn(TextDocData, Position) -> Option<FindReferencesResult>,
     ),
     GoToDefinition(
@@ -254,7 +255,7 @@ impl TaskSystem {
                 let operations = rename_files(renamed, &mut file_idx);
                 TaskDone::DidRenameFiles(operations, file_idx)
             }
-            Task::FindReferences(id, textdoc, loc, find) => {
+            Task::FindReferences(id, textdoc, loc, _declaration_included, find) => {
                 TaskDone::FindReferences(id, find(textdoc, loc))
             }
             Task::GoToDefinition(id, textdoc, loc, find) => {

@@ -553,6 +553,7 @@ impl<'a> TextDocs {
         }
     }
 
+    // TODO: Calculate once and update on demand!?
     fn get_call_relations(&self) -> CallRelations {
         let mut targets: Vec<DocIndex> = Vec::new();
         let mut callers: Vec<Uri> = Vec::new();

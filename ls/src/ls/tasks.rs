@@ -127,9 +127,9 @@ pub struct RenameFileOperations {
 impl OngoingTask {
     fn get_id(&self) -> &NumberOrString {
         match self {
-            OngoingTask::GoToExternalMacroDef { id, .. } | OngoingTask::GoToDefinition(id, ..) => {
-                id
-            }
+            OngoingTask::FindReferences(id, ..)
+            | OngoingTask::GoToExternalMacroDef { id, .. }
+            | OngoingTask::GoToDefinition(id, ..) => id,
             _ => unreachable!("Other types have not ID field."),
         }
     }
@@ -138,8 +138,8 @@ impl OngoingTask {
         match self {
             OngoingTask::DidRenameFiles(onset) => onset,
             OngoingTask::FindExternalMacroReferences { onset, .. } => onset,
-            OngoingTask::FindReferences(.., onset) => onset,
-            OngoingTask::GoToExternalMacroDef { onset, .. }
+            OngoingTask::FindReferences(.., onset)
+            | OngoingTask::GoToExternalMacroDef { onset, .. }
             | OngoingTask::GoToDefinition(.., onset)
             | OngoingTask::TextDocUpdate { onset, .. } => onset,
         }
@@ -366,6 +366,9 @@ fn process_completed_task(
                         resp.result.clone(),
                     )));
                 }
+                outgoing.push(Some(Message::Response(Response::FindReferencesResponse(
+                    resp,
+                ))));
             }
         }
         TaskDone::GoToDefinition(id, goto_def) => {
@@ -679,9 +682,9 @@ fn find_ongoing_task_by_id(identifier: &NumberOrString, ongoing: &[OngoingTask])
     ongoing
         .iter()
         .position(|t| match t {
-            OngoingTask::GoToDefinition(id, ..) | OngoingTask::GoToExternalMacroDef { id, .. } => {
-                id == identifier
-            }
+            OngoingTask::FindReferences(id, ..)
+            | OngoingTask::GoToDefinition(id, ..)
+            | OngoingTask::GoToExternalMacroDef { id, .. } => id == identifier,
             _ => unreachable!("No other tasks can by selected by id."),
         })
         .expect("Must be a registered task.")

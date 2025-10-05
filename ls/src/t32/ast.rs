@@ -26,11 +26,7 @@ pub enum NodeKind {
     WhileBlock,
 }
 
-pub const GOTO_REF_SOURCES: [NodeKind; 3] = [
-    NodeKind::CommandExpression,
-    NodeKind::Macro,
-    NodeKind::SubroutineCallExpression,
-];
+const SUBROUTINES: [NodeKind; 2] = [NodeKind::LabeledExpression, NodeKind::SubroutineBlock];
 
 const BLOCK_OPENERS: [NodeKind; 6] = [
     NodeKind::Block,
@@ -39,6 +35,20 @@ const BLOCK_OPENERS: [NodeKind; 6] = [
     NodeKind::SubroutineBlock,
     NodeKind::LabeledExpression,
     NodeKind::RepeatBlock,
+];
+
+pub const FIND_REF_SOURCES: [NodeKind; 5] = [
+    NodeKind::CommandExpression,
+    NodeKind::LabeledExpression,
+    NodeKind::Macro,
+    NodeKind::SubroutineBlock,
+    NodeKind::SubroutineCallExpression,
+];
+
+pub const GOTO_DEF_SOURCES: [NodeKind; 3] = [
+    NodeKind::CommandExpression,
+    NodeKind::Macro,
+    NodeKind::SubroutineCallExpression,
 ];
 
 pub const KEYWORD_GOTO: &'static str = "GOTO";
@@ -65,8 +75,6 @@ pub const NODE_STRING: &'static str = "string";
 pub const NODE_SUBROUTINE_BLOCK: &'static str = "subroutine_block";
 pub const NODE_SUBROUTINE_CALL_EXPRESSION: &'static str = "subroutine_call_expression";
 pub const NODE_WHILE_BLOCK: &'static str = "while_block";
-
-const SUBROUTINES: [NodeKind; 2] = [NodeKind::LabeledExpression, NodeKind::SubroutineBlock];
 
 impl NodeKind {
     pub fn into_id(self, lang: &Language) -> u16 {

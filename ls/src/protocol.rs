@@ -2524,7 +2524,7 @@ pub struct DefinitionParams {
     pub partial_result_token: Option<NumberOrString>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Location {
     pub uri: DocumentUri,
     pub range: Range,
@@ -2554,20 +2554,18 @@ pub struct FileRename {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ReferenceParams {
-    #[allow(dead_code)]
     pub context: ReferenceContext,
-
-    #[allow(dead_code)]
     pub text_document: TextDocumentIdentifier,
-
-    #[allow(dead_code)]
     pub position: Position,
 
     #[allow(dead_code)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub work_done_token: Option<WorkDoneProgressParams>,
 
     #[allow(dead_code)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub partial_result_token: Option<NumberOrString>,
 }
 

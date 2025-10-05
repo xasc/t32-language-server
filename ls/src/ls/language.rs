@@ -10,7 +10,8 @@ use crate::{
     ls::doc::{GlobalMacroDefIndex, TextDoc, TextDocData, TextDocs},
     protocol::{Location, LocationLink, Position, Range as LRange, Uri},
     t32::{
-        MacroDefinition, MacroDefinitionResult, NodeKind, Subroutine, get_goto_ref_ids,
+        MacroDefinition, MacroDefinitionResult, NodeKind, Subroutine,
+        find_subroutine_call_references, get_find_ref_ids, get_goto_def_ids,
         goto_external_macro_definition, goto_file, goto_macro_definition,
         goto_subroutine_definition, id_into_node,
     },
@@ -114,7 +115,7 @@ pub fn find_definition(textdoc: TextDocData, position: Position) -> Option<GotoD
     let offset = textdoc.doc.to_byte_offset(&position);
 
     let lang = textdoc.tree.language();
-    let allowed_kinds = get_goto_ref_ids(&lang);
+    let allowed_kinds = get_goto_def_ids(&lang);
 
     let origin = find_deepest_node(&textdoc.tree, offset, &allowed_kinds)?;
 
@@ -182,6 +183,7 @@ pub fn find_definition(textdoc: TextDocData, position: Position) -> Option<GotoD
                 Range { start: 0, end: 1 },
             )]))
         }
+        // TODO: `GOSUB &macro` must look for macro definition instead of subroutine.
         NodeKind::SubroutineCallExpression => {
             let sub: Subroutine =
                 goto_subroutine_definition(&textdoc.doc.text, &textdoc.t32.subroutines?, origin)?;
@@ -206,9 +208,7 @@ pub fn find_definition(textdoc: TextDocData, position: Position) -> Option<GotoD
                 target_sel,
             )]))
         }
-        _ => {
-            unreachable!("No other node kinds can be traced back to definition. Must abort early.")
-        }
+        _ => None,
     }
 }
 
@@ -248,6 +248,7 @@ pub fn find_external_macro_definition(
 
     // TODO: `RUN` clears the PRACTICE stack, so it cannot propagate
     // `LOCAL` macros.
+    // TODO: Add support for `GOTO` → `(label)` transitions.
     match goto_external_macro_definition(
         &textdoc.doc.text,
         &textdoc.tree,
@@ -332,17 +333,60 @@ pub fn find_global_macro_definitions(
     links
 }
 
-/// Retrieves references for `(macro)`, `(subroutine_call_expression)`, and
-/// `(command_expression)` nodes. `(command_expression)` nodes capture
-/// `DO` and `RUN` commands for subscripts calls.
+/// Retrieves references for `(macro)`, `(subroutine_call_expression)`,
+/// `(labeled_expression)`, `(subroutine_block)`, and `(command_expression)`
+/// nodes.
 ///    - Macro references may be located in other files if `LOCAL` was used
 ///      to define the macro.
 ///    - Subroutine references are restricted to the current file.
-///    - Even though subscript calls should return all similar calls in other
-///      functions this is not covered here.
+///    - Subscript calls should return all similar calls in other script files.
+///      Similarly, for all other commands the instances in other files should
+///      be included. Both are not covered here.
 ///
-pub fn find_references(_textdoc: TextDocData, _position: Position) -> Option<FindReferencesResult> {
-    None
+/// TODO: Add support for `(label)` → `GOTO` transitions.
+///
+pub fn find_references(textdoc: TextDocData, position: Position) -> Option<FindReferencesResult> {
+    let offset = textdoc.doc.to_byte_offset(&position);
+
+    let lang = textdoc.tree.language();
+    let allowed_kinds = get_find_ref_ids(&lang);
+
+    let origin = find_deepest_node(&textdoc.tree, offset, &allowed_kinds)?;
+    let node = origin.node();
+
+    match id_into_node(&lang, node.kind_id()) {
+        NodeKind::CommandExpression => todo!(),
+        NodeKind::LabeledExpression => todo!(),
+        NodeKind::Macro => todo!(),
+        NodeKind::SubroutineCallExpression => {
+            if textdoc.t32.subroutines.is_none() {
+                return None;
+            }
+
+            let mut loc: Vec<Location> = Vec::new();
+            for r#ref in find_subroutine_call_references(
+                &textdoc.doc.text,
+                &textdoc.t32.subroutines.unwrap(),
+                origin,
+                &textdoc.tree,
+            )? {
+                loc.push(Location {
+                    uri: textdoc.doc.uri.clone(),
+                    range: textdoc.doc.to_range(r#ref.start, r#ref.end),
+                });
+            }
+            Some(FindReferencesResult::Final(loc))
+        }
+        NodeKind::SubroutineBlock => {
+            let start = textdoc.doc.to_position(node.start_byte());
+            if start.line != position.line {
+                return None;
+            }
+
+            None
+        }
+        _ => None,
+    }
 }
 
 fn find_deepest_node<'a>(tree: &'a Tree, offset: usize, stop_at: &[u16]) -> Option<TreeCursor<'a>> {
@@ -356,7 +400,7 @@ fn find_deepest_node<'a>(tree: &'a Tree, offset: usize, stop_at: &[u16]) -> Opti
         }
 
         let id = node.kind_id();
-        if let Some(_) = stop_at.iter().find(|k| **k == id) {
+        if let Some(_) = stop_at.iter().find(|&&k| k == id) {
             sel = Some(cursor.clone());
         }
     }
@@ -437,6 +481,33 @@ mod tests {
         )
     }
 
+    fn find_refs(file: &str, position: Position) -> Option<FindReferencesResult> {
+        let uri = Url::from_file_path(path::absolute(file).expect("File must exist.")).unwrap();
+        let doc = TextDoc::try_from(uri).expect("Path must be valid.");
+        let file_idx = workspace::index_files(files());
+
+        let tree = t32::parse(doc.text.as_bytes(), None);
+
+        let macros = t32::find_macro_definitions(&doc.text, &tree);
+        let subroutines = t32::find_subroutines(&doc.text, &tree);
+        let parameters = t32::find_parameter_declarations(&doc.text, &tree);
+        let calls = resolve_call_expressions(&doc.text, &tree, &file_idx);
+
+        find_references(
+            TextDocData {
+                doc,
+                tree,
+                t32: LangExpressions {
+                    macros,
+                    subroutines,
+                    calls,
+                    parameters,
+                },
+            },
+            position,
+        )
+    }
+
     fn find_external_macro_def(
         file: &str,
         callers: Vec<Uri>,
@@ -488,7 +559,7 @@ mod tests {
         let _uri: Url = Url::from_file_path(path::absolute(file).unwrap()).unwrap();
 
         let GotoDefinitionResult::Final(loc) = loc.expect("Must not be empty.") else {
-            unreachable!();
+            panic!();
         };
 
         assert!(matches!(
@@ -548,7 +619,7 @@ mod tests {
         let _uri: Url = Url::from_file_path(path::absolute(file).unwrap()).unwrap();
 
         let GotoDefinitionResult::Final(loc) = loc.expect("Must not be empty.") else {
-            unreachable!();
+            panic!();
         };
         assert!(matches!(
             &loc[..],
@@ -607,7 +678,7 @@ mod tests {
         let _uri: Url = Url::from_file_path(path::absolute(file).unwrap()).unwrap();
 
         let GotoDefinitionResult::Final(loc) = loc.expect("Must not be empty.") else {
-            unreachable!();
+            panic!();
         };
         assert!(matches!(
             &loc[..],
@@ -666,7 +737,7 @@ mod tests {
         let _uri: Url = Url::from_file_path(path::absolute(file).unwrap()).unwrap();
 
         let GotoDefinitionResult::Final(loc) = loc.expect("Must not be empty.") else {
-            unreachable!();
+            panic!();
         };
         assert!(matches!(
             &loc[..],
@@ -725,7 +796,7 @@ mod tests {
         let _uri: Url = Url::from_file_path(path::absolute(file).unwrap()).unwrap();
 
         let GotoDefinitionResult::Final(loc) = loc.expect("Must not be empty.") else {
-            unreachable!();
+            panic!();
         };
         assert!(matches!(
             &loc[0],
@@ -1167,7 +1238,7 @@ mod tests {
         let _uri: Url = Url::from_file_path(path::absolute(file).unwrap()).unwrap();
 
         let GotoDefinitionResult::Final(loc) = loc.expect("Must not be empty.") else {
-            unreachable!();
+            panic!();
         };
         assert!(matches!(
             &loc[0],
@@ -1344,7 +1415,7 @@ mod tests {
             let (Some(GotoDefinitionResult::Final(loc)), successors) =
                 find_external_macro_def(job.0, job.1, job.2)
             else {
-                unreachable!();
+                panic!();
             };
 
             assert!(matches!(&loc[..], _link));
@@ -1430,5 +1501,68 @@ mod tests {
                 },
             }]
         ));
+    }
+
+    #[test]
+    fn can_find_references_for_subroutine_call() {
+        let refs = find_refs(
+            "tests/samples/a/a.cmm",
+            Position {
+                line: 67,
+                character: 10,
+            },
+        );
+
+        let Some(FindReferencesResult::Final(refs)) = refs else {
+            panic!();
+        };
+
+        let uri =
+            Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
+                .unwrap()
+                .to_string();
+        for (loc, expected) in refs.into_iter().zip([
+            Location {
+                uri: uri.clone(),
+                range: Range {
+                    start: Position {
+                        line: 54,
+                        character: 11,
+                    },
+                    end: Position {
+                        line: 54,
+                        character: 15,
+                    },
+                },
+            },
+            Location {
+                uri: uri.clone(),
+                range: Range {
+                    start: Position {
+                        line: 67,
+                        character: 10,
+                    },
+                    end: Position {
+                        line: 67,
+                        character: 14,
+                    },
+                },
+            },
+            Location {
+                uri: uri.clone(),
+                range: Range {
+                    start: Position {
+                        line: 75,
+                        character: 10,
+                    },
+                    end: Position {
+                        line: 75,
+                        character: 14,
+                    },
+                },
+            },
+        ]) {
+            assert_eq!(loc, expected);
+        }
     }
 }

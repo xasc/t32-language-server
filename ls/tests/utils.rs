@@ -215,6 +215,28 @@ fn make_shutdown_request(id: isize) -> String {
 }
 
 #[allow(dead_code)]
+pub fn make_find_references_request(id: isize, uri: Url, line: u32, character: u32) -> String {
+    let content = json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "method": "textDocument/references",
+        "params": {
+            "textDocument": {
+                "uri": uri.to_string(),
+            },
+            "position": {
+                "line": line,
+                "character": character,
+            },
+            "context": {
+                "includeDeclaration": false,
+            },
+        }
+    });
+    build_msg(&content.to_string())
+}
+
+#[allow(dead_code)]
 pub fn make_goto_definition_request(id: isize, uri: Url, line: u32, character: u32) -> String {
     let content = json!({
         "jsonrpc": "2.0",

@@ -780,6 +780,51 @@ pub fn defines_named_macro(text: &str, t32: &LangExpressions, name: &str) -> boo
     }
 }
 
+pub fn find_all_references_for_subroutine(
+    text: &str,
+    subroutine: &Subroutine,
+    tree: &Tree,
+) -> Vec<Range<usize>> {
+    let mut refs: Vec<Range<usize>> = vec![subroutine.name.clone()];
+
+    let name = &text[subroutine.name.clone()];
+    debug_assert!(name.len() > 0);
+
+    let mut cursor = tree.walk();
+    if !cursor.goto_first_child() {
+        return refs;
+    }
+
+    let node = cursor.node();
+    let lang = node.language();
+
+    let block_openers = get_block_opener_ids(&lang);
+    let id_call = NodeKind::SubroutineCallExpression.into_id(&lang);
+
+    'outer: loop {
+        let node = cursor.node();
+        let id = node.kind_id();
+
+        if id == id_call {
+            if let Some(r#ref) = matches_call_to_subroutine(text, name, &mut cursor) {
+                refs.push(r#ref);
+            }
+            debug_assert_eq!(cursor.node().kind_id(), id_call);
+        } else if block_openers.contains(&id) {
+            if cursor.goto_first_child() {
+                continue;
+            }
+        }
+
+        while !cursor.goto_next_sibling() {
+            if !cursor.goto_parent() {
+                break 'outer;
+            }
+        }
+    }
+    refs
+}
+
 /// Find PRACTICE macro definitions in a parent block relative to the origin node. Any
 /// explicit macro type (`PRIVATE`, `LOCAL`, `GLOBAL`) works.
 fn find_explicit_macro_def(
@@ -1489,6 +1534,60 @@ fn extract_subroutine_call(cursor: &mut TreeCursor) -> Option<CallExpression> {
         NodeKind::SubroutineCallExpression.into_id(&cursor.node().language())
     );
 
+    let Some(target) = goto_subroutine_call_target(cursor) else {
+        return None;
+    };
+    let span = target.byte_range();
+
+    debug_assert_eq!(
+        target.kind_id(),
+        node_into_id(&target.language(), NodeKind::Identifier)
+    );
+    cursor.goto_parent();
+
+    Some(CallExpression {
+        target: span,
+        call: call.byte_range(),
+        docstring: None,
+    })
+}
+
+fn matches_call_to_subroutine(
+    text: &str,
+    name: &str,
+    cursor: &mut TreeCursor,
+) -> Option<Range<usize>> {
+    let call = cursor.node();
+
+    debug_assert_eq!(
+        call.kind_id(),
+        NodeKind::SubroutineCallExpression.into_id(&cursor.node().language())
+    );
+
+    let Some(target) = goto_subroutine_call_target(cursor) else {
+        return None;
+    };
+    let span = target.byte_range();
+
+    debug_assert_eq!(
+        target.kind_id(),
+        node_into_id(&target.language(), NodeKind::Identifier)
+    );
+
+    cursor.goto_parent();
+
+    if &text[span.clone()] != name {
+        return None;
+    }
+    Some(span)
+}
+
+fn goto_subroutine_call_target<'a>(cursor: &'a mut TreeCursor) -> Option<Node<'a>> {
+    debug_assert_eq!(
+        cursor.node().kind_id(),
+        NodeKind::SubroutineCallExpression.into_id(&cursor.node().language())
+    );
+
     if !cursor.goto_first_child() {
         return None;
     }
@@ -1508,14 +1607,7 @@ fn extract_subroutine_call(cursor: &mut TreeCursor) -> Option<CallExpression> {
         target.kind_id(),
         node_into_id(&cursor.node().language(), NodeKind::Identifier)
     );
-
-    cursor.goto_parent();
-
-    Some(CallExpression {
-        target: target.byte_range(),
-        call: call.byte_range(),
-        docstring: None,
-    })
+    Some(target)
 }
 
 fn extract_script_call(text: &str, cursor: &mut TreeCursor) -> Option<CallExpression> {

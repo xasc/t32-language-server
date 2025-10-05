@@ -25,9 +25,11 @@ pub use expressions::{
     find_external_macro_definition as goto_external_macro_definition,
 };
 
+use std::ops::Range;
+
 use expressions::{
-    defines_named_macro, find_file_target, find_macro_definition, find_subroutine_definition,
-    locate_subscript,
+    defines_named_macro, find_all_references_for_subroutine, find_file_target,
+    find_macro_definition, find_subroutine_definition, locate_subscript,
 };
 
 pub enum MacroDefinitionResult {
@@ -67,9 +69,17 @@ pub fn parse(text: &[u8], incremental: Option<&Tree>) -> Tree {
         .expect("TRACE32 script parser must not fail.")
 }
 
-pub fn get_goto_ref_ids(lang: &Language) -> [u16; 3] {
+pub fn get_goto_def_ids(lang: &Language) -> [u16; 3] {
     let mut ids = [0u16; 3];
-    for (ii, &node) in ast::GOTO_REF_SOURCES.iter().enumerate() {
+    for (ii, &node) in ast::GOTO_DEF_SOURCES.iter().enumerate() {
+        ids[ii] = ast::node_into_id(&lang, node);
+    }
+    ids
+}
+
+pub fn get_find_ref_ids(lang: &Language) -> [u16; 5] {
+    let mut ids = [0u16; 5];
+    for (ii, &node) in ast::FIND_REF_SOURCES.iter().enumerate() {
         ids[ii] = ast::node_into_id(&lang, node);
     }
     ids
@@ -143,4 +153,25 @@ pub fn resolve_subscript_call_targets(
     } else {
         None
     }
+}
+
+pub fn find_subroutine_call_references(
+    text: &str,
+    subroutines: &Vec<Subroutine>,
+    call: TreeCursor,
+    tree: &Tree,
+) -> Option<Vec<Range<usize>>> {
+    debug_assert_eq!(
+        call.node().kind_id(),
+        NodeKind::SubroutineCallExpression.into_id(&call.node().language()),
+    );
+
+    if call.node().end_byte() >= text.len() {
+        return None;
+    }
+
+    let Some(def) = find_subroutine_definition(text, subroutines, call) else {
+        return None;
+    };
+    Some(find_all_references_for_subroutine(text, &def, tree))
 }

@@ -333,6 +333,7 @@ pub fn process_find_references_req(
                 t32: t32.clone(),
             },
             params.position,
+            params.context.include_declaration,
             find_references,
         ),
         &mut ts.ongoing,
