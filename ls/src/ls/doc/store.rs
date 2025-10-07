@@ -759,8 +759,8 @@ mod test {
     use crate::{
         ls::{
             doc::{
-                find_macro_definitions, find_parameter_declarations, find_subroutines, read_doc,
-                textdoc::create_line_map_for_text,
+                find_macro_definitions, find_parameter_declarations, find_subroutines_and_labels,
+                read_doc, textdoc::create_line_map_for_text,
             },
             workspace::{FileIndex, index_files, rename_files},
         },
@@ -821,7 +821,7 @@ mod test {
         let tree = t32::parse(text.as_bytes(), None);
 
         let macros = find_macro_definitions(&doc.text, &tree);
-        let subroutines = find_subroutines(&doc.text, &tree);
+        let (subroutines, labels) = find_subroutines_and_labels(&doc.text, &tree);
         let parameters = find_parameter_declarations(&doc.text, &tree);
         let calls = CallExpressions {
             subroutines: Vec::new(),
@@ -836,6 +836,7 @@ mod test {
                 subroutines,
                 calls,
                 parameters,
+                labels,
             },
         )
     }

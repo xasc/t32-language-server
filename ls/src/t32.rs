@@ -13,23 +13,23 @@ use crate::{ls::FileIndex, protocol::Uri};
 
 pub use ast::{NodeKind, id_into_node};
 pub use expressions::{
-    CallExpression, CallExpressions, CallLocations, MacroDefinition, MacroDefinitions,
-    ParameterDeclaration, Subroutine, SubscriptCalls,
+    CallExpression, CallExpressions, CallLocations, Label, MacroDefinition,
+    MacroDefinitions, ParameterDeclaration, Subroutine, SubscriptCalls,
 };
 
 pub use expressions::{
     find_all_call_expressions as find_call_expressions,
     find_all_macro_definitions as find_macro_definitions,
     find_all_parameter_declarations as find_parameter_declarations,
-    find_all_subroutines as find_subroutines,
+    find_all_subroutines_and_labels as find_subroutines_and_labels,
     find_external_macro_definition as goto_external_macro_definition,
 };
 
 use std::ops::Range;
 
 use expressions::{
-    defines_named_macro, find_all_references_for_subroutine, find_file_target,
-    find_macro_definition, find_subroutine, find_subroutine_definition, locate_subscript,
+    defines_named_macro, find_all_references_for_subroutine, find_all_references_for_label, find_file_target,
+    find_label, find_macro_definition, find_subroutine, find_call_target_definition, locate_subscript,
 };
 
 pub enum MacroDefinitionResult {
@@ -41,9 +41,10 @@ pub enum MacroDefinitionResult {
 #[derive(Clone, Debug)]
 pub struct LangExpressions {
     pub macros: MacroDefinitions,
-    pub subroutines: Option<Vec<Subroutine>>,
+    pub subroutines: Vec<Subroutine>,
     pub calls: CallExpressions,
-    pub parameters: Option<Vec<ParameterDeclaration>>,
+    pub parameters: Vec<ParameterDeclaration>,
+    pub labels: Vec<Label>,
 }
 
 /// Use same language ID as [PRACTICE extension for Visual Studio
@@ -124,7 +125,7 @@ pub fn goto_subroutine_definition(
     if call.node().end_byte() >= text.len() {
         return None;
     }
-    find_subroutine_definition(text, subroutines, call)
+    find_call_target_definition(text, subroutines, call)
 }
 
 pub fn goto_file(text: &str, calls: &SubscriptCalls, command: TreeCursor) -> Option<Uri> {
@@ -170,7 +171,7 @@ pub fn find_subroutine_call_references(
         return None;
     }
 
-    let Some(def) = find_subroutine_definition(text, subroutines, call) else {
+    let Some(def) = find_call_target_definition(text, subroutines, call) else {
         return None;
     };
     Some(find_all_references_for_subroutine(text, &def, tree))
@@ -179,7 +180,7 @@ pub fn find_subroutine_call_references(
 pub fn find_subroutine_references(
     text: &str,
     subroutines: &Vec<Subroutine>,
-    subroutine: TreeCursor,
+    subroutine: &TreeCursor,
     tree: &Tree,
 ) -> Option<Vec<Range<usize>>> {
     debug_assert!(
@@ -197,4 +198,22 @@ pub fn find_subroutine_references(
         return None;
     };
     Some(find_all_references_for_subroutine(text, &def, tree))
+}
+
+pub fn find_label_references(
+    text: &str,
+    labels: &Vec<Label>,
+    label: &TreeCursor,
+    tree: &Tree,
+) -> Option<Vec<Range<usize>>> {
+    debug_assert_eq!(label.node().kind_id(), NodeKind::LabeledExpression.into_id(&label.node().language()));
+
+    if label.node().end_byte() >= text.len() {
+        return None;
+    }
+
+    let Some(label) = find_label(labels, label) else {
+        return None;
+    };
+    Some(find_all_references_for_label(text, label, tree))
 }

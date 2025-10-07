@@ -157,3 +157,5 @@ subO:
 
 labelA:
     Data.In D:0x8000
+
+GOTO labelA

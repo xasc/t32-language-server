@@ -11,9 +11,9 @@ use crate::{
     protocol::{Location, LocationLink, Position, Range as LRange, Uri},
     t32::{
         MacroDefinition, MacroDefinitionResult, NodeKind, Subroutine,
-        find_subroutine_call_references, find_subroutine_references, get_find_ref_ids,
-        get_goto_def_ids, goto_external_macro_definition, goto_file, goto_macro_definition,
-        goto_subroutine_definition, id_into_node,
+        find_label_references, find_subroutine_call_references, find_subroutine_references,
+        get_find_ref_ids, get_goto_def_ids, goto_external_macro_definition, goto_file,
+        goto_macro_definition, goto_subroutine_definition, id_into_node,
     },
     utils::BRange,
 };
@@ -186,7 +186,7 @@ pub fn find_definition(textdoc: TextDocData, position: Position) -> Option<GotoD
         // TODO: `GOSUB &macro` must look for macro definition instead of subroutine.
         NodeKind::SubroutineCallExpression => {
             let sub: Subroutine =
-                goto_subroutine_definition(&textdoc.doc.text, &textdoc.t32.subroutines?, origin)?;
+                goto_subroutine_definition(&textdoc.doc.text, &textdoc.t32.subroutines, origin)?;
             let (target_range, target_sel) = if let Some(docstring) = sub.docstring {
                 let start: Range<usize> = Range {
                     start: docstring.start,
@@ -361,17 +361,29 @@ pub fn find_references(textdoc: TextDocData, position: Position) -> Option<FindR
                 return None;
             }
 
-            if textdoc.t32.subroutines.is_none() {
+            if textdoc.t32.subroutines.is_empty() {
                 return None;
             }
 
             let mut loc: Vec<Location> = Vec::new();
-            for r#ref in find_subroutine_references(
+
+            let refs = if let Some(refs) = find_subroutine_references(
                 &textdoc.doc.text,
-                &textdoc.t32.subroutines.unwrap(),
-                origin,
+                &textdoc.t32.subroutines,
+                &origin,
                 &textdoc.tree,
-            )? {
+            ) {
+                Some(refs)
+            } else {
+                find_label_references(
+                    &textdoc.doc.text,
+                    &textdoc.t32.labels,
+                    &origin,
+                    &textdoc.tree,
+                )
+            };
+
+            for r#ref in refs? {
                 loc.push(Location {
                     uri: textdoc.doc.uri.clone(),
                     range: textdoc.doc.to_range(r#ref.start, r#ref.end),
@@ -381,14 +393,14 @@ pub fn find_references(textdoc: TextDocData, position: Position) -> Option<FindR
         }
         NodeKind::Macro => todo!(),
         NodeKind::SubroutineCallExpression => {
-            if textdoc.t32.subroutines.is_none() {
+            if textdoc.t32.subroutines.is_empty() {
                 return None;
             }
 
             let mut loc: Vec<Location> = Vec::new();
             for r#ref in find_subroutine_call_references(
                 &textdoc.doc.text,
-                &textdoc.t32.subroutines.unwrap(),
+                &textdoc.t32.subroutines,
                 origin,
                 &textdoc.tree,
             )? {
@@ -404,15 +416,15 @@ pub fn find_references(textdoc: TextDocData, position: Position) -> Option<FindR
                 return None;
             }
 
-            if textdoc.t32.subroutines.is_none() {
+            if textdoc.t32.subroutines.is_empty() {
                 return None;
             }
 
             let mut loc: Vec<Location> = Vec::new();
             for r#ref in find_subroutine_references(
                 &textdoc.doc.text,
-                &textdoc.t32.subroutines.unwrap(),
-                origin,
+                &textdoc.t32.subroutines,
+                &origin,
                 &textdoc.tree,
             )? {
                 loc.push(Location {
@@ -504,7 +516,7 @@ mod tests {
         let tree = t32::parse(doc.text.as_bytes(), None);
 
         let macros = t32::find_macro_definitions(&doc.text, &tree);
-        let subroutines = t32::find_subroutines(&doc.text, &tree);
+        let (subroutines, labels) = t32::find_subroutines_and_labels(&doc.text, &tree);
         let parameters = t32::find_parameter_declarations(&doc.text, &tree);
         let calls = resolve_call_expressions(&doc.text, &tree, &file_idx);
 
@@ -517,6 +529,7 @@ mod tests {
                     subroutines,
                     calls,
                     parameters,
+                    labels,
                 },
             },
             position,
@@ -531,7 +544,7 @@ mod tests {
         let tree = t32::parse(doc.text.as_bytes(), None);
 
         let macros = t32::find_macro_definitions(&doc.text, &tree);
-        let subroutines = t32::find_subroutines(&doc.text, &tree);
+        let (subroutines, labels) = t32::find_subroutines_and_labels(&doc.text, &tree);
         let parameters = t32::find_parameter_declarations(&doc.text, &tree);
         let calls = resolve_call_expressions(&doc.text, &tree, &file_idx);
 
@@ -544,6 +557,7 @@ mod tests {
                     subroutines,
                     calls,
                     parameters,
+                    labels,
                 },
             },
             position,
@@ -562,7 +576,7 @@ mod tests {
         let tree = t32::parse(doc.text.as_bytes(), None);
 
         let macros = t32::find_macro_definitions(&doc.text, &tree);
-        let subroutines = t32::find_subroutines(&doc.text, &tree);
+        let (subroutines, labels) = t32::find_subroutines_and_labels(&doc.text, &tree);
         let parameters = t32::find_parameter_declarations(&doc.text, &tree);
         let calls = resolve_call_expressions(&doc.text, &tree, &file_idx);
 
@@ -575,6 +589,7 @@ mod tests {
                     subroutines,
                     calls,
                     parameters,
+                    labels,
                 },
             },
             callers,
@@ -1693,6 +1708,56 @@ mod tests {
             for (loc, expected) in refs.into_iter().zip(expected) {
                 assert_eq!(loc, expected);
             }
+        }
+    }
+
+    #[test]
+    fn can_find_references_for_label() {
+        let refs = find_refs(
+            "tests/samples/a/a.cmm",
+            Position {
+                line: 157,
+                character: 3,
+            },
+        );
+
+        let Some(FindReferencesResult::Final(refs)) = refs else {
+            panic!();
+        };
+
+        let uri =
+            Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
+                .unwrap()
+                .to_string();
+        for (loc, expected) in refs.into_iter().zip([
+            Location {
+                uri: uri.clone(),
+                range: Range {
+                    start: Position {
+                        line: 157,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 157,
+                        character: 6,
+                    },
+                },
+            },
+            Location {
+                uri: uri.clone(),
+                range: Range {
+                    start: Position {
+                        line: 160,
+                        character: 5,
+                    },
+                    end: Position {
+                        line: 160,
+                        character: 11,
+                    },
+                },
+            },
+        ]) {
+            assert_eq!(loc, expected);
         }
     }
 }

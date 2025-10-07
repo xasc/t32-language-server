@@ -15,7 +15,7 @@ use crate::{
     t32::{
         self, CallExpression, CallExpressions, CallLocations, LangExpressions, SubscriptCalls,
         find_call_expressions, find_macro_definitions, find_parameter_declarations,
-        find_subroutines, resolve_subscript_call_targets,
+        find_subroutines_and_labels, resolve_subscript_call_targets,
     },
 };
 
@@ -27,7 +27,7 @@ pub fn import_doc(r#in: TextDocumentItem, files: FileIndex) -> (TextDoc, Tree, L
     let tree = t32::parse(doc.text.as_bytes(), None);
 
     let macros = find_macro_definitions(&doc.text, &tree);
-    let subroutines = find_subroutines(&doc.text, &tree);
+    let (subroutines, labels) = find_subroutines_and_labels(&doc.text, &tree);
     let parameters = find_parameter_declarations(&doc.text, &tree);
     let calls = resolve_call_expressions(&doc.text, &tree, &files);
 
@@ -39,6 +39,7 @@ pub fn import_doc(r#in: TextDocumentItem, files: FileIndex) -> (TextDoc, Tree, L
             subroutines,
             calls,
             parameters,
+            labels,
         },
     )
 }
@@ -57,7 +58,7 @@ pub fn update_doc(
     }
 
     let macros = find_macro_definitions(&doc.text, &tree);
-    let subroutines = find_subroutines(&doc.text, &tree);
+    let (subroutines, labels) = find_subroutines_and_labels(&doc.text, &tree);
     let parameters = find_parameter_declarations(&doc.text, &tree);
     let calls = resolve_call_expressions(&doc.text, &tree, &files);
 
@@ -69,6 +70,7 @@ pub fn update_doc(
             subroutines,
             calls,
             parameters,
+            labels,
         },
     )
 }
@@ -82,7 +84,7 @@ pub fn read_doc(r#in: Url, files: FileIndex) -> Result<(TextDoc, Tree, LangExpre
     let tree = t32::parse(doc.text.as_bytes(), None);
 
     let macros = find_macro_definitions(&doc.text, &tree);
-    let subroutines = find_subroutines(&doc.text, &tree);
+    let (subroutines, labels) = find_subroutines_and_labels(&doc.text, &tree);
     let parameters = find_parameter_declarations(&doc.text, &tree);
     let calls = resolve_call_expressions(&doc.text, &tree, &files);
 
@@ -94,6 +96,7 @@ pub fn read_doc(r#in: Url, files: FileIndex) -> Result<(TextDoc, Tree, LangExpre
             subroutines,
             calls,
             parameters,
+            labels,
         },
     ))
 }
@@ -203,13 +206,11 @@ mod test {
         let (doc, _, LangExpressions { subroutines, .. }) =
             read_doc(file, file_idx).expect("Must not fail.");
 
-        assert!(!subroutines.clone().is_none_or(|s| s.is_empty()));
+        assert!(!subroutines.clone().is_empty());
 
         for name in ["subA", "subB"].iter() {
             assert!(
                 subroutines
-                    .as_ref()
-                    .unwrap()
                     .iter()
                     .find_map(|s| (doc.text[s.name.clone()] == **name).then_some(()))
                     .is_some()
@@ -228,13 +229,11 @@ mod test {
         let (doc, _, LangExpressions { subroutines, .. }) =
             read_doc(file, file_idx).expect("Must not fail.");
 
-        assert!(!subroutines.clone().is_none_or(|s| s.is_empty()));
+        assert!(!subroutines.clone().is_empty());
 
         for name in ["subN", "subO"].iter() {
             assert!(
                 subroutines
-                    .as_ref()
-                    .unwrap()
                     .iter()
                     .find_map(|s| (doc.text[s.name.clone()] == **name).then_some(()))
                     .is_some()
@@ -337,19 +336,15 @@ mod test {
         let (doc, _, LangExpressions { parameters, .. }) =
             read_doc(file, file_idx).expect("Must not fail.");
 
-        assert!(!parameters.clone().is_none_or(|s| s.is_empty()));
+        assert!(!parameters.is_empty());
         assert!(
             parameters
-                .as_ref()
-                .unwrap()
                 .iter()
                 .find_map(|s| (doc.text[s.r#macro.clone()] == *"&b").then_some(()))
                 .is_some()
         );
         assert!(
             parameters
-                .as_ref()
-                .unwrap()
                 .iter()
                 .find_map(|s| (doc.text[s.r#macro.clone()] == *"&x").then_some(()))
                 .is_some()

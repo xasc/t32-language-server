@@ -119,6 +119,14 @@ pub enum MacroDefResolution {
     Aborted,
 }
 
+#[allow(dead_code)]
+#[derive(Clone, Debug)]
+pub struct Label {
+    pub name: Range<usize>,
+    pub expression: Range<usize>,
+    pub docstring: Option<Range<usize>>,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct MacroDefinition {
     pub cmd: Range<usize>,
@@ -263,7 +271,7 @@ pub fn find_external_macro_definition(
     eval_macro_definition_result(&r#macro, defs)
 }
 
-pub fn find_subroutine_definition(
+pub fn find_call_target_definition(
     text: &str,
     subroutines: &Vec<Subroutine>,
     mut call: TreeCursor,
@@ -301,6 +309,22 @@ pub fn find_subroutine<'a>(
     for subroutine in subroutines {
         if subroutine.definition.contains(&node.start_byte()) {
             return Some(subroutine);
+        }
+    }
+    None
+}
+
+pub fn find_label<'a>(labels: &'a Vec<Label>, cursor: &TreeCursor) -> Option<&'a Label> {
+    let node = cursor.node();
+
+    debug_assert!(
+        node.kind_id() == NodeKind::SubroutineBlock.into_id(&node.language())
+            || node.kind_id() == NodeKind::LabeledExpression.into_id(&node.language())
+    );
+
+    for label in labels {
+        if label.expression.contains(&node.start_byte()) {
+            return Some(label);
         }
     }
     None
@@ -384,20 +408,22 @@ pub fn find_all_macro_definitions(text: &str, tree: &Tree) -> MacroDefinitions {
     MacroDefinitions::build(privates, locals, globals)
 }
 
-pub fn find_all_subroutines(text: &str, tree: &Tree) -> Option<Vec<Subroutine>> {
+pub fn find_all_subroutines_and_labels(text: &str, tree: &Tree) -> (Vec<Subroutine>, Vec<Label>) {
     let id_subroutines = get_subroutine_ids(&tree.language());
 
     let lang = tree.language();
 
     let labeled_expr = NodeKind::LabeledExpression.into_id(&lang);
-    let _subroutine_block = NodeKind::SubroutineBlock.into_id(&lang);
+    let subroutine_block = NodeKind::SubroutineBlock.into_id(&lang);
+
+    let mut subroutines: Vec<Subroutine> = Vec::new();
+    let mut labels: Vec<Label> = Vec::new();
 
     let mut cursor = tree.walk();
     if !cursor.goto_first_child() {
-        return None;
+        return (subroutines, labels);
     }
 
-    let mut subroutines: Vec<Subroutine> = Vec::new();
     loop {
         let node = cursor.node();
         let id = node.kind_id();
@@ -406,17 +432,23 @@ pub fn find_all_subroutines(text: &str, tree: &Tree) -> Option<Vec<Subroutine>> 
             let subroutine = if id == labeled_expr {
                 try_extract_subroutine_def_from_label(text, &mut cursor)
             } else {
+                debug_assert_eq!(id, subroutine_block);
                 extract_subroutine_def(&mut cursor)
             };
             debug_assert!(id_subroutines.contains(&cursor.node().kind_id()));
 
-            if subroutine.is_some() {
-                let mut subroutine = subroutine.unwrap();
+            if let Some(mut subroutine) = subroutine {
                 let docstring = find_docstring(&mut cursor);
                 if docstring.is_some() {
                     subroutine.docstring = docstring;
                 }
                 subroutines.push(subroutine);
+            } else if let Some(mut label) = extract_label(&mut cursor) {
+                let docstring = find_docstring(&mut cursor);
+                if docstring.is_some() {
+                    label.docstring = docstring;
+                }
+                labels.push(label);
             }
             debug_assert!(id_subroutines.contains(&cursor.node().kind_id()));
         }
@@ -425,12 +457,7 @@ pub fn find_all_subroutines(text: &str, tree: &Tree) -> Option<Vec<Subroutine>> 
             break;
         }
     }
-
-    if subroutines.len() > 0 {
-        Some(subroutines)
-    } else {
-        None
-    }
+    (subroutines, labels)
 }
 
 pub fn find_all_call_expressions(text: &str, tree: &Tree) -> CallLocations {
@@ -517,13 +544,13 @@ pub fn find_all_call_expressions(text: &str, tree: &Tree) -> CallLocations {
 pub fn find_all_parameter_declarations(
     text: &str,
     tree: &Tree,
-) -> Option<Vec<ParameterDeclaration>> {
+) -> Vec<ParameterDeclaration> {
     let mut cursor = tree.walk();
 
     let mut parameters: Vec<ParameterDeclaration> = Vec::new();
 
     if !cursor.goto_first_child() {
-        return None;
+        return parameters;
     }
 
     let lang = tree.language();
@@ -562,11 +589,7 @@ pub fn find_all_parameter_declarations(
             }
         }
     }
-    if parameters.len() > 0 {
-        Some(parameters)
-    } else {
-        None
-    }
+    parameters
 }
 
 pub fn locate_subscript(
@@ -696,11 +719,11 @@ pub fn find_definition_for_macro_in_subroutine(
     name: &str,
     tree: &Tree,
 ) -> Option<Vec<MacroDefResolution>> {
-    debug_assert!(t32.subroutines.is_some());
+    debug_assert!(!t32.subroutines.is_empty());
 
-    let Some(subroutines) = &t32.subroutines else {
+    if t32.subroutines.is_empty() {
         return None;
-    };
+    }
 
     let calls = if t32.calls.subroutines.len() > 0 {
         &t32.calls.subroutines
@@ -741,7 +764,7 @@ pub fn find_definition_for_macro_in_subroutine(
         &subroutine.name,
         name,
         calls,
-        subroutines,
+        &t32.subroutines,
         tree,
     );
 
@@ -784,8 +807,8 @@ pub fn defines_named_macro(text: &str, t32: &LangExpressions, name: &str) -> boo
         return true;
     }
 
-    if let Some(parameters) = &t32.parameters
-        && parameters.iter().any(|m| text[m.r#macro.clone()] == *name)
+    if !t32.parameters.is_empty()
+        && t32.parameters.iter().any(|m| text[m.r#macro.clone()] == *name)
     {
         return true;
     }
@@ -829,6 +852,55 @@ pub fn find_all_references_for_subroutine(
                 refs.push(r#ref);
             }
             debug_assert_eq!(cursor.node().kind_id(), id_call);
+        } else if block_openers.contains(&id) {
+            if cursor.goto_first_child() {
+                continue;
+            }
+        }
+
+        while !cursor.goto_next_sibling() {
+            if !cursor.goto_parent() {
+                break 'outer;
+            }
+        }
+    }
+    refs
+}
+
+pub fn find_all_references_for_label(
+    text: &str,
+    label: &Label,
+    tree: &Tree,
+) -> Vec<Range<usize>> {
+    let mut refs: Vec<Range<usize>> = vec![label.name.clone()];
+
+    let name = &text[label.name.clone()];
+    debug_assert!(name.len() > 0);
+
+    let mut cursor = tree.walk();
+
+    let node = cursor.node();
+    let lang = node.language();
+
+    let block_openers = get_block_opener_ids(&lang);
+    let command = NodeKind::CommandExpression.into_id(&lang);
+
+    if !cursor.goto_first_child() {
+        return refs;
+    }
+
+    'outer: loop {
+        let node = cursor.node();
+        let id = node.kind_id();
+
+        if id == command {
+            // TODO: Add support for `ON ERROR GOTO <label>`
+            if let Some(target) = extract_goto_target(text, &mut cursor)
+                && text[target.clone()] == *name
+            {
+                refs.push(target);
+            }
+            debug_assert_eq!(cursor.node().kind_id(), NodeKind::CommandExpression.into_id(&lang));
         } else if block_openers.contains(&id) {
             if cursor.goto_first_child() {
                 continue;
@@ -1545,6 +1617,35 @@ fn try_extract_subroutine_def_from_label(
     None
 }
 
+fn extract_label(
+    cursor: &mut TreeCursor,
+) -> Option<Label> {
+    let expression = cursor.node();
+
+    debug_assert_eq!(
+        expression.kind_id(),
+        NodeKind::LabeledExpression.into_id(&cursor.node().language())
+    );
+
+    if !cursor.goto_first_child() {
+        return None;
+    }
+
+    debug_assert_eq!(
+        cursor.node().kind_id(),
+        NodeKind::Identifier.into_id(&cursor.node().language())
+    );
+
+    let name = cursor.node().byte_range();
+    cursor.goto_parent();
+
+    Some(Label {
+        name,
+        expression: expression.byte_range(),
+        docstring: None,
+    })
+}
+
 fn extract_subroutine_call(cursor: &mut TreeCursor) -> Option<CallExpression> {
     let call = cursor.node();
 
@@ -1634,7 +1735,7 @@ fn extract_script_call(text: &str, cursor: &mut TreeCursor) -> Option<CallExpres
 
     debug_assert_eq!(
         call.kind_id(),
-        NodeKind::CommandExpression.into_id(&cursor.node().language())
+        NodeKind::CommandExpression.into_id(&call.language())
     );
 
     if !cursor.goto_first_child() {
@@ -1667,6 +1768,37 @@ fn extract_script_call(text: &str, cursor: &mut TreeCursor) -> Option<CallExpres
         call: call.byte_range(),
         docstring: None,
     })
+}
+
+fn extract_goto_target(text: &str, cursor: &mut TreeCursor) -> Option<Range<usize>> {
+    let goto = cursor.node();
+
+    debug_assert_eq!(goto.kind_id(), NodeKind::CommandExpression.into_id(&goto.language()));
+
+    if !cursor.goto_first_child() {
+        return None;
+    }
+
+    debug_assert_eq!(
+        cursor.node().kind_id(),
+        node_into_id(&cursor.node().language(), NodeKind::Identifier)
+    );
+
+    let command = text[cursor.node().byte_range()].split(".").last()?;
+    if !(command.eq_ignore_ascii_case(KEYWORD_GOTO)
+         && cursor.goto_next_sibling())
+    {
+        cursor.goto_parent();
+        return None;
+    }
+
+    let mut target = cursor.node().byte_range();
+    while cursor.goto_next_sibling() {
+        target.end = cursor.node().end_byte();
+    }
+    cursor.goto_parent();
+
+    Some(target)
 }
 
 fn find_macro_scope(text: &str, cursor: &mut TreeCursor) -> Option<MacroScope> {
@@ -1735,14 +1867,10 @@ fn find_docstring(cursor: &mut TreeCursor) -> Option<Range<usize>> {
 }
 
 fn resides_in_subroutine(
-    subroutines: &Option<Vec<Subroutine>>,
+    subroutines: &Vec<Subroutine>,
     offset: usize,
 ) -> Option<&Subroutine> {
-    let Some(sub) = subroutines else {
-        return None;
-    };
-
-    sub.iter().find(|s| s.definition.contains(&offset))
+    subroutines.iter().find(|s| s.definition.contains(&offset))
 }
 
 fn goto_subroutine(tree: &Tree, offset: usize) -> TreeCursor<'_> {
