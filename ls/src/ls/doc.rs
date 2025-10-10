@@ -45,26 +45,25 @@ pub fn import_doc(r#in: TextDocumentItem, files: FileIndex) -> (TextDoc, Tree, L
 }
 
 pub fn update_doc(
-    mut doc: TextDoc,
-    mut tree: Tree,
+    mut textdoc: TextDocData,
     files: FileIndex,
     changes: Vec<TextDocumentContentChangeEvent>,
 ) -> (TextDoc, Tree, LangExpressions) {
     for change in changes {
-        let edits = doc.update(change.range, &change.text);
+        let edits = textdoc.doc.update(change.range, &change.text);
 
-        tree.edit(&edits);
-        t32::parse(doc.text.as_bytes(), Some(&tree));
+        textdoc.tree.edit(&edits);
+        t32::parse(textdoc.doc.text.as_bytes(), Some(&textdoc.tree));
     }
 
-    let macros = find_macro_definitions(&doc.text, &tree);
-    let (subroutines, labels) = find_subroutines_and_labels(&doc.text, &tree);
-    let parameters = find_parameter_declarations(&doc.text, &tree);
-    let calls = resolve_call_expressions(&doc.text, &tree, &files);
+    let macros = find_macro_definitions(&textdoc.doc.text, &textdoc.tree);
+    let (subroutines, labels) = find_subroutines_and_labels(&textdoc.doc.text, &textdoc.tree);
+    let parameters = find_parameter_declarations(&textdoc.doc.text, &textdoc.tree);
+    let calls = resolve_call_expressions(&textdoc.doc.text, &textdoc.tree, &files);
 
     (
-        doc,
-        tree,
+        textdoc.doc,
+        textdoc.tree,
         LangExpressions {
             macros,
             subroutines,

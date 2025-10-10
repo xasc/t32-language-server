@@ -5,7 +5,7 @@
 use crate::{
     ReturnCode,
     ls::{
-        doc::{TextDoc, TextDocs, import_doc, update_doc},
+        doc::{TextDoc, TextDocData, TextDocs, import_doc, update_doc},
         lsp::Message,
         response::{ErrorResponse, Response},
         tasks::{Task, Tasks, try_schedule},
@@ -34,7 +34,15 @@ pub fn process_doc_change_notif(
     };
     try_schedule(
         &mut ts.runner,
-        Task::TextDocEdit(doc, tree.clone(), files, params.content_changes, update_doc),
+        Task::TextDocEdit(
+            TextDocData {
+                doc,
+                tree: tree.clone(),
+            },
+            files,
+            params.content_changes,
+            update_doc,
+        ),
         &mut ts.ongoing,
         &mut ts.blocked,
     )

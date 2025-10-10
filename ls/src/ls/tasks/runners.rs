@@ -7,6 +7,7 @@
 
 use std::{
     collections::VecDeque,
+    ops::Range,
     sync::{
         Arc, Condvar, Mutex, TryLockError,
         atomic::{AtomicBool, AtomicU32, Ordering},
@@ -23,15 +24,18 @@ use crate::{
     config::Workspace,
     ls::{
         doc::{TextDoc, TextDocData},
-        language::{FindReferencesResult, GotoDefinitionResult},
+        language::{FindMacroReferencesResult, FindReferencesResult, GotoDefinitionResult},
         tasks::{ExtMacroDefOrigin, OngoingTaskHandle, RenameFileOperations},
         workspace::{FileIndex, ResolvedRenameFileOperations, WorkspaceMembers},
     },
     protocol::{
-        Location, LocationLink, NumberOrString, Position, TextDocumentContentChangeEvent,
-        TextDocumentItem, Uri,
+        LocationLink, NumberOrString, Position, TextDocumentContentChangeEvent, TextDocumentItem,
+        Uri,
     },
-    t32::LangExpressions,
+    t32::{
+        FindMacroRefsLangContext, FindRefsLangContext, GotoDefLangContext, LangExpressions,
+        MacroScope,
+    },
 };
 
 #[derive(Debug, Clone)]
@@ -41,26 +45,44 @@ pub enum Task {
         FileIndex,
         fn(RenameFileOperations, &mut FileIndex) -> ResolvedRenameFileOperations,
     ),
+    FindMacroDefinitionReferences(
+        NumberOrString,
+        TextDocData,
+        FindMacroRefsLangContext,
+        String,
+        Vec<(Range<usize>, Option<MacroScope>)>,
+        fn(
+            TextDocData,
+            FindMacroRefsLangContext,
+            String,
+            Vec<(Range<usize>, Option<MacroScope>)>,
+        ) -> FindMacroReferencesResult,
+    ),
     FindReferences(
         NumberOrString,
         TextDocData,
+        FindRefsLangContext,
         Position,
         bool,
-        fn(TextDocData, Position) -> Option<FindReferencesResult>,
+        fn(TextDocData, FindRefsLangContext, Position) -> Option<FindReferencesResult>,
     ),
+    _FindSubscriptMacroReferences(NumberOrString, TextDocData, FindMacroRefsLangContext),
     GoToDefinition(
         NumberOrString,
         TextDocData,
+        GotoDefLangContext,
         Position,
-        fn(TextDocData, Position) -> Option<GotoDefinitionResult>,
+        fn(TextDocData, GotoDefLangContext, Position) -> Option<GotoDefinitionResult>,
     ),
     GoToExternalMacroDef {
         id: NumberOrString,
         textdoc: TextDocData,
+        t32: GotoDefLangContext,
         callers: Vec<Uri>,
         origin: ExtMacroDefOrigin,
         find: fn(
             TextDocData,
+            GotoDefLangContext,
             Vec<Uri>,
             ExtMacroDefOrigin,
         ) -> (Option<GotoDefinitionResult>, Vec<Uri>),
@@ -71,13 +93,11 @@ pub enum Task {
         fn(TextDocumentItem, FileIndex) -> (TextDoc, Tree, LangExpressions),
     ),
     TextDocEdit(
-        TextDoc,
-        Tree,
+        TextDocData,
         FileIndex,
         Vec<TextDocumentContentChangeEvent>,
         fn(
-            TextDoc,
-            Tree,
+            TextDocData,
             FileIndex,
             Vec<TextDocumentContentChangeEvent>,
         ) -> (TextDoc, Tree, LangExpressions),
@@ -98,10 +118,7 @@ pub enum Task {
 #[derive(Debug)]
 pub enum TaskDone {
     DidRenameFiles(ResolvedRenameFileOperations, FileIndex),
-
-    #[allow(dead_code)]
-    FindExternalReferences(NumberOrString, Vec<Location>),
-
+    FindMacroDefinitionReferences(NumberOrString, FindMacroReferencesResult),
     FindReferences(NumberOrString, Option<FindReferencesResult>),
     GoToDefinition(NumberOrString, Option<GotoDefinitionResult>),
     GoToExternalMacroDef(NumberOrString, Vec<LocationLink>),
@@ -255,21 +272,28 @@ impl TaskSystem {
                 let operations = rename_files(renamed, &mut file_idx);
                 TaskDone::DidRenameFiles(operations, file_idx)
             }
-            Task::FindReferences(id, textdoc, loc, _declaration_included, find) => {
-                TaskDone::FindReferences(id, find(textdoc, loc))
+            Task::FindMacroDefinitionReferences(id, textdoc, t32, r#macro, range, find) => {
+                TaskDone::FindMacroDefinitionReferences(id, find(textdoc, t32, r#macro, range))
             }
-            Task::GoToDefinition(id, textdoc, loc, find) => {
-                TaskDone::GoToDefinition(id, find(textdoc, loc))
+            Task::FindReferences(id, textdoc, t32, loc, _declaration_included, find) => {
+                TaskDone::FindReferences(id, find(textdoc, t32, loc))
+            }
+            Task::_FindSubscriptMacroReferences(_id, _textdoc, _t32) => {
+                todo!()
+            }
+            Task::GoToDefinition(id, textdoc, t32, loc, find) => {
+                TaskDone::GoToDefinition(id, find(textdoc, t32, loc))
             }
             Task::GoToExternalMacroDef {
                 id,
                 textdoc,
+                t32,
                 callers,
                 origin,
                 find,
             } => {
                 let uri = textdoc.doc.uri.clone();
-                let defs = (find)(textdoc, callers, origin);
+                let defs = (find)(textdoc, t32, callers, origin);
 
                 TaskDone::GoToExternalMacroDefSync(id, defs.0, uri, defs.1)
             }
@@ -277,8 +301,8 @@ impl TaskSystem {
                 let (doc, tree, t32) = transform(doc, files);
                 TaskDone::TextDocNew(doc, tree, t32)
             }
-            Task::TextDocEdit(doc, tree, files, changes, update) => {
-                let (doc, tree, t32) = update(doc, tree, files, changes);
+            Task::TextDocEdit(textdoc, files, changes, update) => {
+                let (doc, tree, t32) = update(textdoc, files, changes);
                 TaskDone::TextDocEdit(doc, tree, t32)
             }
             Task::WorkspaceFileDiscovery(workspace, suffixes, locate) => {

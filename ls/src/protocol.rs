@@ -2499,13 +2499,13 @@ pub struct TextDocumentContentChangeEvent {
     pub text: String,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct Range {
     pub start: Position,
     pub end: Position,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct Position {
     pub line: u32,
     pub character: u32,

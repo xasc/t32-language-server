@@ -2,26 +2,29 @@
 //
 // SPDX-License-Identifier: EUPL-1.2
 
+use std::ops::Range;
+
 use crate::{
     ls::{
         ReturnCode,
         doc::{TextDocData, TextDocs},
         language::{
-            ExtMacroDefOrigin, FindReferencesResult, GotoDefinitionResult, find_definition,
-            find_external_macro_definition, find_global_macro_definitions, find_references,
+            ExtMacroDefOrigin, FileLocation, FindMacroReferencesResult,
+            FindReferencesPartialResult, FindReferencesResult, GotoDefinitionResult,
+            find_definition, find_external_macro_definition, find_global_macro_definitions,
+            find_macro_references, find_references,
         },
         lsp::Message,
         response::{
             FindReferencesResponse, GoToDefinitionResponse, LocationResult, NullResponse, Response,
         },
         tasks::{
-            ExtMacroDefLookups, FileCallMap, OngoingTask, Task, TaskDone, TaskPhasesFindReferences,
+            ExtMacroDefLookups, FileCallMap, FileLocationMap, OngoingTask, Task, TaskDone,
             TaskProgress, Tasks, find_ongoing_task_by_id, trace_doc_unknown, try_schedule,
         },
     },
-    protocol::{
-        DefinitionParams, Location, LocationLink, NumberOrString, ReferenceParams, TraceValue, Uri,
-    },
+    protocol::{DefinitionParams, LocationLink, NumberOrString, ReferenceParams, TraceValue, Uri},
+    t32::{FindMacroRefsLangContext, FindRefsLangContext, GotoDefLangContext, MacroScope},
 };
 
 pub fn process_goto_definition_req(
@@ -52,8 +55,8 @@ pub fn process_goto_definition_req(
             TextDocData {
                 doc: doc.clone(),
                 tree: tree.clone(),
-                t32: t32.clone(),
             },
+            GotoDefLangContext::from(t32.clone()),
             params.position,
             find_definition,
         ),
@@ -103,10 +106,10 @@ pub fn process_goto_definition_result(
     })
 }
 
-pub fn process_goto_external_macro_def_sync(
-    id: NumberOrString,
-    script: Uri,
-    defs: Option<GotoDefinitionResult>,
+pub fn recv_goto_external_macro_def_sync(
+    id: &NumberOrString,
+    script: &Uri,
+    sync: Option<GotoDefinitionResult>,
     mut callers: Vec<Uri>,
     ongoing: &mut Vec<OngoingTask>,
 ) {
@@ -123,7 +126,7 @@ pub fn process_goto_external_macro_def_sync(
 
     debug_assert_eq!(undone.files.len(), undone.callees.len());
 
-    if let Some(GotoDefinitionResult::PartialMacro(..)) = defs
+    if let Some(GotoDefinitionResult::PartialMacro(..)) = sync
         && !callers.is_empty()
     {
         callers
@@ -135,7 +138,7 @@ pub fn process_goto_external_macro_def_sync(
     }
     debug_assert_eq!(undone.files.len(), undone.callees.len());
 
-    if let Some(res) = defs {
+    if let Some(res) = sync {
         match res {
             GotoDefinitionResult::Final(mut loc)
             | GotoDefinitionResult::PartialMacro(_, _, _, mut loc) => {
@@ -208,18 +211,6 @@ fn next_lookups_goto_external_macro_def(
             undone,
             visited,
             ..
-        }
-        | OngoingTask::FindExternalMacroReferences {
-            id,
-            progress,
-            phase:
-                TaskPhasesFindReferences::FindExternalDefinitions {
-                    origin,
-                    visited,
-                    undone,
-                    ..
-                },
-            ..
         } => {
             if undone.is_empty() {
                 return;
@@ -249,8 +240,8 @@ fn next_lookups_goto_external_macro_def(
             textdoc: TextDocData {
                 doc: doc.clone(),
                 tree: tree.clone(),
-                t32: t32.clone(),
             },
+            t32: GotoDefLangContext::from(t32.clone()),
             callers: callers,
             origin: ExtMacroDefOrigin {
                 uri: callee.clone(),
@@ -330,8 +321,8 @@ pub fn process_find_references_req(
             TextDocData {
                 doc: doc.clone(),
                 tree: tree.clone(),
-                t32: t32.clone(),
             },
+            FindRefsLangContext::from(t32.clone()),
             params.position,
             params.context.include_declaration,
             find_references,
@@ -350,38 +341,45 @@ pub fn process_find_references_result(
 ) -> Option<FindReferencesResponse> {
     let result = match references {
         Some(FindReferencesResult::Final(refs)) => Some(refs),
-        Some(FindReferencesResult::ExternalMacro {
-            uri,
-            r#macro,
-            origin,
-            definitions,
-        }) => {
-            let origin = ExtMacroDefOrigin {
-                name: r#macro,
-                span: origin,
-                uri,
-            };
-            if let Some(callers) = docs.get_callers(&origin.uri) {
-                // Queues the follow-up task for definitions in external files.
-                find_external_definitions(
-                    id.clone(),
-                    origin,
-                    definitions,
-                    callers.clone(),
-                    &mut ts.ongoing,
-                );
-                return None;
-            }
+        Some(FindReferencesResult::Partial(partial)) => match partial {
+            FindReferencesPartialResult::MacroDefsComplete {
+                uri: _uri,
+                r#macro,
+                definitions,
+            } => {
+                debug_assert!(!definitions.is_empty());
 
-            if !definitions.is_empty() {
-                // Queues the follow-up task for all references in the file.
-                find_definition_references(id.clone(), origin, definitions, &mut ts.ongoing);
+                queue_find_macro_references_req(id.clone(), r#macro, definitions, &mut ts.ongoing);
                 return None;
             }
-            // TODO: Find implicit definition & references in file.
-            None
-        }
-        Some(FindReferencesResult::FileTarget) => None,
+            FindReferencesPartialResult::MacroDefsIncomplete {
+                uri,
+                r#macro,
+                definitions,
+            } => {
+                if let Some(callers) = docs.get_callers(&uri) {
+                    // Queues the follow-up task for definitions in external files.
+                    find_external_definitions(
+                        id.clone(),
+                        uri,
+                        r#macro,
+                        definitions,
+                        callers.clone(),
+                        &mut ts.ongoing,
+                    );
+                    return None;
+                }
+
+                if !definitions.is_empty() {
+                    // Queues the follow-up task for all references in the file.
+                    find_definition_references(id.clone(), r#macro, definitions, &mut ts.ongoing);
+                    return None;
+                }
+                // TODO: Find implicit definition & references in file.
+                None
+            }
+            FindReferencesPartialResult::FileTarget => todo!(),
+        },
         None => None,
     };
 
@@ -391,49 +389,74 @@ pub fn process_find_references_result(
     })
 }
 
-pub fn progress_find_external_references(
+pub fn progress_find_macro_def_references(
     docs: &TextDocs,
     task: &mut OngoingTask,
     outgoing: &mut Vec<Task>,
-    _done: &mut Vec<Option<TaskDone>>,
 ) -> Result<(), ReturnCode> {
-    let OngoingTask::FindExternalMacroReferences {
-        progress, phase, ..
+    let OngoingTask::FindMacroDefinitionReferences {
+        id,
+        onset,
+        progress,
+        r#macro,
+        undone,
+        ..
     } = task
     else {
         unreachable!("No other variant is supported.");
     };
 
-    match phase {
-        TaskPhasesFindReferences::FindExternalDefinitions {
-            origin,
-            definitions,
-            ..
-        } => {
-            if progress.finished() {
-                *phase = TaskPhasesFindReferences::FindReferences {
-                    origin: origin.clone(),
-                    definitions: definitions.clone(),
-                }
-            } else if progress.ready() {
-                next_lookups_goto_external_macro_def(docs, task, outgoing);
-            }
-        }
-        TaskPhasesFindReferences::FindReferences { .. } => {
-            if progress.finished() {
-                todo!();
-            } else if progress.ready() {
-                next_lookups_find_macro_references(docs, task, outgoing);
-            }
-        }
+    if progress.finished() {
+        *task = OngoingTask::FindSubscriptMacroReferences {
+            id: id.clone(),
+            onset: onset.clone(),
+            progress: TaskProgress::new(undone.len() as u32),
+            r#macro: r#macro.clone(),
+        };
+    } else if progress.ready() {
+        next_lookups_find_macro_def_references(docs, task, outgoing)?;
     }
     Ok(())
 }
 
+pub fn recv_find_macro_def_references_sync(
+    id: &NumberOrString,
+    sync: FindMacroReferencesResult,
+    ongoing: &mut Vec<OngoingTask>,
+) {
+    let idx = find_ongoing_task_by_id(&id, ongoing);
+    let OngoingTask::FindMacroDefinitionReferences {
+        progress,
+        results,
+        undone,
+        ..
+    } = &mut ongoing[idx]
+    else {
+        unreachable!("No other type possible.");
+    };
+
+    let FindMacroReferencesResult {
+        uri,
+        references,
+        callees,
+    } = sync;
+    for r#ref in references {
+        results.insert(&uri, r#ref);
+    }
+
+    for callee in callees {
+        if !undone.contains(&callee) {
+            undone.push(callee);
+        }
+    }
+    progress.advance();
+}
+
 fn find_external_definitions(
     id: NumberOrString,
-    origin: ExtMacroDefOrigin,
-    definitions: Vec<Location>,
+    uri: Uri,
+    _macro: String,
+    _definitions: Vec<(FileLocation, Option<MacroScope>)>,
     callers: Vec<Uri>,
     ongoing: &mut Vec<OngoingTask>,
 ) {
@@ -445,36 +468,21 @@ fn find_external_definitions(
 
     for file in callers {
         scripts.push(file.clone());
-        callees.push(origin.uri.clone());
+        callees.push(uri.clone());
     }
 
     let idx = find_ongoing_task_by_id(&id, &ongoing);
-    let OngoingTask::FindReferences(_, onset) = &ongoing[idx] else {
+    let OngoingTask::FindReferences(_, _onset) = &ongoing[idx] else {
         unreachable!("No other type possible.");
     };
 
-    let task = OngoingTask::FindExternalMacroReferences {
-        id,
-        onset: onset.clone(),
-        progress: TaskProgress::new(num as u32),
-        phase: TaskPhasesFindReferences::FindExternalDefinitions {
-            origin,
-            visited: FileCallMap::new(),
-            undone: ExtMacroDefLookups {
-                files: scripts,
-                callees,
-            },
-            definitions,
-        },
-        results: Vec::new(),
-    };
-    ongoing.push(task);
+    todo!()
 }
 
-fn find_definition_references(
+fn queue_find_macro_references_req(
     id: NumberOrString,
-    origin: ExtMacroDefOrigin,
-    definitions: Vec<Location>,
+    r#macro: String,
+    definitions: Vec<(FileLocation, Option<MacroScope>)>,
     ongoing: &mut Vec<OngoingTask>,
 ) {
     let idx = find_ongoing_task_by_id(&id, &ongoing);
@@ -482,24 +490,92 @@ fn find_definition_references(
         unreachable!("No other type possible.");
     };
 
-    let task = OngoingTask::FindExternalMacroReferences {
+    let task = OngoingTask::FindMacroDefinitionReferences {
         id,
         onset: onset.clone(),
-        progress: TaskProgress::new(1),
-        phase: TaskPhasesFindReferences::FindReferences {
-            origin,
-            definitions,
-        },
-        results: Vec::new(),
+        progress: TaskProgress::new(definitions.len() as u32),
+        r#macro,
+        definitions,
+        results: FileLocationMap::new(),
+        undone: Vec::new(),
     };
     ongoing.push(task);
 }
 
-fn next_lookups_find_macro_references(
-    _docs: &TextDocs,
-    _task: &mut OngoingTask,
-    _outgoing: &mut Vec<Task>,
+fn find_definition_references(
+    id: NumberOrString,
+    _macro: String,
+    _definitions: Vec<(FileLocation, Option<MacroScope>)>,
+    ongoing: &mut Vec<OngoingTask>,
 ) {
+    let idx = find_ongoing_task_by_id(&id, &ongoing);
+    let OngoingTask::FindReferences(_, _onset) = &ongoing[idx] else {
+        unreachable!("No other type possible.");
+    };
+
+    todo!()
+}
+
+fn next_lookups_find_macro_def_references(
+    docs: &TextDocs,
+    task: &mut OngoingTask,
+    outgoing: &mut Vec<Task>,
+) -> Result<(), ReturnCode> {
+    let OngoingTask::FindMacroDefinitionReferences {
+        id,
+        onset: _onset,
+        progress,
+        r#macro,
+        definitions,
+        ..
+    } = task
+    else {
+        unreachable!("No other type supported.");
+    };
+
+    let mut touched: Vec<u8> = vec![0; definitions.len()];
+    let mut total: u32 = 0;
+
+    // Group all lookups from the same file into a single request.
+    for (ii, (FileLocation { uri, range }, scope)) in definitions.iter().enumerate() {
+        if touched[ii] > 0 {
+            continue;
+        }
+        let mut defs: Vec<(Range<usize>, Option<MacroScope>)> =
+            vec![(range.clone(), scope.clone())];
+
+        for (jj, (FileLocation { uri: file, range }, scope)) in
+            definitions[ii + 1..].iter().enumerate()
+        {
+            if touched[jj] > 0 || file != uri {
+                continue;
+            }
+            defs.push((range.clone(), scope.clone()));
+            touched[jj] = 1;
+        }
+
+        let (doc, tree, t32) = docs
+            .get_doc_data(uri)
+            .expect("File must be known at this point.");
+
+        outgoing.push(Task::FindMacroDefinitionReferences(
+            id.clone(),
+            TextDocData {
+                doc: doc.clone(),
+                tree: tree.clone(),
+            },
+            FindMacroRefsLangContext::from(t32.clone()),
+            r#macro.to_string(),
+            defs,
+            find_macro_references,
+        ));
+
+        touched[ii] = 1;
+        total += 1;
+    }
+    progress.total = total;
+
+    Ok(())
 }
 
 #[cfg(test)]

@@ -20,7 +20,7 @@ use crate::{
     ls::{
         State, Tasks,
         doc::{TextDoc, TextDocData, TextDocStatus, TextDocs},
-        language::ExtMacroDefOrigin,
+        language::{ExtMacroDefOrigin, FileLocation},
         log_notif,
         lsp::Message,
         mainloop::{trace_doc_cannot_read, trace_doc_change},
@@ -31,8 +31,8 @@ use crate::{
             lang::{
                 process_find_references_req, process_find_references_result,
                 process_goto_definition_req, process_goto_definition_result,
-                process_goto_external_macro_def_sync, progress_find_external_references,
-                progress_goto_external_macro_def,
+                progress_find_macro_def_references, progress_goto_external_macro_def,
+                recv_find_macro_def_references_sync, recv_goto_external_macro_def_sync,
             },
             workspace::{process_files_did_rename_notif, process_rename_files_result},
         },
@@ -40,38 +40,31 @@ use crate::{
     },
     protocol::{
         DidCloseTextDocumentParams, DidOpenTextDocumentParams, ErrorCodes, FileRename, Location,
-        LocationLink, LogTraceParams, NumberOrString, ResponseError, SetTraceParams,
+        LocationLink, LogTraceParams, NumberOrString, Range, ResponseError, SetTraceParams,
         TextDocumentItem, TraceValue, Uri,
     },
-    t32::{LANGUAGE_ID, lang_id_supported},
+    t32::{LANGUAGE_ID, MacroScope, lang_id_supported},
 };
-
-#[allow(dead_code)]
-#[derive(Debug)]
-pub enum TaskPhasesFindReferences {
-    FindExternalDefinitions {
-        origin: ExtMacroDefOrigin,
-        visited: FileCallMap,
-        undone: ExtMacroDefLookups,
-        definitions: Vec<Location>,
-    },
-    FindReferences {
-        origin: ExtMacroDefOrigin,
-        definitions: Vec<Location>,
-    },
-}
 
 #[derive(Debug)]
 pub enum OngoingTask {
     DidRenameFiles(Instant),
-    #[allow(dead_code)]
-    FindExternalMacroReferences {
+    FindMacroDefinitionReferences {
         id: NumberOrString,
         onset: Instant,
         progress: TaskProgress,
-        phase: TaskPhasesFindReferences,
-        results: Vec<Location>,
+        r#macro: String,
+        definitions: Vec<(FileLocation, Option<MacroScope>)>,
+        results: FileLocationMap,
+        undone: Vec<Uri>,
     },
+    FindSubscriptMacroReferences {
+        id: NumberOrString,
+        onset: Instant,
+        progress: TaskProgress,
+        r#macro: String,
+    },
+
     #[allow(dead_code)]
     FindReferences(NumberOrString, Instant),
     GoToDefinition(NumberOrString, Instant),
@@ -117,11 +110,41 @@ pub struct FileCallMap {
     files: Vec<(Uri, u32)>,
     calls: Vec<Vec<Uri>>,
 }
+#[derive(Debug)]
+pub struct FileLocationMap {
+    files: Vec<(Uri, u32)>,
+    locations: Vec<Vec<Range>>,
+}
 
 #[derive(Clone, Debug)]
 pub struct RenameFileOperations {
     pub old: Vec<Uri>,
     pub new: Vec<Uri>,
+}
+
+impl FileLocationMap {
+    pub fn new() -> Self {
+        FileLocationMap {
+            files: Vec::new(),
+            locations: Vec::new(),
+        }
+    }
+
+    pub fn insert(&mut self, file: &Uri, loc: Range) {
+        debug_assert_eq!(self.files.len(), self.locations.len());
+        match self.files.binary_search_by(|(f, _)| f.cmp(file)) {
+            Ok(ii) => match self.locations[ii].binary_search_by(|r| r.cmp(&loc)) {
+                Ok(_) => return,
+                Err(idx) => self.locations[ii].insert(idx, loc),
+            },
+            Err(ii) => {
+                self.files
+                    .insert(ii, (file.clone(), self.locations.len() as u32));
+                self.locations.push(vec![loc]);
+            }
+        }
+        debug_assert_eq!(self.files.len(), self.locations.len());
+    }
 }
 
 impl OngoingTask {
@@ -136,9 +159,10 @@ impl OngoingTask {
 
     fn get_onset(&self) -> &Instant {
         match self {
-            OngoingTask::DidRenameFiles(onset) => onset,
-            OngoingTask::FindExternalMacroReferences { onset, .. } => onset,
-            OngoingTask::FindReferences(.., onset)
+            OngoingTask::DidRenameFiles(onset)
+            | OngoingTask::FindMacroDefinitionReferences { onset, .. }
+            | OngoingTask::FindSubscriptMacroReferences { onset, .. }
+            | OngoingTask::FindReferences(.., onset)
             | OngoingTask::GoToExternalMacroDef { onset, .. }
             | OngoingTask::GoToDefinition(.., onset)
             | OngoingTask::TextDocUpdate { onset, .. } => onset,
@@ -353,7 +377,28 @@ fn process_completed_task(
                 }
             }
         }
-        TaskDone::FindExternalReferences(_id, _result) => (),
+        TaskDone::FindMacroDefinitionReferences(id, result) => {
+            let mut uri: Option<Uri> = None;
+            if cfg.trace_level != TraceValue::Off {
+                uri = Some(result.uri.clone());
+            }
+
+            recv_find_macro_def_references_sync(&id, result, &mut ts.ongoing);
+            if cfg.trace_level != TraceValue::Off {
+                let idx = find_ongoing_task_by_id(&id, &ts.ongoing);
+                let OngoingTask::FindMacroDefinitionReferences { onset, .. } = &ts.ongoing[idx]
+                else {
+                    unreachable!("No other type possible.");
+                };
+                let Some(uri) = uri else { unreachable!() };
+
+                outgoing.push(Some(trace_find_macro_def_refs_sync(
+                    Instant::now() - *onset,
+                    id,
+                    uri,
+                )));
+            }
+        }
         TaskDone::FindReferences(id, result) => {
             if let Some(resp) = process_find_references_result(docs, &id, result, ts) {
                 if cfg.trace_level != TraceValue::Off {
@@ -411,7 +456,18 @@ fn process_completed_task(
             ))));
         }
         TaskDone::GoToExternalMacroDefSync(id, defs, script, callers) => {
-            process_goto_external_macro_def_sync(id, script, defs, callers, &mut ts.ongoing);
+            recv_goto_external_macro_def_sync(&id, &script, defs, callers, &mut ts.ongoing);
+            if cfg.trace_level != TraceValue::Off {
+                let idx = find_ongoing_task_by_id(&id, &ts.ongoing);
+                let OngoingTask::GoToExternalMacroDef { onset, .. } = &ts.ongoing[idx] else {
+                    unreachable!("No other type possible.");
+                };
+                outgoing.push(Some(trace_goto_ext_def_sync(
+                    Instant::now() - *onset,
+                    id,
+                    script,
+                )));
+            }
         }
         TaskDone::TextDocNew(doc, tree, globals) => {
             if cfg.trace_level != TraceValue::Off {
@@ -522,7 +578,13 @@ fn task_blocked(job: &Task, ongoing: &[OngoingTask]) -> bool {
             },
             ..,
         )
-        | Task::TextDocEdit(TextDoc { uri, .. }, ..)
+        | Task::TextDocEdit(
+            TextDocData {
+                doc: TextDoc { uri, .. },
+                ..
+            },
+            ..,
+        )
         | Task::TextDocNew(TextDocumentItem { uri, .. }, ..) => ongoing.iter().any(|o| match o {
             OngoingTask::DidRenameFiles(..) => true,
             OngoingTask::TextDocUpdate { uri: file, .. } => file == uri,
@@ -546,7 +608,13 @@ fn add_task_status_tracking(job: &Task, ongoing: &mut Vec<OngoingTask>) {
         Task::FindReferences(id, ..) => OngoingTask::FindReferences(id.clone(), Instant::now()),
         Task::GoToDefinition(id, ..) => OngoingTask::GoToDefinition(id.clone(), Instant::now()),
         Task::TextDocNew(TextDocumentItem { uri, .. }, ..)
-        | Task::TextDocEdit(TextDoc { uri, .. }, ..) => OngoingTask::TextDocUpdate {
+        | Task::TextDocEdit(
+            TextDocData {
+                doc: TextDoc { uri, .. },
+                ..
+            },
+            ..,
+        ) => OngoingTask::TextDocUpdate {
             uri: uri.clone(),
             onset: Instant::now(),
         },
@@ -655,8 +723,8 @@ fn progress_multi_part_tasks(
             OngoingTask::GoToExternalMacroDef { .. } => {
                 progress_goto_external_macro_def(docs, job, &mut tasks, &mut ts.completed)?
             }
-            OngoingTask::FindExternalMacroReferences { .. } => {
-                progress_find_external_references(docs, job, &mut tasks, &mut ts.completed)?
+            OngoingTask::FindMacroDefinitionReferences { .. } => {
+                progress_find_macro_def_references(docs, job, &mut tasks)?
             }
             _ => (),
         }
@@ -683,6 +751,7 @@ fn find_ongoing_task_by_id(identifier: &NumberOrString, ongoing: &[OngoingTask])
         .iter()
         .position(|t| match t {
             OngoingTask::FindReferences(id, ..)
+            | OngoingTask::FindMacroDefinitionReferences { id, .. }
             | OngoingTask::GoToDefinition(id, ..)
             | OngoingTask::GoToExternalMacroDef { id, .. } => id == identifier,
             _ => unreachable!("No other tasks can by selected by id."),
@@ -790,6 +859,20 @@ fn trace_find_refs(duration: Duration, refs: Option<Vec<Location>>) -> Message {
     })
 }
 
+fn trace_find_macro_def_refs_sync(duration: Duration, id: NumberOrString, file: Uri) -> Message {
+    Message::Notification(Notification::LogTraceNotification {
+        params: LogTraceParams {
+            message: format!(
+                "INFO: Find macro definition sync with ID {} and file \"{}\" completed in {:.4} seconds.",
+                id,
+                file,
+                duration.as_secs_f32()
+            ),
+            verbose: None,
+        },
+    })
+}
+
 fn trace_goto_def(duration: Duration, defs: Option<LocationResult>) -> Message {
     Message::Notification(Notification::LogTraceNotification {
         params: LogTraceParams {
@@ -802,6 +885,20 @@ fn trace_goto_def(duration: Duration, defs: Option<LocationResult>) -> Message {
             } else {
                 None
             },
+        },
+    })
+}
+
+fn trace_goto_ext_def_sync(duration: Duration, id: NumberOrString, file: Uri) -> Message {
+    Message::Notification(Notification::LogTraceNotification {
+        params: LogTraceParams {
+            message: format!(
+                "INFO: Go to external definition sync for ID {} and file \"{}\" completed in {:.4} seconds.",
+                id,
+                file,
+                duration.as_secs_f32()
+            ),
+            verbose: None,
         },
     })
 }

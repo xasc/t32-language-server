@@ -3,7 +3,9 @@
 // SPDX-License-Identifier: EUPL-1.2
 
 mod ast;
+mod cache;
 mod expressions;
+mod macros;
 mod path;
 
 use tree_sitter::{Language, Parser, Tree, TreeCursor};
@@ -12,9 +14,10 @@ use tree_sitter_t32;
 use crate::{ls::FileIndex, protocol::Uri};
 
 pub use ast::{NodeKind, id_into_node};
+pub use cache::get_macro_scope;
 pub use expressions::{
-    CallExpression, CallExpressions, CallLocations, Label, MacroDefinition,
-    MacroDefinitions, ParameterDeclaration, Subroutine, SubscriptCalls,
+    CallExpression, CallExpressions, CallLocations, Label, MacroDefinition, MacroDefinitions,
+    MacroScope, ParameterDeclaration, Subroutine, SubscriptCalls,
 };
 
 pub use expressions::{
@@ -28,9 +31,12 @@ pub use expressions::{
 use std::ops::Range;
 
 use expressions::{
-    defines_named_macro, find_all_references_for_subroutine, find_all_references_for_label, find_file_target,
-    find_label, find_macro_definition, find_subroutine, find_call_target_definition, locate_subscript,
+    defines_named_macro, find_all_references_for_label, find_all_references_for_subroutine,
+    find_call_target_definition, find_file_target, find_label, find_macro_definition,
+    find_subroutine, locate_subscript,
 };
+
+use macros::find_scope_restricted_macro_references;
 
 pub enum MacroDefinitionResult {
     Final(Vec<MacroDefinition>),
@@ -47,12 +53,84 @@ pub struct LangExpressions {
     pub labels: Vec<Label>,
 }
 
+#[derive(Clone, Debug)]
+pub struct FindMacroRefsLangContext {
+    pub macros: MacroDefinitions,
+    pub subroutines: Vec<Subroutine>,
+    pub calls: CallExpressions,
+    pub parameters: Vec<ParameterDeclaration>,
+    pub labels: Vec<Label>,
+}
+
+#[derive(Clone, Debug)]
+pub struct FindRefsLangContext {
+    pub macros: MacroDefinitions,
+    pub subroutines: Vec<Subroutine>,
+    pub calls: CallExpressions,
+    pub parameters: Vec<ParameterDeclaration>,
+    pub labels: Vec<Label>,
+}
+
+#[derive(Clone, Debug)]
+pub struct GotoDefLangContext {
+    pub macros: MacroDefinitions,
+    pub subroutines: Vec<Subroutine>,
+    pub calls: CallExpressions,
+    pub parameters: Vec<ParameterDeclaration>,
+}
+
 /// Use same language ID as [PRACTICE extension for Visual Studio
 /// Code](https://marketplace.visualstudio.com/items?itemName=lauterbach.practice) for Visual
 /// Studio Code.
 pub const LANGUAGE_ID: &'static str = "practice";
 
 pub const SUFFIXES: [&'static str; 2] = ["cmm", "cmmt"];
+
+impl From<LangExpressions> for FindMacroRefsLangContext {
+    fn from(t32: LangExpressions) -> Self {
+        FindMacroRefsLangContext {
+            macros: t32.macros,
+            subroutines: t32.subroutines,
+            calls: t32.calls,
+            parameters: t32.parameters,
+            labels: t32.labels,
+        }
+    }
+}
+
+impl From<LangExpressions> for FindRefsLangContext {
+    fn from(t32: LangExpressions) -> Self {
+        FindRefsLangContext {
+            macros: t32.macros,
+            subroutines: t32.subroutines,
+            calls: t32.calls,
+            parameters: t32.parameters,
+            labels: t32.labels,
+        }
+    }
+}
+
+impl From<FindRefsLangContext> for GotoDefLangContext {
+    fn from(t32: FindRefsLangContext) -> Self {
+        GotoDefLangContext {
+            macros: t32.macros,
+            subroutines: t32.subroutines,
+            calls: t32.calls,
+            parameters: t32.parameters,
+        }
+    }
+}
+
+impl From<LangExpressions> for GotoDefLangContext {
+    fn from(t32: LangExpressions) -> Self {
+        GotoDefLangContext {
+            macros: t32.macros,
+            subroutines: t32.subroutines,
+            calls: t32.calls,
+            parameters: t32.parameters,
+        }
+    }
+}
 
 pub fn lang_id_supported(lang_id: &str) -> bool {
     lang_id == LANGUAGE_ID
@@ -89,7 +167,7 @@ pub fn get_find_ref_ids(lang: &Language) -> [u16; 5] {
 pub fn goto_macro_definition(
     text: &str,
     tree: &Tree,
-    t32: &LangExpressions,
+    t32: &GotoDefLangContext,
     r#macro: TreeCursor,
 ) -> Option<MacroDefinitionResult> {
     debug_assert_eq!(
@@ -206,7 +284,10 @@ pub fn find_label_references(
     label: &TreeCursor,
     tree: &Tree,
 ) -> Option<Vec<Range<usize>>> {
-    debug_assert_eq!(label.node().kind_id(), NodeKind::LabeledExpression.into_id(&label.node().language()));
+    debug_assert_eq!(
+        label.node().kind_id(),
+        NodeKind::LabeledExpression.into_id(&label.node().language())
+    );
 
     if label.node().end_byte() >= text.len() {
         return None;
@@ -216,4 +297,35 @@ pub fn find_label_references(
         return None;
     };
     Some(find_all_references_for_label(text, label, tree))
+}
+
+pub fn find_macro_definition_references(
+    text: &str,
+    tree: &Tree,
+    t32: &FindMacroRefsLangContext,
+    name: &str,
+    scope: MacroScope,
+    range: Range<usize>,
+) -> (Vec<Range<usize>>, Vec<Uri>) {
+    if range.start >= text.len() {
+        return (Vec::new(), Vec::new());
+    }
+
+    // TODO: Add special handling for global macros
+    if scope == MacroScope::Global {
+        todo!()
+    }
+    let (mut refs, mut callees) =
+        find_scope_restricted_macro_references(text, tree, t32, name, scope, range.start);
+
+    if !refs.contains(&range) {
+        refs.push(range);
+    }
+
+    if !callees.is_empty() && scope == MacroScope::Private {
+        callees.clear();
+    }
+
+    refs.sort_by_key(|a| (a.start, a.end));
+    (refs, callees)
 }

@@ -6,6 +6,7 @@ use std::{convert::From, ops::Range};
 
 use tree_sitter::Range as TRange;
 
+#[derive(Clone, Debug)]
 pub struct BRange(Range<usize>);
 
 impl From<TRange> for BRange {

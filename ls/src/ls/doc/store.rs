@@ -65,7 +65,6 @@ struct CallRelations {
 pub struct TextDocData {
     pub doc: TextDoc,
     pub tree: Tree,
-    pub t32: LangExpressions,
 }
 
 pub struct GlobalMacroDefIndex<'a>(
@@ -74,6 +73,12 @@ pub struct GlobalMacroDefIndex<'a>(
     pub Vec<&'a str>,
     pub Vec<&'a MacroDefinition>,
 );
+
+impl TextDocData {
+    pub fn build(doc: TextDoc, tree: Tree) -> Self {
+        TextDocData { doc, tree }
+    }
+}
 
 impl<'a> TextDocs {
     #[allow(dead_code)]

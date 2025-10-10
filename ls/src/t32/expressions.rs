@@ -6,7 +6,7 @@
 //!
 //! We ignore implicit definition of macros on first assignment. This only
 //! happens if there is no other definition for the macro. TRACE32 uses
-//! `LOCAL` macro definition on-assignment definitions.
+//! `LOCAL` macro definition for on-assignment definitions.
 //!
 //!
 //! # [Note] Ambiguous Macro Definitions
@@ -85,6 +85,13 @@
 //!   RETURN
 //! ```
 //!
+//! # [Note] Block-Global vs. Block-Local Macro Definitions
+//!
+//! `GLOBAL` and `LOCAL` macros are block-global. They have local visibility in
+//! the current block and global visibility in subroutines and subscripts.
+//! Macros with `PRIVATE` lifetime are block-local. They only have local visibility
+//! in the current block.
+//!
 
 use std::ops::Range;
 
@@ -93,7 +100,7 @@ use tree_sitter::{Node, Range as TRange, Tree, TreeCursor};
 use crate::{
     protocol::Uri,
     t32::{
-        FileIndex, LangExpressions, MacroDefinitionResult, NodeKind,
+        FileIndex, GotoDefLangContext, MacroDefinitionResult, NodeKind,
         ast::{
             KEYWORD_GOTO, KEYWORD_SUBROUTINE_ENTRY, KEYWORD_SUBROUTINE_PARAMETERS,
             KEYWORD_SUBROUTINE_RETURN, KEYWORDS_SCRIPT_CALL, KEYWORDS_SCRIPT_END,
@@ -117,6 +124,13 @@ pub enum MacroDefResolution {
     Indeterminate,
     /// No macro definition found. Search was aborted.
     Aborted,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum MacroScope {
+    Global,
+    Local,
+    Private,
 }
 
 #[allow(dead_code)]
@@ -157,6 +171,7 @@ pub struct ParameterDeclaration {
     pub docstring: Option<Range<usize>>, // TODO: Detect inline docstring after expression.
 }
 
+/// TODO: Remove `Option` wrapper
 #[derive(Clone, Debug)]
 pub struct MacroDefinitions {
     pub privates: Option<Vec<MacroDefinition>>,
@@ -180,13 +195,6 @@ pub struct CallLocations {
 pub struct SubscriptCalls {
     pub locations: Vec<CallExpression>,
     pub targets: Vec<Option<Uri>>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum MacroScope {
-    Global,
-    Local,
-    Private,
 }
 
 impl MacroDefinitions {
@@ -231,7 +239,7 @@ impl From<&str> for MacroScope {
 pub fn find_macro_definition(
     text: &str,
     tree: &Tree,
-    t32: &LangExpressions,
+    t32: &GotoDefLangContext,
     r#macro: Node,
 ) -> Option<MacroDefinitionResult> {
     debug_assert!(r#macro.end_byte() < text.len());
@@ -254,7 +262,7 @@ pub fn find_macro_definition(
 pub fn find_external_macro_definition(
     text: &str,
     tree: &Tree,
-    t32: &LangExpressions,
+    t32: &GotoDefLangContext,
     r#macro: String,
     callees: Vec<Range<usize>>,
 ) -> Option<MacroDefinitionResult> {
@@ -541,10 +549,7 @@ pub fn find_all_call_expressions(text: &str, tree: &Tree) -> CallLocations {
     }
 }
 
-pub fn find_all_parameter_declarations(
-    text: &str,
-    tree: &Tree,
-) -> Vec<ParameterDeclaration> {
+pub fn find_all_parameter_declarations(text: &str, tree: &Tree) -> Vec<ParameterDeclaration> {
     let mut cursor = tree.walk();
 
     let mut parameters: Vec<ParameterDeclaration> = Vec::new();
@@ -647,7 +652,7 @@ pub fn locate_subscript(
 
 fn locate_all_macro_definitions(
     text: &str,
-    t32: &LangExpressions,
+    t32: &GotoDefLangContext,
     origin: &Range<usize>,
     name: &str,
     tree: &Tree,
@@ -713,7 +718,7 @@ fn eval_macro_definition_result(
 /// macros. Subroutine definitions cannot be nested.
 pub fn find_definition_for_macro_in_subroutine(
     text: &str,
-    t32: &LangExpressions,
+    t32: &GotoDefLangContext,
     origin: &Range<usize>,
     subroutine: &Subroutine,
     name: &str,
@@ -794,7 +799,7 @@ pub fn find_definition_for_macro_in_subroutine(
     }
 }
 
-pub fn defines_named_macro(text: &str, t32: &LangExpressions, name: &str) -> bool {
+pub fn defines_named_macro(text: &str, t32: &GotoDefLangContext, name: &str) -> bool {
     if let Some(macros) = &t32.macros.privates
         && macros.iter().any(|m| text[m.r#macro.clone()] == *name)
     {
@@ -808,7 +813,10 @@ pub fn defines_named_macro(text: &str, t32: &LangExpressions, name: &str) -> boo
     }
 
     if !t32.parameters.is_empty()
-        && t32.parameters.iter().any(|m| text[m.r#macro.clone()] == *name)
+        && t32
+            .parameters
+            .iter()
+            .any(|m| text[m.r#macro.clone()] == *name)
     {
         return true;
     }
@@ -867,11 +875,7 @@ pub fn find_all_references_for_subroutine(
     refs
 }
 
-pub fn find_all_references_for_label(
-    text: &str,
-    label: &Label,
-    tree: &Tree,
-) -> Vec<Range<usize>> {
+pub fn find_all_references_for_label(text: &str, label: &Label, tree: &Tree) -> Vec<Range<usize>> {
     let mut refs: Vec<Range<usize>> = vec![label.name.clone()];
 
     let name = &text[label.name.clone()];
@@ -900,7 +904,10 @@ pub fn find_all_references_for_label(
             {
                 refs.push(target);
             }
-            debug_assert_eq!(cursor.node().kind_id(), NodeKind::CommandExpression.into_id(&lang));
+            debug_assert_eq!(
+                cursor.node().kind_id(),
+                NodeKind::CommandExpression.into_id(&lang)
+            );
         } else if block_openers.contains(&id) {
             if cursor.goto_first_child() {
                 continue;
@@ -968,7 +975,7 @@ fn find_global_macro_def_in_subroutine_body(
         origin,
         name,
         subroutine,
-        defines_global_macro,
+        defines_block_global_macro,
         defines_global_macro_implicitly,
     )
 }
@@ -1208,7 +1215,7 @@ fn defines_any_macro(text: &str, cursor: &mut TreeCursor, name: &str) -> Option<
     None
 }
 
-fn defines_global_macro(
+fn defines_block_global_macro(
     text: &str,
     cursor: &mut TreeCursor,
     name: &str,
@@ -1562,7 +1569,7 @@ fn try_extract_subroutine_def_from_label(
 
     let mut nest_level: i32 = 0;
     let mut ii = 0;
-    loop {
+    'outer: loop {
         let node = cursor.node();
         let kind = node.kind_id();
 
@@ -1596,18 +1603,21 @@ fn try_extract_subroutine_def_from_label(
             }
         } else if kind == labeled_expr || kind == subroutine {
             break;
-        } else if kind == block && cursor.goto_first_child() {
-            nest_level += 1;
-            continue;
+        } else if kind == block {
+            if cursor.goto_first_child() {
+                nest_level += 1;
+                continue;
+            }
         }
 
-        if !cursor.goto_next_sibling() {
+        while !cursor.goto_next_sibling() {
             if nest_level < 0 || !cursor.goto_parent() {
-                break;
+                break 'outer;
             }
             nest_level -= 1;
         }
 
+        // TODO: Remove loop breaker!?
         ii += 1;
         if ii > 10 {
             break;
@@ -1617,9 +1627,7 @@ fn try_extract_subroutine_def_from_label(
     None
 }
 
-fn extract_label(
-    cursor: &mut TreeCursor,
-) -> Option<Label> {
+fn extract_label(cursor: &mut TreeCursor) -> Option<Label> {
     let expression = cursor.node();
 
     debug_assert_eq!(
@@ -1773,7 +1781,10 @@ fn extract_script_call(text: &str, cursor: &mut TreeCursor) -> Option<CallExpres
 fn extract_goto_target(text: &str, cursor: &mut TreeCursor) -> Option<Range<usize>> {
     let goto = cursor.node();
 
-    debug_assert_eq!(goto.kind_id(), NodeKind::CommandExpression.into_id(&goto.language()));
+    debug_assert_eq!(
+        goto.kind_id(),
+        NodeKind::CommandExpression.into_id(&goto.language())
+    );
 
     if !cursor.goto_first_child() {
         return None;
@@ -1785,9 +1796,7 @@ fn extract_goto_target(text: &str, cursor: &mut TreeCursor) -> Option<Range<usiz
     );
 
     let command = text[cursor.node().byte_range()].split(".").last()?;
-    if !(command.eq_ignore_ascii_case(KEYWORD_GOTO)
-         && cursor.goto_next_sibling())
-    {
+    if !(command.eq_ignore_ascii_case(KEYWORD_GOTO) && cursor.goto_next_sibling()) {
         cursor.goto_parent();
         return None;
     }
@@ -1866,10 +1875,7 @@ fn find_docstring(cursor: &mut TreeCursor) -> Option<Range<usize>> {
     }
 }
 
-fn resides_in_subroutine(
-    subroutines: &Vec<Subroutine>,
-    offset: usize,
-) -> Option<&Subroutine> {
+fn resides_in_subroutine(subroutines: &Vec<Subroutine>, offset: usize) -> Option<&Subroutine> {
     subroutines.iter().find(|s| s.definition.contains(&offset))
 }
 
