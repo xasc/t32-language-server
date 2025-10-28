@@ -51,7 +51,7 @@ struct ProcHeartbeat {
 struct Tasks {
     runner: TaskSystem,
     blocked: Vec<Task>,
-    ongoing: Vec<OngoingTask>,
+    ongoing: Vec<Option<OngoingTask>>,
     completed: Vec<Option<TaskDone>>,
 }
 

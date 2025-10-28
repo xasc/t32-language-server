@@ -193,7 +193,7 @@ pub fn id_into_node(lang: &Language, id: u16) -> NodeKind {
     }
 }
 
-#[allow(dead_code)]
+#[expect(unused)]
 pub fn name_into_node(name: &str) -> NodeKind {
     match name {
         NODE_ARGUMENT_LIST => NodeKind::ArgumentList,

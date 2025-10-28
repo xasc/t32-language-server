@@ -106,7 +106,7 @@ impl FileIndex {
         }
     }
 
-    #[allow(dead_code)]
+    #[expect(unused)]
     fn remove(&mut self, file: &Path) {
         let dir = file
             .parent()

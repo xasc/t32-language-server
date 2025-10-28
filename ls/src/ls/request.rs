@@ -46,7 +46,7 @@ pub enum Notification {
     },
     ExitNotification {},
     InitializedNotification {
-        #[allow(dead_code)]
+        #[expect(unused)]
         params: InitializedParams,
     },
     LogTraceNotification {

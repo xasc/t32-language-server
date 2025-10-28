@@ -20,7 +20,6 @@ use crate::{
     utils::BRange,
 };
 
-#[allow(dead_code)]
 #[derive(Debug)]
 pub enum FindReferencesResult {
     Final(Vec<Location>),
@@ -46,7 +45,7 @@ pub enum FindReferencesPartialResult {
         definitions: Vec<(FileLocation, Option<MacroScope>)>,
     },
 
-    #[allow(dead_code)]
+    #[expect(unused)]
     FileTarget,
 }
 

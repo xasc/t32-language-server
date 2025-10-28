@@ -75,13 +75,14 @@ pub struct GlobalMacroDefIndex<'a>(
 );
 
 impl TextDocData {
+    #[expect(unused)]
     pub fn build(doc: TextDoc, tree: Tree) -> Self {
         TextDocData { doc, tree }
     }
 }
 
 impl<'a> TextDocs {
-    #[allow(dead_code)]
+    #[expect(unused)]
     pub fn new() -> Self {
         TextDocs {
             docs: DocStore {
@@ -258,7 +259,6 @@ impl<'a> TextDocs {
         self.rename_callers(&old, &new);
     }
 
-    #[allow(dead_code)]
     pub fn get_doc(&self, uri: &str) -> Option<&TextDoc> {
         match self.registry.get(uri) {
             Some(idx) if idx.0 == TextDocStatus::Open => self.docs.open[idx.1].as_ref(),
@@ -267,7 +267,7 @@ impl<'a> TextDocs {
         }
     }
 
-    #[allow(dead_code)]
+    #[expect(unused)]
     pub fn get_tree(&self, uri: &str) -> Option<&Tree> {
         match self.registry.get(uri) {
             Some(idx) if idx.0 == TextDocStatus::Open => self.trees.open[idx.1].as_ref(),
@@ -276,7 +276,7 @@ impl<'a> TextDocs {
         }
     }
 
-    #[allow(dead_code)]
+    #[expect(unused)]
     pub fn get_lang_expressions(&self, uri: &str) -> Option<&LangExpressions> {
         match self.registry.get(uri) {
             Some(idx) if idx.0 == TextDocStatus::Open => self.t32.open[idx.1].as_ref(),
@@ -285,7 +285,6 @@ impl<'a> TextDocs {
         }
     }
 
-    #[allow(dead_code)]
     pub fn get_callers(&self, uri: &str) -> Option<&Vec<Uri>> {
         match self.registry.get(uri) {
             Some(idx) if idx.0 == TextDocStatus::Open => self.callers.open[idx.1].as_ref(),

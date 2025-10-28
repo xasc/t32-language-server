@@ -133,7 +133,6 @@ pub enum MacroScope {
     Private,
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct Label {
     pub name: Range<usize>,
@@ -164,7 +163,7 @@ pub struct CallExpression {
 
 #[derive(Clone, Debug)]
 pub struct ParameterDeclaration {
-    #[allow(dead_code)]
+    #[expect(unused)]
     pub cmd: Range<usize>,
 
     pub r#macro: Range<usize>,
@@ -1892,7 +1891,7 @@ fn goto_subroutine(tree: &Tree, offset: usize) -> TreeCursor<'_> {
     }
 }
 
-#[allow(dead_code)]
+#[expect(unused)]
 fn terminates_script(text: &str, cursor: &mut TreeCursor) -> bool {
     let node = cursor.node();
     if node.kind_id() != NodeKind::CommandExpression.into_id(&node.language()) {
@@ -1920,7 +1919,7 @@ fn terminates_script(text: &str, cursor: &mut TreeCursor) -> bool {
         .any(|k| k.eq_ignore_ascii_case(command))
 }
 
-#[allow(dead_code)]
+#[expect(unused)]
 pub fn skip_comments(cursor: &mut TreeCursor) {
     let node = cursor.node();
     let lang = node.language();
