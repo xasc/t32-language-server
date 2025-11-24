@@ -25,7 +25,10 @@ use crate::{
         lsp::Message,
         mainloop::{trace_doc_cannot_read, trace_doc_change},
         request::{Notification, Request},
-        response::{ErrorResponse, GoToDefinitionResponse, LocationResult, NullResponse, Response},
+        response::{
+            ErrorResponse, FindReferencesResponse, GoToDefinitionResponse, LocationResult,
+            NullResponse, Response,
+        },
         tasks::{
             docsync::{process_doc_change_notif, process_doc_close_notif, process_doc_open_notif},
             lang::{
@@ -33,7 +36,7 @@ use crate::{
                 process_goto_definition_req, process_goto_definition_result,
                 progress_find_macro_def_references, progress_find_subscript_macro_refs,
                 progress_goto_external_macro_def, recv_find_macro_def_references_sync,
-                recv_goto_external_macro_def_sync,
+                recv_find_subscript_macro_references_sync, recv_goto_external_macro_def_sync,
             },
             workspace::{process_files_did_rename_notif, process_rename_files_result},
         },
@@ -64,10 +67,10 @@ pub enum OngoingTask {
         onset: Instant,
         progress: TaskProgress,
         r#macro: String,
-        results: FileLocationMap,
+        visited: Vec<Uri>,
         undone: Vec<Uri>,
+        results: FileLocationMap,
     },
-
     FindReferences(NumberOrString, Instant),
     GoToDefinition(NumberOrString, Instant),
     GoToExternalMacroDef {
@@ -146,6 +149,24 @@ impl FileLocationMap {
             }
         }
         debug_assert_eq!(self.files.len(), self.locations.len());
+    }
+
+    pub fn to_locations(mut self) -> Vec<Location> {
+        debug_assert_eq!(self.files.len(), self.locations.len());
+
+        let mut locs: Vec<Location> = Vec::with_capacity(self.files.len());
+        for (file, ii) in self.files {
+            let mut slot: Vec<Range> = Vec::new();
+            slot.append(&mut self.locations[ii as usize]);
+
+            for span in slot {
+                locs.push(Location {
+                    uri: file.clone(),
+                    range: span,
+                });
+            }
+        }
+        locs
     }
 }
 
@@ -379,6 +400,29 @@ fn process_completed_task(
                 }
             }
         }
+        TaskDone::FindMacroReferences(id, locations) => {
+            if cfg.trace_level != TraceValue::Off {
+                let idx = find_ongoing_task_by_id(&id, &ts.ongoing);
+
+                let onset = match &ts.ongoing[idx] {
+                    Some(OngoingTask::FindMacroReferencesSubscripts { onset, .. }) => onset,
+                    Some(OngoingTask::FindMacroReferencesDefinitions { onset, .. }) => onset,
+                    _ => unreachable!("No other type possible."),
+                };
+
+                outgoing.push(Some(trace_find_refs(
+                    Instant::now() - *onset,
+                    locations.clone(),
+                )));
+            }
+
+            outgoing.push(Some(Message::Response(Response::FindReferencesResponse(
+                FindReferencesResponse {
+                    id,
+                    result: locations,
+                },
+            ))));
+        }
         TaskDone::FindMacroReferencesSyncDefinitions(id, result) => {
             let mut uri: Option<Uri> = None;
             if cfg.trace_level != TraceValue::Off {
@@ -395,7 +439,7 @@ fn process_completed_task(
                 };
                 let Some(uri) = uri else { unreachable!() };
 
-                outgoing.push(Some(trace_find_macro_refs_sync(
+                outgoing.push(Some(trace_find_subscript_macro_refs_sync(
                     Instant::now() - *onset,
                     id,
                     uri,
@@ -408,6 +452,7 @@ fn process_completed_task(
                 uri = Some(result.uri.clone());
             }
 
+            recv_find_subscript_macro_references_sync(&id, result, &mut ts.ongoing);
             if cfg.trace_level != TraceValue::Off {
                 let idx = find_ongoing_task_by_id(&id, &ts.ongoing);
                 let Some(OngoingTask::FindMacroReferencesSubscripts { onset, .. }) =
@@ -417,7 +462,7 @@ fn process_completed_task(
                 };
                 let Some(uri) = uri else { unreachable!() };
 
-                outgoing.push(Some(trace_find_macro_refs_sync(
+                outgoing.push(Some(trace_find_macro_definition_refs_sync(
                     Instant::now() - *onset,
                     id,
                     uri,
@@ -759,7 +804,7 @@ fn progress_multi_part_tasks(
                 progress_find_macro_def_references(docs, job, &mut tasks)?
             }
             OngoingTask::FindMacroReferencesSubscripts { .. } => {
-                progress_find_subscript_macro_refs(docs, job, &mut tasks)?
+                progress_find_subscript_macro_refs(docs, job, &mut tasks, &mut ts.completed)?
             }
             _ => (),
         }
@@ -793,6 +838,7 @@ fn find_ongoing_task_by_id(identifier: &NumberOrString, ongoing: &[Option<Ongoin
         .position(|t| match t {
             Some(OngoingTask::FindReferences(id, ..))
             | Some(OngoingTask::FindMacroReferencesDefinitions { id, .. })
+            | Some(OngoingTask::FindMacroReferencesSubscripts { id, .. })
             | Some(OngoingTask::GoToDefinition(id, ..))
             | Some(OngoingTask::GoToExternalMacroDef { id, .. }) => id == identifier,
             None => unreachable!("Not empty slots allowed."),
@@ -903,11 +949,33 @@ fn trace_find_refs(duration: Duration, refs: Option<Vec<Location>>) -> Message {
     })
 }
 
-fn trace_find_macro_refs_sync(duration: Duration, id: NumberOrString, file: Uri) -> Message {
+fn trace_find_macro_definition_refs_sync(
+    duration: Duration,
+    id: NumberOrString,
+    file: Uri,
+) -> Message {
     Message::Notification(Notification::LogTraceNotification {
         params: LogTraceParams {
             message: format!(
                 "INFO: Find macro definition sync with ID {} and file \"{}\" completed in {:.4} seconds.",
+                id,
+                file,
+                duration.as_secs_f32()
+            ),
+            verbose: None,
+        },
+    })
+}
+
+fn trace_find_subscript_macro_refs_sync(
+    duration: Duration,
+    id: NumberOrString,
+    file: Uri,
+) -> Message {
+    Message::Notification(Notification::LogTraceNotification {
+        params: LogTraceParams {
+            message: format!(
+                "INFO: Find subscript macro sync with ID {} and file \"{}\" completed in {:.4} seconds.",
                 id,
                 file,
                 duration.as_secs_f32()

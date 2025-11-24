@@ -29,8 +29,8 @@ use crate::{
         workspace::{FileIndex, ResolvedRenameFileOperations, WorkspaceMembers},
     },
     protocol::{
-        LocationLink, NumberOrString, Position, TextDocumentContentChangeEvent, TextDocumentItem,
-        Uri,
+        Location, LocationLink, NumberOrString, Position, TextDocumentContentChangeEvent,
+        TextDocumentItem, Uri,
     },
     t32::{
         FindMacroRefsLangContext, FindRefsLangContext, GotoDefLangContext, LangExpressions,
@@ -58,8 +58,6 @@ pub enum Task {
             Vec<(Range<usize>, Option<MacroScope>)>,
         ) -> FindMacroReferencesResult,
     ),
-
-    #[expect(unused)]
     FindMacroReferencesSubscripts(
         NumberOrString,
         TextDocData,
@@ -126,6 +124,7 @@ pub enum Task {
 #[derive(Debug)]
 pub enum TaskDone {
     DidRenameFiles(ResolvedRenameFileOperations, FileIndex),
+    FindMacroReferences(NumberOrString, Option<Vec<Location>>),
     FindMacroReferencesSyncDefinitions(NumberOrString, FindMacroReferencesResult),
     FindMacroReferencesSyncSubscripts(NumberOrString, FindMacroReferencesResult),
     FindReferences(NumberOrString, Option<FindReferencesResult>),

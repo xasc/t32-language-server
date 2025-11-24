@@ -82,7 +82,7 @@ impl TextDocData {
 }
 
 impl<'a> TextDocs {
-    #[expect(unused)]
+    #[allow(dead_code)]
     pub fn new() -> Self {
         TextDocs {
             docs: DocStore {

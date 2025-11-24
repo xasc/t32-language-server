@@ -12,7 +12,7 @@ use crate::{
             ExtMacroDefOrigin, FileLocation, FindMacroReferencesResult,
             FindReferencesPartialResult, FindReferencesResult, GotoDefinitionResult,
             find_definition, find_external_macro_definition, find_global_macro_definitions,
-            find_macro_references, find_references,
+            find_origin_macro_references, find_references, find_script_macro_references,
         },
         lsp::Message,
         response::{
@@ -185,10 +185,7 @@ pub fn progress_goto_external_macro_def(
         let mut links: Vec<LocationLink> = Vec::new();
         links.append(results);
 
-        done.push(Some(TaskDone::GoToExternalMacroDef(
-            id.clone(),
-            links,
-        )));
+        done.push(Some(TaskDone::GoToExternalMacroDef(id.clone(), links)));
     } else if progress.ready() && !undone.is_empty() {
         next_lookups_goto_external_macro_def(docs, task.as_mut().unwrap(), outgoing);
     }
@@ -397,11 +394,7 @@ pub fn progress_find_macro_def_references(
     task: &mut Option<OngoingTask>,
     outgoing: &mut Vec<Task>,
 ) -> Result<(), ReturnCode> {
-    let Some(OngoingTask::FindMacroReferencesDefinitions {
-        progress,
-        ..
-    }) = task
-    else {
+    let Some(OngoingTask::FindMacroReferencesDefinitions { progress, .. }) = task else {
         unreachable!("No other variant is supported.");
     };
 
@@ -424,6 +417,7 @@ pub fn progress_find_macro_def_references(
             progress: TaskProgress::new(undone.len() as u32),
             r#macro,
             results,
+            visited: Vec::new(),
             undone,
         });
     } else if progress.ready() {
@@ -436,12 +430,9 @@ pub fn progress_find_subscript_macro_refs(
     docs: &TextDocs,
     task: &mut Option<OngoingTask>,
     outgoing: &mut Vec<Task>,
+    done: &mut Vec<Option<TaskDone>>,
 ) -> Result<(), ReturnCode> {
-    let Some(OngoingTask::FindMacroReferencesSubscripts {
-        progress,
-        ..
-    }) = task
-    else {
+    let Some(OngoingTask::FindMacroReferencesSubscripts { progress, .. }) = task else {
         unreachable!("No other variant is supported.");
     };
 
@@ -449,9 +440,11 @@ pub fn progress_find_subscript_macro_refs(
         let Some(OngoingTask::FindMacroReferencesSubscripts {
             id,
             onset,
+            progress,
             r#macro,
-            results,
+            visited,
             undone,
+            results,
             ..
         }) = task.take()
         else {
@@ -459,15 +452,21 @@ pub fn progress_find_subscript_macro_refs(
         };
 
         *task = Some(OngoingTask::FindMacroReferencesSubscripts {
-            id,
+            id: id.clone(),
+            results: FileLocationMap::new(),
             onset,
-            progress: TaskProgress::new(undone.len() as u32),
+            progress,
             r#macro,
-            results,
+            visited,
             undone,
         });
+
+        done.push(Some(TaskDone::FindMacroReferences(
+            id,
+            Some(results.to_locations()),
+        )));
     } else if progress.ready() {
-        next_lookups_find_macro_def_references(docs, task.as_mut().unwrap(), outgoing)?;
+        next_lookups_find_subscript_macro_refs(docs, task.as_mut().unwrap(), outgoing)?;
     }
     Ok(())
 }
@@ -479,6 +478,39 @@ pub fn recv_find_macro_def_references_sync(
 ) {
     let idx = find_ongoing_task_by_id(&id, ongoing);
     let Some(OngoingTask::FindMacroReferencesDefinitions {
+        progress,
+        results,
+        undone,
+        ..
+    }) = &mut ongoing[idx]
+    else {
+        unreachable!("No other type possible.");
+    };
+
+    let FindMacroReferencesResult {
+        uri,
+        references,
+        callees,
+    } = sync;
+    for r#ref in references {
+        results.insert(&uri, r#ref);
+    }
+
+    for callee in callees {
+        if !undone.contains(&callee) {
+            undone.push(callee);
+        }
+    }
+    progress.advance();
+}
+
+pub fn recv_find_subscript_macro_references_sync(
+    id: &NumberOrString,
+    sync: FindMacroReferencesResult,
+    ongoing: &mut Vec<Option<OngoingTask>>,
+) {
+    let idx = find_ongoing_task_by_id(&id, ongoing);
+    let Some(OngoingTask::FindMacroReferencesSubscripts {
         progress,
         results,
         undone,
@@ -572,11 +604,10 @@ fn find_definition_references(
 fn next_lookups_find_macro_def_references(
     docs: &TextDocs,
     task: &mut OngoingTask,
-    outgoing: &mut Vec<Task>,
+    next: &mut Vec<Task>,
 ) -> Result<(), ReturnCode> {
     let OngoingTask::FindMacroReferencesDefinitions {
         id,
-        onset: _onset,
         progress,
         r#macro,
         definitions,
@@ -585,6 +616,7 @@ fn next_lookups_find_macro_def_references(
     else {
         unreachable!("No other type supported.");
     };
+    debug_assert!(progress.ready());
 
     let mut touched: Vec<u8> = vec![0; definitions.len()];
     let mut total: u32 = 0;
@@ -611,7 +643,7 @@ fn next_lookups_find_macro_def_references(
             .get_doc_data(uri)
             .expect("File must be known at this point.");
 
-        outgoing.push(Task::FindMacroReferencesDefinitions(
+        next.push(Task::FindMacroReferencesDefinitions(
             id.clone(),
             TextDocData {
                 doc: doc.clone(),
@@ -620,7 +652,7 @@ fn next_lookups_find_macro_def_references(
             FindMacroRefsLangContext::from(t32.clone()),
             r#macro.to_string(),
             defs,
-            find_macro_references,
+            find_origin_macro_references,
         ));
 
         touched[ii] = 1;
@@ -631,11 +663,53 @@ fn next_lookups_find_macro_def_references(
     Ok(())
 }
 
+fn next_lookups_find_subscript_macro_refs(
+    docs: &TextDocs,
+    task: &mut OngoingTask,
+    next: &mut Vec<Task>,
+) -> Result<(), ReturnCode> {
+    let OngoingTask::FindMacroReferencesSubscripts {
+        id,
+        progress,
+        r#macro,
+        visited,
+        undone,
+        ..
+    } = task
+    else {
+        unreachable!("No other type supported.");
+    };
+    debug_assert!(progress.ready());
+
+    let mut total: u32 = 0;
+    for uri in undone.iter().filter(|&s| !visited.contains(s)) {
+        let (doc, tree, t32) = docs
+            .get_doc_data(uri)
+            .expect("File must be known at this point.");
+
+        next.push(Task::FindMacroReferencesSubscripts(
+            id.clone(),
+            TextDocData {
+                doc: doc.clone(),
+                tree: tree.clone(),
+            },
+            FindMacroRefsLangContext::from(t32.clone()),
+            r#macro.to_string(),
+            find_script_macro_references,
+        ));
+        total += 1;
+    }
+    progress.total = total;
+    undone.clear();
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    use std::time::Instant;
+    use std::{time::Instant, u32};
 
     use crate::protocol::{Position, Range};
 
@@ -689,6 +763,47 @@ mod tests {
         assert!(completed.is_empty());
 
         progress_goto_external_macro_def(&docs, &mut task, &mut outgoing, &mut completed).unwrap();
+
+        assert!(outgoing.is_empty());
+        assert!(!completed.is_empty());
+    }
+
+    #[test]
+    fn skips_redundant_subscript_macro_ref_checks() {
+        let docs = TextDocs::new();
+
+        let mut task = Some(OngoingTask::FindMacroReferencesSubscripts {
+            id: NumberOrString::Number(1),
+            onset: Instant::now(),
+            progress: TaskProgress {
+                completed: 0,
+                total: 3,
+                cycles: 0,
+                max_cycles: u32::MAX,
+            },
+            r#macro: "test".to_string(),
+            visited: vec![
+                "file:///sample/a.cmm".to_string(),
+                "file:///sample/b.cmm".to_string(),
+            ],
+            undone: vec![
+                "file:///sample/a.cmm".to_string(),
+                "file:///sample/b.cmm".to_string(),
+            ],
+            results: FileLocationMap::new(),
+        });
+
+        let mut outgoing: Vec<Task> = Vec::new();
+        let mut completed: Vec<Option<TaskDone>> = Vec::new();
+
+        progress_find_subscript_macro_refs(&docs, &mut task, &mut outgoing, &mut completed)
+            .unwrap();
+
+        assert!(outgoing.is_empty());
+        assert!(completed.is_empty());
+
+        progress_find_subscript_macro_refs(&docs, &mut task, &mut outgoing, &mut completed)
+            .unwrap();
 
         assert!(outgoing.is_empty());
         assert!(!completed.is_empty());

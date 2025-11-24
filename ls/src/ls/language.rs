@@ -524,7 +524,7 @@ pub fn find_references(
     }
 }
 
-pub fn find_macro_references(
+pub fn find_origin_macro_references(
     textdoc: TextDocData,
     t32: FindMacroRefsLangContext,
     name: String,
@@ -533,9 +533,9 @@ pub fn find_macro_references(
     let mut locs: Vec<LRange> = Vec::new();
     let mut callees: Vec<Uri> = Vec::new();
 
-    for (loc, scope) in origins {
+    for (loc, scope_) in origins {
         // Assume block-global, if no other scope is provided.
-        let scope = match scope {
+        let scope = match scope_ {
             Some(lifetime) => lifetime,
             None => MacroScope::Local,
         };
@@ -554,6 +554,14 @@ pub fn find_macro_references(
         callees.append(&mut scripts);
     }
     FindMacroReferencesResult::build(textdoc.doc.uri, locs, callees)
+}
+
+pub fn find_script_macro_references(
+    _textdoc: TextDocData,
+    _t32: FindMacroRefsLangContext,
+    _name: String,
+) -> FindMacroReferencesResult {
+    todo!()
 }
 
 fn find_deepest_node<'a>(tree: &'a Tree, offset: usize, stop_at: &[u16]) -> Option<TreeCursor<'a>> {
@@ -1928,7 +1936,7 @@ mod tests {
             ]
             .into_iter(),
         ) {
-            let result = find_macro_references(
+            let result = find_origin_macro_references(
                 TextDocData {
                     doc: doc.clone(),
                     tree: tree.clone(),
