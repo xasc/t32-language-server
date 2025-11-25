@@ -6,7 +6,7 @@ use std::ops::Range;
 
 use tree_sitter::{Tree, TreeCursor};
 
-use crate::protocol::Uri;
+use crate::{protocol::Uri, utils::BRange};
 
 use super::{
     FindMacroRefsLangContext,
@@ -32,6 +32,36 @@ impl<'a> MacroReferencesBlockCaptures<'a> {
             scripts: Vec::new(),
         }
     }
+}
+
+pub fn find_any_macro_references(tree: &Tree) -> Vec<BRange> {
+    let mut cursor = tree.walk();
+
+    let mut refs: Vec<BRange> = Vec::new();
+
+    if !cursor.goto_first_child() {
+        return refs;
+    }
+
+    let r#macro = NodeKind::Macro.into_id(&tree.language());
+
+    'outer: loop {
+        let node = cursor.node();
+        let id = node.kind_id();
+
+        if id == r#macro {
+            refs.push(node.byte_range().into());
+        } else if cursor.goto_first_child() {
+            continue;
+        }
+
+        while !cursor.goto_next_sibling() {
+            if !cursor.goto_parent() {
+                break 'outer;
+            }
+        }
+    }
+    refs
 }
 
 pub fn find_scope_restricted_macro_references(

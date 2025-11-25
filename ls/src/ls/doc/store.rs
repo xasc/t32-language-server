@@ -768,7 +768,7 @@ mod test {
             },
             workspace::{FileIndex, index_files, rename_files},
         },
-        t32::{self, CallExpressions, LANGUAGE_ID},
+        t32::{self, CallExpressions, LANGUAGE_ID, find_any_macro_references},
     };
 
     fn files() -> Vec<Url> {
@@ -831,12 +831,14 @@ mod test {
             subroutines: Vec::new(),
             scripts: None,
         };
+        let macro_refs = find_any_macro_references(&tree);
 
         (
             doc,
             tree,
             LangExpressions {
                 macros,
+                macro_refs,
                 subroutines,
                 calls,
                 parameters,

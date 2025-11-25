@@ -9,6 +9,12 @@ use tree_sitter::Range as TRange;
 #[derive(Clone, Debug)]
 pub struct BRange(Range<usize>);
 
+impl BRange {
+    pub fn to_inner(self) -> Range<usize> {
+        self.0
+    }
+}
+
 impl From<TRange> for BRange {
     fn from(span: TRange) -> Self {
         BRange(Range {

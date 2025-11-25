@@ -343,9 +343,9 @@ pub fn process_find_references_result(
         Some(FindReferencesResult::Final(refs)) => Some(refs),
         Some(FindReferencesResult::Partial(partial)) => match partial {
             FindReferencesPartialResult::MacroDefsComplete {
-                uri: _uri,
                 r#macro,
                 definitions,
+                ..
             } => {
                 debug_assert!(!definitions.is_empty());
 
@@ -621,7 +621,7 @@ fn next_lookups_find_macro_def_references(
     let mut touched: Vec<u8> = vec![0; definitions.len()];
     let mut total: u32 = 0;
 
-    // Group all lookups from the same file into a single request.
+    // Group all lookups originating from the same file into a single request.
     for (ii, (FileLocation { uri, range }, scope)) in definitions.iter().enumerate() {
         if touched[ii] > 0 {
             continue;

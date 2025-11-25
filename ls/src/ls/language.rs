@@ -35,7 +35,6 @@ pub enum GotoDefinitionResult {
 #[derive(Debug)]
 pub enum FindReferencesPartialResult {
     MacroDefsComplete {
-        uri: Uri,
         r#macro: String,
         definitions: Vec<(FileLocation, Option<MacroScope>)>,
     },
@@ -442,7 +441,6 @@ pub fn find_references(
 
                     Some(FindReferencesResult::Partial(
                         FindReferencesPartialResult::MacroDefsComplete {
-                            uri: textdoc.doc.uri,
                             r#macro: name,
                             definitions: origins,
                         },

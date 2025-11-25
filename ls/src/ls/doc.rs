@@ -14,8 +14,8 @@ use crate::{
     protocol::{TextDocumentContentChangeEvent, TextDocumentItem, Uri},
     t32::{
         self, CallExpression, CallExpressions, CallLocations, LangExpressions, SubscriptCalls,
-        find_call_expressions, find_macro_definitions, find_parameter_declarations,
-        find_subroutines_and_labels, resolve_subscript_call_targets,
+        find_any_macro_references, find_call_expressions, find_macro_definitions,
+        find_parameter_declarations, find_subroutines_and_labels, resolve_subscript_call_targets,
     },
 };
 
@@ -30,12 +30,14 @@ pub fn import_doc(r#in: TextDocumentItem, files: FileIndex) -> (TextDoc, Tree, L
     let (subroutines, labels) = find_subroutines_and_labels(&doc.text, &tree);
     let parameters = find_parameter_declarations(&doc.text, &tree);
     let calls = resolve_call_expressions(&doc.text, &tree, &files);
+    let macro_refs = find_any_macro_references(&tree);
 
     (
         doc,
         tree,
         LangExpressions {
             macros,
+            macro_refs,
             subroutines,
             calls,
             parameters,
@@ -60,12 +62,14 @@ pub fn update_doc(
     let (subroutines, labels) = find_subroutines_and_labels(&textdoc.doc.text, &textdoc.tree);
     let parameters = find_parameter_declarations(&textdoc.doc.text, &textdoc.tree);
     let calls = resolve_call_expressions(&textdoc.doc.text, &textdoc.tree, &files);
+    let macro_refs = find_any_macro_references(&textdoc.tree);
 
     (
         textdoc.doc,
         textdoc.tree,
         LangExpressions {
             macros,
+            macro_refs,
             subroutines,
             calls,
             parameters,
@@ -86,12 +90,14 @@ pub fn read_doc(r#in: Url, files: FileIndex) -> Result<(TextDoc, Tree, LangExpre
     let (subroutines, labels) = find_subroutines_and_labels(&doc.text, &tree);
     let parameters = find_parameter_declarations(&doc.text, &tree);
     let calls = resolve_call_expressions(&doc.text, &tree, &files);
+    let macro_refs = find_any_macro_references(&tree);
 
     Ok((
         doc,
         tree,
         LangExpressions {
             macros,
+            macro_refs,
             subroutines,
             calls,
             parameters,
@@ -137,7 +143,7 @@ pub fn resolve_call_expressions(text: &str, tree: &Tree, files: &FileIndex) -> C
 
 #[cfg(test)]
 mod test {
-    use std::path;
+    use std::{ops::Range, path};
 
     use super::*;
 
@@ -443,8 +449,8 @@ mod test {
                 .unwrap();
 
         let (
-            _doc,
-            _tree,
+            _,
+            _,
             LangExpressions {
                 calls: CallExpressions { scripts, .. },
                 ..
@@ -484,8 +490,8 @@ mod test {
                 .unwrap();
 
         let (
-            _doc,
-            _tree,
+            _,
+            _,
             LangExpressions {
                 calls: CallExpressions { scripts, .. },
                 ..
@@ -527,8 +533,8 @@ mod test {
                 .unwrap();
 
         let (
-            _doc,
-            _tree,
+            _,
+            _,
             LangExpressions {
                 calls: CallExpressions { scripts, .. },
                 ..
@@ -550,8 +556,8 @@ mod test {
                 .unwrap();
 
         let (
-            _doc,
-            _tree,
+            _,
+            _,
             LangExpressions {
                 calls: CallExpressions { scripts, .. },
                 ..
@@ -575,5 +581,33 @@ mod test {
         .to_string();
 
         assert_file_not_in_subscript_calls(&missing, scripts.as_ref().unwrap());
+    }
+
+    #[test]
+    fn can_find_all_macro_references() {
+        let file_idx = FileIndex::new();
+
+        let file =
+            Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
+                .unwrap();
+
+        let (doc, _, LangExpressions { macro_refs, .. }) =
+            read_doc(file, file_idx).expect("Must not fail.");
+
+        assert!(
+            macro_refs
+                .iter()
+                .any(|r| &doc.text[r.clone().to_inner()] == "&private_macro")
+        );
+        assert!(
+            macro_refs
+                .iter()
+                .any(|r| &doc.text[r.clone().to_inner()] == "&inner_macro")
+        );
+        assert!(
+            macro_refs
+                .iter()
+                .any(|r| &doc.text[r.clone().to_inner()] == "&a")
+        );
     }
 }

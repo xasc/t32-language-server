@@ -11,8 +11,6 @@ mod path;
 use tree_sitter::{Language, Parser, Tree, TreeCursor};
 use tree_sitter_t32;
 
-use crate::{ls::FileIndex, protocol::Uri};
-
 pub use ast::{NodeKind, id_into_node};
 pub use cache::get_macro_scope;
 pub use expressions::{
@@ -28,7 +26,11 @@ pub use expressions::{
     find_external_macro_definition as goto_external_macro_definition,
 };
 
+pub use macros::find_any_macro_references;
+
 use std::ops::Range;
+
+use crate::{ls::FileIndex, protocol::Uri, utils::BRange};
 
 use expressions::{
     defines_named_macro, find_all_references_for_label, find_all_references_for_subroutine,
@@ -47,6 +49,7 @@ pub enum MacroDefinitionResult {
 #[derive(Clone, Debug)]
 pub struct LangExpressions {
     pub macros: MacroDefinitions,
+    pub macro_refs: Vec<BRange>,
     pub subroutines: Vec<Subroutine>,
     pub calls: CallExpressions,
     pub parameters: Vec<ParameterDeclaration>,
