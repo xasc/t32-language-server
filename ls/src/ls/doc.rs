@@ -143,9 +143,9 @@ pub fn resolve_call_expressions(text: &str, tree: &Tree, files: &FileIndex) -> C
 
 #[cfg(test)]
 mod test {
-    use std::{ops::Range, path};
-
     use super::*;
+
+    use std::path;
 
     use crate::{
         ls::workspace::index_files,

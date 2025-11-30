@@ -13,6 +13,7 @@ use crate::{
     },
     protocol::Uri,
     t32::{LangExpressions, MacroDefinition},
+    utils::BRange,
 };
 
 /// TODO: Reduce size to 64 bit or less.
@@ -25,6 +26,7 @@ pub struct TextDocs {
 
     callers: CallerStore,
     t32: LangExpressionStore,
+    macro_index: BTreeMap<String, Vec<Uri>>,
 
     registry: BTreeMap<Uri, DocIndex>,
     free_list: FreeLists,
@@ -97,6 +99,7 @@ impl<'a> TextDocs {
                 open: Vec::new(),
                 closed: Vec::new(),
             },
+            macro_index: BTreeMap::new(),
             registry: BTreeMap::new(),
             free_list: FreeLists {
                 open: Vec::new(),
@@ -123,6 +126,7 @@ impl<'a> TextDocs {
                 open: Vec::new(),
                 closed: Vec::with_capacity(num),
             },
+            macro_index: BTreeMap::new(),
             registry: BTreeMap::new(),
             free_list: FreeLists {
                 open: Vec::new(),
@@ -140,6 +144,7 @@ impl<'a> TextDocs {
 
         debug_assert_eq!(store.docs.closed.len(), 0);
         for file in members {
+            store.update_macro_index(&file.0, &file.2.macro_refs);
             let _ = store.insert_or_update(file.0, file.1, file.2, TextDocStatus::Closed);
         }
 
@@ -152,6 +157,7 @@ impl<'a> TextDocs {
         if let Some(targets) = self.get_called_subscripts(&doc.uri) {
             self.remove_caller(&doc.uri, &targets.clone());
         }
+        self.update_macro_index(&doc, &expr.macro_refs);
 
         let uri = doc.uri.clone();
         self.insert_or_update(doc, tree, expr, status);
@@ -160,6 +166,8 @@ impl<'a> TextDocs {
     }
 
     pub fn update(&mut self, doc: TextDoc, tree: Tree, expr: LangExpressions) {
+        self.update_macro_index(&doc, &expr.macro_refs);
+
         if let Some(val) = self.registry.get(&doc.uri) {
             debug_assert_eq!(val.0, TextDocStatus::Open);
 
@@ -257,6 +265,7 @@ impl<'a> TextDocs {
 
         self.rename_lang_expr(&old, &new);
         self.rename_callers(&old, &new);
+        self.rename_macro_index_refs(&old, &new);
     }
 
     pub fn get_doc(&self, uri: &str) -> Option<&TextDoc> {
@@ -276,7 +285,6 @@ impl<'a> TextDocs {
         }
     }
 
-    #[expect(unused)]
     pub fn get_lang_expressions(&self, uri: &str) -> Option<&LangExpressions> {
         match self.registry.get(uri) {
             Some(idx) if idx.0 == TextDocStatus::Open => self.t32.open[idx.1].as_ref(),
@@ -290,31 +298,6 @@ impl<'a> TextDocs {
             Some(idx) if idx.0 == TextDocStatus::Open => self.callers.open[idx.1].as_ref(),
             Some(idx) => self.callers.closed[idx.1].as_ref(),
             None => None,
-        }
-    }
-
-    pub fn get_all_global_macros(&'a self) -> Option<GlobalMacroDefIndex<'a>> {
-        debug_assert_eq!(self.docs.open.len(), self.t32.open.len());
-
-        let (mut files, mut nums, mut names, mut macros) =
-            Self::gather_global_macros(&self.docs.open, &self.t32.open);
-
-        let (mut files_, mut nums_, mut names_, mut macros_): (
-            Vec<Uri>,
-            Vec<u32>,
-            Vec<&str>,
-            Vec<&MacroDefinition>,
-        ) = Self::gather_global_macros(&self.docs.closed, &self.t32.closed);
-
-        files.append(&mut files_);
-        nums.append(&mut nums_);
-        names.append(&mut names_);
-        macros.append(&mut macros_);
-
-        if files.len() > 0 {
-            Some(GlobalMacroDefIndex(files, nums, names, macros))
-        } else {
-            None
         }
     }
 
@@ -350,6 +333,37 @@ impl<'a> TextDocs {
             }
             None => None,
         }
+    }
+
+    pub fn get_all_global_macros(&'a self) -> Option<GlobalMacroDefIndex<'a>> {
+        debug_assert_eq!(self.docs.open.len(), self.t32.open.len());
+
+        let (mut files, mut nums, mut names, mut macros) =
+            Self::gather_global_macros(&self.docs.open, &self.t32.open);
+
+        let (mut files_, mut nums_, mut names_, mut macros_): (
+            Vec<Uri>,
+            Vec<u32>,
+            Vec<&str>,
+            Vec<&MacroDefinition>,
+        ) = Self::gather_global_macros(&self.docs.closed, &self.t32.closed);
+
+        files.append(&mut files_);
+        nums.append(&mut nums_);
+        names.append(&mut names_);
+        macros.append(&mut macros_);
+
+        if files.len() > 0 {
+            Some(GlobalMacroDefIndex(files, nums, names, macros))
+        } else {
+            None
+        }
+    }
+
+    /// Macro name must start with `&`.
+    #[allow(dead_code)]
+    pub fn get_all_scripts_with_macro(&'a self, name: &str) -> Option<&'a Vec<Uri>> {
+        self.macro_index.get(name)
     }
 
     pub fn is_open(&self, uri: &str) -> bool {
@@ -682,7 +696,7 @@ impl<'a> TextDocs {
         (files, nums, names, macros)
     }
 
-    fn rename_docs(&mut self, slots: &Vec<Option<DocIndex>>, new: &Vec<Uri>) {
+    fn rename_docs(&mut self, slots: &Vec<Option<DocIndex>>, new: &[Uri]) {
         debug_assert!(new.len() > 0);
         debug_assert_eq!(new.len(), slots.len());
 
@@ -698,7 +712,7 @@ impl<'a> TextDocs {
         }
     }
 
-    fn rename_lang_expr(&mut self, old: &Vec<Uri>, new: &Vec<Uri>) {
+    fn rename_lang_expr(&mut self, old: &[Uri], new: &[Uri]) {
         debug_assert!(old.len() > 0);
         debug_assert_eq!(old.len(), new.len());
 
@@ -731,7 +745,7 @@ impl<'a> TextDocs {
         }
     }
 
-    fn rename_callers(&mut self, old: &Vec<Uri>, new: &Vec<Uri>) {
+    fn rename_callers(&mut self, old: &[Uri], new: &[Uri]) {
         debug_assert!(old.len() > 0);
         debug_assert_eq!(old.len(), new.len());
 
@@ -748,6 +762,109 @@ impl<'a> TextDocs {
                     *caller = new[ii].clone();
                 }
             }
+        }
+    }
+
+    fn rename_macro_index_refs(&mut self, old: &[Uri], new: &[Uri]) {
+        debug_assert!(old.len() > 0);
+        debug_assert!(old.len() == new.len());
+
+        fn rename_macro_entries_in_index(
+            macros: &[String],
+            old: &Uri,
+            new: &Uri,
+            registry: &mut BTreeMap<String, Vec<Uri>>,
+        ) {
+            for r#macro in macros {
+                if let Some(files) = registry.get_mut(r#macro) {
+                    for file in files.iter_mut().filter(|f| **f == **old) {
+                        *file = new.to_string();
+                    }
+                }
+            }
+        }
+
+        for (old_uri, new_uri) in old.iter().zip(new) {
+            let (doc, t32) = (self.get_doc(new_uri), self.get_lang_expressions(new_uri));
+            let (doc, t32) = (
+                doc.expect("Must be called after rename operation."),
+                t32.expect("Must be called after rename operation."),
+            );
+
+            let macros: Vec<String> = t32
+                .macro_refs
+                .iter()
+                .map(|r| doc.text[r.clone().to_inner()].to_string())
+                .collect();
+            rename_macro_entries_in_index(&macros, old_uri, new_uri, &mut self.macro_index);
+        }
+    }
+
+    fn update_macro_index(&mut self, doc: &TextDoc, new: &[BRange]) {
+        fn remove_from_macro_idx(
+            uri: &str,
+            old: &[String],
+            new: &[&str],
+            registry: &mut BTreeMap<String, Vec<Uri>>,
+        ) {
+            for r#macro in old.iter().filter(|&o| !new.iter().any(|&n| *n == *o)) {
+                if let Some(files) = registry.get_mut(r#macro) {
+                    files.retain(|f| *f != *uri);
+
+                    if files.is_empty() {
+                        registry.remove(r#macro);
+                    }
+                }
+            }
+        }
+
+        fn insert_into_macro_idx(
+            uri: &str,
+            old: &[String],
+            new: &[&str],
+            registry: &mut BTreeMap<String, Vec<Uri>>,
+        ) {
+            for &r#macro in new.iter().filter(|&&n| !old.iter().any(|o| *o == *n)) {
+                if let Some(files) = registry.get_mut(r#macro) {
+                    if !files.iter().any(|f| *f == *uri) {
+                        files.push(uri.to_string());
+                    }
+                } else {
+                    registry.insert(r#macro.to_string(), vec![uri.to_string()]);
+                }
+            }
+        }
+
+        let (old_doc, old_t32) = (self.get_doc(&doc.uri), self.get_lang_expressions(&doc.uri));
+        debug_assert!(
+            (old_doc.is_some() && old_t32.is_some()) || (old_doc.is_none() && old_t32.is_none())
+        );
+
+        let old_macros = if let Some(t32) = old_t32 {
+            let doc = old_doc.expect("Must be in sync with lang expression availability.");
+            t32.macro_refs
+                .iter()
+                .map(|r| doc.text[r.clone().to_inner()].to_string())
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+        let mut new_macros: Vec<&str> = new
+            .iter()
+            .map(|r| &doc.text[r.clone().to_inner()])
+            .collect();
+        new_macros.sort();
+        new_macros.dedup();
+
+        debug_assert!(old_doc.is_none() || old_doc.unwrap().uri == doc.uri);
+
+        if old_doc.is_some() && old_macros.len() > 0 {
+            remove_from_macro_idx(&doc.uri, &old_macros, &new_macros, &mut self.macro_index);
+        }
+
+        if new_macros.len() > 0 {
+            insert_into_macro_idx(&doc.uri, &old_macros, &new_macros, &mut self.macro_index);
         }
     }
 }
@@ -812,8 +929,7 @@ mod test {
         TextDocs::from_workspace(members)
     }
 
-    fn create_doc(uri: &str) -> (TextDoc, Tree, LangExpressions) {
-        let text = "PRINT \"Hello, World!\"\n";
+    fn create_doc(uri: &str, text: &str) -> (TextDoc, Tree, LangExpressions) {
         let lines = create_line_map_for_text(&text, None, None);
         let doc = TextDoc {
             uri: uri.to_string(),
@@ -851,9 +967,11 @@ mod test {
     fn can_open_documents() {
         let mut docs = TextDocs::new();
 
+        let text = "PRINT \"Hello, World!\"\n";
+
         let files = ["file:///a.cmm", "file:///b.cmm"];
         for uri in files.iter() {
-            let (doc, tree, expr) = create_doc(*uri);
+            let (doc, tree, expr) = create_doc(*uri, &text);
             docs.add(doc, tree, expr, TextDocStatus::Open);
 
             assert!(docs.is_open(*uri));
@@ -867,13 +985,13 @@ mod test {
         assert!(!docs.free_list.open.is_empty());
         assert!(docs.free_list.closed.is_empty());
 
-        let (doc, tree, expr) = create_doc(files[0]);
+        let (doc, tree, expr) = create_doc(files[0], &text);
         docs.add(doc, tree, expr, TextDocStatus::Open);
 
         assert!(!docs.free_list.open.is_empty());
         assert!(!docs.free_list.closed.is_empty());
 
-        let (doc, tree, expr) = create_doc(files[1]);
+        let (doc, tree, expr) = create_doc(files[1], &text);
         docs.add(doc, tree, expr, TextDocStatus::Open);
 
         assert!(docs.free_list.open.is_empty());
@@ -884,8 +1002,9 @@ mod test {
     fn can_close_documents() {
         let mut docs = TextDocs::new();
 
+        let text = "PRINT \"Hello, World!\"\n";
         let uri = "file:///test.cmm";
-        let (doc, tree, expr) = create_doc(uri);
+        let (doc, tree, expr) = create_doc(uri, &text);
 
         docs.add(doc, tree, expr, TextDocStatus::Open);
 
@@ -1081,5 +1200,53 @@ mod test {
 
             assert!(docs.get_doc(&target).is_none());
         }
+    }
+
+    #[test]
+    fn can_update_macro_index() {
+        let files = files();
+        let file_idx = create_file_idx();
+        let mut docs = create_doc_store(&files, &file_idx);
+
+        let uri_a =
+            Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
+                .unwrap()
+                .to_string();
+        let uri_a1 = Url::from_file_path(path::absolute("a1.cmm").unwrap())
+            .unwrap()
+            .to_string();
+
+        let hits = docs
+            .get_all_scripts_with_macro("&a")
+            .expect("Must find references for macro.");
+        assert_eq!(&hits[..], [uri_a.clone()]);
+
+        let text = "LOCAL &a\n&a=3\n";
+        let (doc, tree, expr) = create_doc(&uri_a1, &text);
+        docs.add(doc, tree, expr, TextDocStatus::Open);
+
+        let hits = docs
+            .get_all_scripts_with_macro("&a")
+            .expect("Must find references for macro.");
+        let uris = [uri_a.clone(), uri_a1.clone()];
+        assert_eq!(&hits[..], uris);
+
+        let hits = docs
+            .get_all_scripts_with_macro("&b")
+            .expect("Must find references for macro.");
+        let uris = [uri_a.clone()];
+        assert_eq!(&hits[..], uris);
+
+        let text = "PRINT \"Hello, World!\"\n";
+        let (doc, tree, expr) = create_doc(&uri_a, &text);
+        docs.add(doc, tree, expr, TextDocStatus::Open);
+
+        assert!(docs.get_all_scripts_with_macro("&b").is_none());
+
+        let hits = docs
+            .get_all_scripts_with_macro("&a")
+            .expect("Must find references for macro.");
+        let uris = [uri_a1];
+        assert_eq!(&hits[..], uris);
     }
 }
