@@ -308,27 +308,27 @@ pub fn find_macro_definition_references(
     t32: &FindMacroRefsLangContext,
     name: &str,
     scope: MacroScope,
-    range: Range<usize>,
-) -> (Vec<Range<usize>>, Vec<Uri>) {
-    if range.start >= text.len() {
+    range: BRange,
+) -> (Vec<BRange>, Vec<Uri>) {
+    let span = range.to_inner();
+    if span.start >= text.len() {
         return (Vec::new(), Vec::new());
     }
 
-    // TODO: Add special handling for global macros
-    if scope == MacroScope::Global {
-        todo!()
-    }
     let (mut refs, mut callees) =
-        find_scope_restricted_macro_references(text, tree, t32, name, scope, range.start);
+        find_scope_restricted_macro_references(text, tree, t32, name, scope, span.start);
 
-    if !refs.contains(&range) {
-        refs.push(range);
+    if !refs.iter().any(|r| *r == span) {
+        refs.push(BRange::from(span));
     }
 
     if !callees.is_empty() && scope == MacroScope::Private {
         callees.clear();
     }
 
-    refs.sort_by_key(|a| (a.start, a.end));
+    refs.sort_by_key(|a| {
+        let span = a.inner();
+        (span.start, span.end)
+    });
     (refs, callees)
 }

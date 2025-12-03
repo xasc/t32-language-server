@@ -27,12 +27,6 @@ pub enum FindReferencesResult {
 }
 
 #[derive(Debug)]
-pub enum GotoDefinitionResult {
-    Final(Vec<LocationLink>),
-    PartialMacro(Uri, String, LRange, Vec<LocationLink>),
-}
-
-#[derive(Debug)]
 pub enum FindReferencesPartialResult {
     MacroDefsComplete {
         r#macro: String,
@@ -49,10 +43,30 @@ pub enum FindReferencesPartialResult {
 }
 
 #[derive(Debug)]
+pub enum GotoDefinitionResult {
+    Final(Vec<LocationLink>),
+    PartialMacro(Uri, String, LRange, Vec<LocationLink>),
+}
+
+#[derive(Debug, Clone)]
+pub enum MacroPropagation {
+    Private(FileLocation),
+    Local(FileLocation),
+    Global(FileLocation, Vec<Uri>),
+}
+
+#[derive(Debug, Clone)]
+pub enum MacroPropagationCompact {
+    Private(BRange),
+    Local(BRange),
+    Global(BRange, Vec<Uri>),
+}
+
+#[derive(Debug)]
 pub struct FindMacroReferencesResult {
     pub uri: Uri,
     pub references: Vec<LRange>,
-    pub callees: Vec<Uri>,
+    pub subscripts: Vec<Uri>,
 }
 
 #[derive(Clone, Debug)]
@@ -69,11 +83,63 @@ pub struct FileLocation {
 }
 
 impl FindMacroReferencesResult {
-    pub fn build(uri: Uri, locations: Vec<LRange>, callees: Vec<Uri>) -> Self {
+    pub fn build(uri: Uri, locations: Vec<LRange>, subscripts: Vec<Uri>) -> Self {
         FindMacroReferencesResult {
             uri,
             references: locations,
-            callees,
+            subscripts,
+        }
+    }
+}
+
+impl MacroPropagation {
+    pub fn new(
+        docs: &TextDocs,
+        name: &str,
+        origin: FileLocation,
+        scope: Option<MacroScope>,
+    ) -> Self {
+        match scope {
+            Some(MacroScope::Private) => MacroPropagation::Private(origin),
+            // Assume block-global, if no other scope is provided.
+            None | Some(MacroScope::Local) => MacroPropagation::Local(origin),
+            Some(MacroScope::Global) => {
+                let refs = match docs.get_all_scripts_with_macro(name) {
+                    Some(files) => files.clone(),
+                    None => Vec::new(),
+                };
+                MacroPropagation::Global(origin, refs)
+            }
+        }
+    }
+
+    pub fn get_uri(&self) -> &Uri {
+        match self {
+            MacroPropagation::Private(loc) => &loc.uri,
+            MacroPropagation::Local(loc) => &loc.uri,
+            MacroPropagation::Global(loc, _) => &loc.uri,
+        }
+    }
+}
+
+impl MacroPropagationCompact {
+    #[allow(dead_code)]
+    pub fn new(scope: MacroScope, loc: BRange, files: Option<Vec<Uri>>) -> Self {
+        match scope {
+            MacroScope::Private => MacroPropagationCompact::Private(loc),
+            MacroScope::Local => MacroPropagationCompact::Local(loc),
+            MacroScope::Global => MacroPropagationCompact::Global(
+                loc,
+                files.expect("Must be provided for construction."),
+            ),
+        }
+    }
+
+    pub fn split(self) -> (MacroScope, BRange, Vec<Uri>) {
+        match self {
+            MacroPropagationCompact::Private(span) => (MacroScope::Private, span, Vec::new()),
+            MacroPropagationCompact::Local(span) => (MacroScope::Local, span, Vec::new()),
+            MacroPropagationCompact::Global(span, files) => (MacroScope::Global, span, files),
         }
     }
 }
@@ -133,6 +199,20 @@ impl LocationLink {
             target_uri: doc.uri.clone(),
             target_range: doc.to_range(target_range.start, target_range.end),
             target_selection_range: doc.to_range(target_sel.start, target_sel.end),
+        }
+    }
+}
+
+impl From<MacroPropagation> for MacroPropagationCompact {
+    fn from(r#macro: MacroPropagation) -> Self {
+        match r#macro {
+            MacroPropagation::Private(loc) => {
+                MacroPropagationCompact::Private(BRange::from(loc.range))
+            }
+            MacroPropagation::Local(loc) => MacroPropagationCompact::Local(BRange::from(loc.range)),
+            MacroPropagation::Global(loc, files) => {
+                MacroPropagationCompact::Global(BRange::from(loc.range), files)
+            }
         }
     }
 }
@@ -526,29 +606,32 @@ pub fn find_origin_macro_references(
     textdoc: TextDocData,
     t32: FindMacroRefsLangContext,
     name: String,
-    origins: Vec<(Range<usize>, Option<MacroScope>)>,
+    origins: Vec<MacroPropagationCompact>,
 ) -> FindMacroReferencesResult {
     let mut locs: Vec<LRange> = Vec::new();
     let mut callees: Vec<Uri> = Vec::new();
 
-    for (loc, scope_) in origins {
-        // Assume block-global, if no other scope is provided.
-        let scope = match scope_ {
-            Some(lifetime) => lifetime,
-            None => MacroScope::Local,
-        };
+    for origin in origins {
+        let (lifetime, loc, mut occurrences) = origin.split();
+        // Add all files containing macro references with the same name as the global macro to the search list
+        if !occurrences.is_empty() {
+            callees.append(&mut occurrences);
+        }
+
         let (spans, mut scripts) = find_macro_definition_references(
             &textdoc.doc.text,
             &textdoc.tree,
             &t32,
             &name,
-            scope,
+            lifetime,
             loc,
         );
 
         for span in spans {
-            locs.push(textdoc.doc.to_range(span.start, span.end));
+            let inner = span.to_inner();
+            locs.push(textdoc.doc.to_range(inner.start, inner.end));
         }
+        scripts.retain(|s| !callees.contains(s));
         callees.append(&mut scripts);
     }
     FindMacroReferencesResult::build(textdoc.doc.uri, locs, callees)
@@ -1839,7 +1922,7 @@ mod tests {
     }
 
     #[test]
-    fn can_find_macro_references() {
+    fn can_find_infile_macro_definition_references() {
         let file_idx = create_file_idx();
 
         let uri =
@@ -1854,7 +1937,7 @@ mod tests {
                     start: 134usize,
                     end: 148usize,
                 },
-                Some(MacroScope::Private),
+                MacroScope::Private,
             ),
             (
                 "&local_macro",
@@ -1862,7 +1945,7 @@ mod tests {
                     start: 509usize,
                     end: 521usize,
                 },
-                Some(MacroScope::Local),
+                MacroScope::Local,
             ),
         ]
         .into_iter()
@@ -1941,7 +2024,11 @@ mod tests {
                 },
                 FindMacroRefsLangContext::from(t32.clone()),
                 name.to_string(),
-                vec![(range, scope)],
+                vec![MacroPropagationCompact::new(
+                    scope,
+                    BRange::from(range),
+                    None,
+                )],
             );
 
             assert_eq!(result.references.len(), refs.len());
@@ -1949,10 +2036,51 @@ mod tests {
                 assert!(refs.contains(&r#ref));
             }
 
-            assert_eq!(result.callees.len(), scripts.len());
-            for file in result.callees {
+            assert_eq!(result.subscripts.len(), scripts.len());
+            for file in result.subscripts {
                 assert!(scripts.contains(&file));
             }
         }
+    }
+
+    #[test]
+    fn can_add_global_macro_definition_reference_lookups() {
+        let file_idx = create_file_idx();
+
+        let uri =
+            Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
+                .unwrap();
+        let (doc, tree, t32) = read_doc(uri, file_idx).unwrap();
+
+        let target = to_file_uri("tests/samples/test.cmm");
+
+        let result = find_origin_macro_references(
+            TextDocData {
+                doc: doc.clone(),
+                tree: tree.clone(),
+            },
+            FindMacroRefsLangContext::from(t32.clone()),
+            "&global_macro".to_string(),
+            vec![MacroPropagationCompact::new(
+                MacroScope::Global,
+                BRange::from(Range {
+                    start: 489usize,
+                    end: 502usize,
+                }),
+                Some(vec![target.clone()]),
+            )],
+        );
+
+        assert!(result.references.contains(&LRange {
+            start: Position {
+                line: 41,
+                character: 7,
+            },
+            end: Position {
+                line: 41,
+                character: 20,
+            },
+        }));
+        assert!(result.subscripts.contains(&target));
     }
 }

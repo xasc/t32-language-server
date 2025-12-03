@@ -2,8 +2,6 @@
 //
 // SPDX-License-Identifier: EUPL-1.2
 
-use std::ops::Range;
-
 use crate::{
     ls::{
         ReturnCode,
@@ -11,7 +9,8 @@ use crate::{
         language::{
             ExtMacroDefOrigin, FileLocation, FindMacroReferencesResult,
             FindReferencesPartialResult, FindReferencesResult, GotoDefinitionResult,
-            find_definition, find_external_macro_definition, find_global_macro_definitions,
+            MacroPropagation, MacroPropagationCompact, find_definition,
+            find_external_macro_definition, find_global_macro_definitions,
             find_origin_macro_references, find_references, find_script_macro_references,
         },
         lsp::Message,
@@ -349,7 +348,13 @@ pub fn process_find_references_result(
             } => {
                 debug_assert!(!definitions.is_empty());
 
-                queue_find_macro_references_req(id.clone(), r#macro, definitions, &mut ts.ongoing);
+                queue_find_macro_references_req(
+                    docs,
+                    id.clone(),
+                    r#macro,
+                    definitions,
+                    &mut ts.ongoing,
+                );
                 return None;
             }
             FindReferencesPartialResult::MacroDefsIncomplete {
@@ -490,13 +495,13 @@ pub fn recv_find_macro_def_references_sync(
     let FindMacroReferencesResult {
         uri,
         references,
-        callees,
+        subscripts,
     } = sync;
     for r#ref in references {
         results.insert(&uri, r#ref);
     }
 
-    for callee in callees {
+    for callee in subscripts {
         if !undone.contains(&callee) {
             undone.push(callee);
         }
@@ -523,13 +528,13 @@ pub fn recv_find_subscript_macro_references_sync(
     let FindMacroReferencesResult {
         uri,
         references,
-        callees,
+        subscripts,
     } = sync;
     for r#ref in references {
         results.insert(&uri, r#ref);
     }
 
-    for callee in callees {
+    for callee in subscripts {
         if !undone.contains(&callee) {
             undone.push(callee);
         }
@@ -565,6 +570,7 @@ fn find_external_definitions(
 }
 
 fn queue_find_macro_references_req(
+    docs: &TextDocs,
     id: NumberOrString,
     r#macro: String,
     definitions: Vec<(FileLocation, Option<MacroScope>)>,
@@ -575,12 +581,17 @@ fn queue_find_macro_references_req(
         unreachable!("No other type possible.");
     };
 
+    let mut defs: Vec<MacroPropagation> = Vec::with_capacity(definitions.len());
+    for (loc, scope) in definitions {
+        defs.push(MacroPropagation::new(docs, &r#macro, loc, scope));
+    }
+
     let task = OngoingTask::FindMacroReferencesDefinitions {
         id,
         onset: onset.clone(),
-        progress: TaskProgress::new(definitions.len() as u32),
+        progress: TaskProgress::new(defs.len() as u32),
         r#macro,
-        definitions,
+        definitions: defs,
         results: FileLocationMap::new(),
         undone: Vec::new(),
     };
@@ -622,20 +633,22 @@ fn next_lookups_find_macro_def_references(
     let mut total: u32 = 0;
 
     // Group all lookups originating from the same file into a single request.
-    for (ii, (FileLocation { uri, range }, scope)) in definitions.iter().enumerate() {
+    for (ii, first) in definitions.iter().enumerate() {
         if touched[ii] > 0 {
             continue;
         }
-        let mut defs: Vec<(Range<usize>, Option<MacroScope>)> =
-            vec![(range.clone(), scope.clone())];
+        let uri = first.get_uri();
 
-        for (jj, (FileLocation { uri: file, range }, scope)) in
-            definitions[ii + 1..].iter().enumerate()
-        {
-            if touched[jj] > 0 || file != uri {
+        let mut defs: Vec<MacroPropagationCompact> =
+            vec![MacroPropagationCompact::from(first.clone())];
+
+        dbg!(&definitions);
+
+        for (jj, next) in definitions[ii + 1..].iter().enumerate() {
+            if touched[jj] > 0 || *next.get_uri() != *uri {
                 continue;
             }
-            defs.push((range.clone(), scope.clone()));
+            defs.push(MacroPropagationCompact::from(next.clone()));
             touched[jj] = 1;
         }
 
@@ -658,6 +671,7 @@ fn next_lookups_find_macro_def_references(
         touched[ii] = 1;
         total += 1;
     }
+    dbg!(&definitions);
     progress.total = total;
 
     Ok(())

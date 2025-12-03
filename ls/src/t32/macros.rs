@@ -19,7 +19,7 @@ use super::{
 };
 
 pub struct MacroReferencesBlockCaptures<'a> {
-    pub references: Vec<Range<usize>>,
+    pub references: Vec<BRange>,
     pub subroutines: Vec<&'a CallExpression>,
     pub scripts: Vec<&'a Uri>,
 }
@@ -71,13 +71,13 @@ pub fn find_scope_restricted_macro_references(
     name: &str,
     scope: MacroScope,
     offset: usize,
-) -> (Vec<Range<usize>>, Vec<Uri>) {
+) -> (Vec<BRange>, Vec<Uri>) {
     let Some(mut captures) = find_block_local_macro_references(text, tree, t32, name, offset)
     else {
         return (Vec::new(), Vec::new());
     };
 
-    let mut refs: Vec<Range<usize>> = Vec::new();
+    let mut refs: Vec<BRange> = Vec::new();
     let mut scripts: Vec<Uri> = Vec::new();
 
     refs.append(&mut captures.references);
@@ -227,7 +227,7 @@ fn find_macro_references_and_call_transitions<'a>(
             }
         } else if kind == macro_node {
             if text[range.clone()] == *name {
-                captures.references.push(range);
+                captures.references.push(BRange::from(range));
             }
         } else if kind == macro_def
             && defs
@@ -267,7 +267,7 @@ fn find_macro_references_and_call_transitions<'a>(
                 .iter()
                 .filter(|p| range.contains(&p.start) && range.contains(&p.end))
             {
-                captures.references.push(param.clone());
+                captures.references.push(BRange::from(param.clone()));
             }
         }
 

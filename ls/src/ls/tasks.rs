@@ -20,7 +20,8 @@ use crate::{
     ls::{
         State, Tasks,
         doc::{TextDoc, TextDocData, TextDocStatus, TextDocs},
-        language::{ExtMacroDefOrigin, FileLocation},
+        language::ExtMacroDefOrigin,
+        language::MacroPropagation,
         log_notif,
         lsp::Message,
         mainloop::{trace_doc_cannot_read, trace_doc_change},
@@ -47,7 +48,7 @@ use crate::{
         LocationLink, LogTraceParams, NumberOrString, Range, ResponseError, SetTraceParams,
         TextDocumentItem, TraceValue, Uri,
     },
-    t32::{LANGUAGE_ID, MacroScope, lang_id_supported},
+    t32::{LANGUAGE_ID, lang_id_supported},
 };
 
 #[derive(Debug)]
@@ -58,7 +59,7 @@ pub enum OngoingTask {
         onset: Instant,
         progress: TaskProgress,
         r#macro: String,
-        definitions: Vec<(FileLocation, Option<MacroScope>)>,
+        definitions: Vec<MacroPropagation>,
         results: FileLocationMap,
         undone: Vec<Uri>,
     },

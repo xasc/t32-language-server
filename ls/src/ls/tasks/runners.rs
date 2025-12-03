@@ -7,7 +7,6 @@
 
 use std::{
     collections::VecDeque,
-    ops::Range,
     sync::{
         Arc, Condvar, Mutex, TryLockError,
         atomic::{AtomicBool, AtomicU32, Ordering},
@@ -24,7 +23,10 @@ use crate::{
     config::Workspace,
     ls::{
         doc::{TextDoc, TextDocData},
-        language::{FindMacroReferencesResult, FindReferencesResult, GotoDefinitionResult},
+        language::{
+            FindMacroReferencesResult, FindReferencesResult, GotoDefinitionResult,
+            MacroPropagationCompact,
+        },
         tasks::{ExtMacroDefOrigin, OngoingTaskHandle, RenameFileOperations},
         workspace::{FileIndex, ResolvedRenameFileOperations, WorkspaceMembers},
     },
@@ -32,10 +34,7 @@ use crate::{
         Location, LocationLink, NumberOrString, Position, TextDocumentContentChangeEvent,
         TextDocumentItem, Uri,
     },
-    t32::{
-        FindMacroRefsLangContext, FindRefsLangContext, GotoDefLangContext, LangExpressions,
-        MacroScope,
-    },
+    t32::{FindMacroRefsLangContext, FindRefsLangContext, GotoDefLangContext, LangExpressions},
 };
 
 #[derive(Debug, Clone)]
@@ -50,12 +49,12 @@ pub enum Task {
         TextDocData,
         FindMacroRefsLangContext,
         String,
-        Vec<(Range<usize>, Option<MacroScope>)>,
+        Vec<MacroPropagationCompact>,
         fn(
             TextDocData,
             FindMacroRefsLangContext,
             String,
-            Vec<(Range<usize>, Option<MacroScope>)>,
+            Vec<MacroPropagationCompact>,
         ) -> FindMacroReferencesResult,
     ),
     FindMacroReferencesSubscripts(
