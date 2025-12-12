@@ -64,7 +64,7 @@ pub fn find_any_macro_references(tree: &Tree) -> Vec<BRange> {
     refs
 }
 
-pub fn find_scope_restricted_macro_references(
+pub fn find_macro_references_at_offset(
     text: &str,
     tree: &Tree,
     t32: &FindMacroRefsLangContext,
@@ -87,42 +87,48 @@ pub fn find_scope_restricted_macro_references(
         }
     }
 
-    if scope == MacroScope::Local {
-        let mut visited: Vec<usize> = Vec::with_capacity(t32.subroutines.len());
-        let mut next: Vec<&CallExpression> = Vec::with_capacity(t32.subroutines.len());
+    if scope == MacroScope::Private {
+        return (refs, scripts);
+    }
 
-        let mut calls = captures.subroutines;
-        loop {
-            for &call in calls.iter() {
-                let Some(sub) = find_subroutine_for_call(text, call, &t32.subroutines) else {
-                    continue;
-                };
+    let mut visited: Vec<usize> = Vec::with_capacity(t32.subroutines.len());
+    let mut next: Vec<&CallExpression> = Vec::with_capacity(t32.subroutines.len());
 
-                if visited.contains(&sub.definition.start) {
-                    continue;
+    let mut calls = captures.subroutines;
+    loop {
+        for &call in calls.iter() {
+            let Some(sub) = find_subroutine_for_call(text, call, &t32.subroutines) else {
+                continue;
+            };
+
+            if visited.contains(&sub.definition.start) {
+                continue;
+            }
+
+            if let Some(mut captures) =
+                find_block_local_macro_references(text, tree, t32, name, sub.definition.start)
+            {
+                next.append(&mut captures.subroutines);
+
+                captures.references.retain(|r| !refs.contains(r));
+                if !captures.references.is_empty() {
+                    refs.append(&mut captures.references);
                 }
 
-                if let Some(mut captures) =
-                    find_block_local_macro_references(text, tree, t32, name, sub.definition.start)
-                {
-                    next.append(&mut captures.subroutines);
-
-                    refs.append(&mut captures.references);
-                    for script in captures.scripts {
-                        if !scripts.contains(script) {
-                            scripts.push(script.clone());
-                        }
+                for script in captures.scripts {
+                    if !scripts.contains(script) {
+                        scripts.push(script.clone());
                     }
                 }
-                visited.push(sub.definition.start);
             }
-
-            if next.is_empty() {
-                break;
-            }
-            calls.clear();
-            calls.append(&mut next);
+            visited.push(sub.definition.start);
         }
+
+        if next.is_empty() {
+            break;
+        }
+        calls.clear();
+        calls.append(&mut next);
     }
     (refs, scripts)
 }
@@ -181,7 +187,7 @@ fn find_macro_references_and_call_transitions<'a>(
 
     let block = NodeKind::Block.into_id(&lang);
     let ctrl_flow_blocks = get_control_flow_block_ids(&lang);
-    let maro_containers = get_macro_container_expr_ids(&lang);
+    let macro_container = get_macro_container_expr_ids(&lang);
     let labeled_expr = NodeKind::LabeledExpression.into_id(&lang);
 
     let cmd = NodeKind::CommandExpression.into_id(&lang);
@@ -239,8 +245,8 @@ fn find_macro_references_and_call_transitions<'a>(
                 break;
             }
             nest_level -= 1;
-        } else if maro_containers.contains(&kind) {
-            debug_assert!(maro_containers.contains(&cmd));
+        } else if macro_container.contains(&kind) {
+            debug_assert!(macro_container.contains(&cmd));
             if kind == cmd
                 && let Some(idx) = script_call_ranges.0.iter().position(|s| *s == range)
             {
@@ -263,6 +269,13 @@ fn find_macro_references_and_call_transitions<'a>(
                 captures.subroutines.push(&t32.calls.subroutines[idx]);
             }
         } else if kind == param_decl {
+            // This function assumes there is already a valid macro definition.
+            // During execution we will only encounter parameter declarations
+            // with matching macro name, if there is no prior macro
+            // redefinition. Furthermore, parameter declarations will never
+            // define macros implicitly, because the macro is already defined.
+            // Parameter declarations can only add new macro references.
+
             for param in params
                 .iter()
                 .filter(|p| range.contains(&p.start) && range.contains(&p.end))

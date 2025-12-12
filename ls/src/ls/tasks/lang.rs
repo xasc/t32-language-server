@@ -11,15 +11,16 @@ use crate::{
             FindReferencesPartialResult, FindReferencesResult, GotoDefinitionResult,
             MacroPropagation, MacroPropagationCompact, find_definition,
             find_external_macro_definition, find_global_macro_definitions,
-            find_origin_macro_references, find_references, find_script_macro_references,
+            find_infile_macro_references, find_origin_macro_references, find_references,
         },
         lsp::Message,
         response::{
             FindReferencesResponse, GoToDefinitionResponse, LocationResult, NullResponse, Response,
         },
         tasks::{
-            ExtMacroDefLookups, FileCallMap, FileLocationMap, OngoingTask, Task, TaskDone,
-            TaskProgress, Tasks, find_ongoing_task_by_id, trace_doc_unknown, try_schedule,
+            ExtMacroDefLookups, FileCallMap, FileLocationMap, FindMacroReferencesPhase,
+            OngoingTask, Task, TaskDone, TaskProgress, Tasks, find_ongoing_task_by_id,
+            trace_doc_unknown, try_schedule,
         },
     },
     protocol::{DefinitionParams, LocationLink, NumberOrString, ReferenceParams, TraceValue, Uri},
@@ -364,7 +365,7 @@ pub fn process_find_references_result(
             } => {
                 if let Some(callers) = docs.get_callers(&uri) {
                     // Queues the follow-up task for definitions in external files.
-                    find_external_definitions(
+                    queue_find_external_macro_definitions(
                         id.clone(),
                         uri,
                         r#macro,
@@ -376,12 +377,23 @@ pub fn process_find_references_result(
                 }
 
                 if !definitions.is_empty() {
-                    // Queues the follow-up task for all references in the file.
-                    find_definition_references(id.clone(), r#macro, definitions, &mut ts.ongoing);
+                    // Queues the follow-up task for all references in the file
+                    // that the request originated from.
+                    queue_find_macro_references_req(
+                        docs,
+                        id.clone(),
+                        r#macro,
+                        definitions,
+                        &mut ts.ongoing,
+                    );
                     return None;
                 }
-                // TODO: Find implicit definition & references in file.
-                None
+
+                // We are dealing with an implicitly defined macro. No
+                // definitions in the file where the request originated from
+                // or callers of this file.
+                queue_find_implcit_definitions(id.clone(), r#macro, &mut ts.ongoing);
+                return None;
             }
             FindReferencesPartialResult::FileTarget => todo!(),
         },
@@ -399,31 +411,35 @@ pub fn progress_find_macro_def_references(
     task: &mut Option<OngoingTask>,
     outgoing: &mut Vec<Task>,
 ) -> Result<(), ReturnCode> {
-    let Some(OngoingTask::FindMacroReferencesDefinitions { progress, .. }) = task else {
+    let Some(OngoingTask::FindMacroReferences { progress, .. }) = task else {
         unreachable!("No other variant is supported.");
     };
 
     if progress.finished() {
-        let Some(OngoingTask::FindMacroReferencesDefinitions {
+        let Some(OngoingTask::FindMacroReferences {
             id,
             onset,
             r#macro,
-            results,
-            undone,
+            phase:
+                FindMacroReferencesPhase::RefsFromDefinitions {
+                    results, undone, ..
+                },
             ..
         }) = task.take()
         else {
-            unreachable!("No other variant is supported.");
+            unreachable!("Must not be called with any other variant.");
         };
 
-        *task = Some(OngoingTask::FindMacroReferencesSubscripts {
+        *task = Some(OngoingTask::FindMacroReferences {
             id,
             onset,
             progress: TaskProgress::new(undone.len() as u32),
             r#macro,
-            results,
-            visited: Vec::new(),
-            undone,
+            phase: FindMacroReferencesPhase::RefsInSubscripts {
+                visited: Vec::new(),
+                results,
+                undone,
+            },
         });
     } else if progress.ready() {
         next_lookups_find_macro_def_references(docs, task.as_mut().unwrap(), outgoing)?;
@@ -437,33 +453,37 @@ pub fn progress_find_subscript_macro_refs(
     outgoing: &mut Vec<Task>,
     done: &mut Vec<Option<TaskDone>>,
 ) -> Result<(), ReturnCode> {
-    let Some(OngoingTask::FindMacroReferencesSubscripts { progress, .. }) = task else {
-        unreachable!("No other variant is supported.");
+    let Some(OngoingTask::FindMacroReferences { progress, .. }) = task else {
+        unreachable!("Must not be called with any other variant.");
     };
 
     if progress.finished() {
-        let Some(OngoingTask::FindMacroReferencesSubscripts {
+        let Some(OngoingTask::FindMacroReferences {
             id,
             onset,
             progress,
             r#macro,
-            visited,
-            undone,
-            results,
-            ..
+            phase:
+                FindMacroReferencesPhase::RefsInSubscripts {
+                    visited,
+                    results,
+                    undone,
+                },
         }) = task.take()
         else {
-            unreachable!("No other variant is supported.");
+            unreachable!("Must not be called with any other variant.");
         };
 
-        *task = Some(OngoingTask::FindMacroReferencesSubscripts {
+        *task = Some(OngoingTask::FindMacroReferences {
             id: id.clone(),
-            results: FileLocationMap::new(),
             onset,
             progress,
             r#macro,
-            visited,
-            undone,
+            phase: FindMacroReferencesPhase::RefsInSubscripts {
+                visited,
+                results: FileLocationMap::new(),
+                undone,
+            },
         });
 
         done.push(Some(TaskDone::FindMacroReferences(
@@ -482,14 +502,16 @@ pub fn recv_find_macro_def_references_sync(
     ongoing: &mut Vec<Option<OngoingTask>>,
 ) {
     let idx = find_ongoing_task_by_id(&id, ongoing);
-    let Some(OngoingTask::FindMacroReferencesDefinitions {
+    let Some(OngoingTask::FindMacroReferences {
         progress,
-        results,
-        undone,
+        phase:
+            FindMacroReferencesPhase::RefsFromDefinitions {
+                results, undone, ..
+            },
         ..
     }) = &mut ongoing[idx]
     else {
-        unreachable!("No other type possible.");
+        unreachable!("Must not be called with any other variant.");
     };
 
     let FindMacroReferencesResult {
@@ -497,6 +519,7 @@ pub fn recv_find_macro_def_references_sync(
         references,
         subscripts,
     } = sync;
+
     for r#ref in references {
         results.insert(&uri, r#ref);
     }
@@ -515,10 +538,12 @@ pub fn recv_find_subscript_macro_references_sync(
     ongoing: &mut Vec<Option<OngoingTask>>,
 ) {
     let idx = find_ongoing_task_by_id(&id, ongoing);
-    let Some(OngoingTask::FindMacroReferencesSubscripts {
+    let Some(OngoingTask::FindMacroReferences {
         progress,
-        results,
-        undone,
+        phase:
+            FindMacroReferencesPhase::RefsInSubscripts {
+                results, undone, ..
+            },
         ..
     }) = &mut ongoing[idx]
     else {
@@ -542,7 +567,7 @@ pub fn recv_find_subscript_macro_references_sync(
     progress.advance();
 }
 
-fn find_external_definitions(
+fn queue_find_external_macro_definitions(
     id: NumberOrString,
     uri: Uri,
     _macro: String,
@@ -586,29 +611,26 @@ fn queue_find_macro_references_req(
         defs.push(MacroPropagation::new(docs, &r#macro, loc, scope));
     }
 
-    let task = OngoingTask::FindMacroReferencesDefinitions {
+    let task = OngoingTask::FindMacroReferences {
         id,
         onset: onset.clone(),
         progress: TaskProgress::new(defs.len() as u32),
         r#macro,
-        definitions: defs,
-        results: FileLocationMap::new(),
-        undone: Vec::new(),
+        phase: FindMacroReferencesPhase::RefsFromDefinitions {
+            definitions: defs,
+            results: FileLocationMap::new(),
+            undone: Vec::new(),
+        },
     };
+
     ongoing.push(Some(task));
 }
 
-fn find_definition_references(
-    id: NumberOrString,
+fn queue_find_implcit_definitions(
+    _id: NumberOrString,
     _macro: String,
-    _definitions: Vec<(FileLocation, Option<MacroScope>)>,
-    ongoing: &mut Vec<Option<OngoingTask>>,
+    _ongoing: &mut Vec<Option<OngoingTask>>,
 ) {
-    let idx = find_ongoing_task_by_id(&id, &ongoing);
-    let Some(OngoingTask::FindReferences(_, _onset)) = &ongoing[idx] else {
-        unreachable!("No other type possible.");
-    };
-
     todo!()
 }
 
@@ -617,15 +639,15 @@ fn next_lookups_find_macro_def_references(
     task: &mut OngoingTask,
     next: &mut Vec<Task>,
 ) -> Result<(), ReturnCode> {
-    let OngoingTask::FindMacroReferencesDefinitions {
+    let OngoingTask::FindMacroReferences {
         id,
         progress,
         r#macro,
-        definitions,
+        phase: FindMacroReferencesPhase::RefsFromDefinitions { definitions, .. },
         ..
     } = task
     else {
-        unreachable!("No other type supported.");
+        unreachable!("Must not be called with any other variant.");
     };
     debug_assert!(progress.ready());
 
@@ -656,7 +678,7 @@ fn next_lookups_find_macro_def_references(
             .get_doc_data(uri)
             .expect("File must be known at this point.");
 
-        next.push(Task::FindMacroReferencesDefinitions(
+        next.push(Task::FindMacroReferencesFromDefinitions(
             id.clone(),
             TextDocData {
                 doc: doc.clone(),
@@ -682,26 +704,31 @@ fn next_lookups_find_subscript_macro_refs(
     task: &mut OngoingTask,
     next: &mut Vec<Task>,
 ) -> Result<(), ReturnCode> {
-    let OngoingTask::FindMacroReferencesSubscripts {
+    let OngoingTask::FindMacroReferences {
         id,
         progress,
         r#macro,
-        visited,
-        undone,
+        phase:
+            FindMacroReferencesPhase::RefsInSubscripts {
+                visited, undone, ..
+            },
         ..
     } = task
     else {
-        unreachable!("No other type supported.");
+        unreachable!("Must not be called with any other variant.");
     };
     debug_assert!(progress.ready());
 
+    // It is fine to visit files containing the macro defintion a second time.
+    // The second iteration will stop as soon as it encounters the macro
+    // definition.
     let mut total: u32 = 0;
     for uri in undone.iter().filter(|&s| !visited.contains(s)) {
         let (doc, tree, t32) = docs
             .get_doc_data(uri)
             .expect("File must be known at this point.");
 
-        next.push(Task::FindMacroReferencesSubscripts(
+        next.push(Task::FindMacroReferencesInSubscripts(
             id.clone(),
             TextDocData {
                 doc: doc.clone(),
@@ -709,7 +736,7 @@ fn next_lookups_find_subscript_macro_refs(
             },
             FindMacroRefsLangContext::from(t32.clone()),
             r#macro.to_string(),
-            find_script_macro_references,
+            find_infile_macro_references,
         ));
         total += 1;
     }
@@ -786,7 +813,7 @@ mod tests {
     fn skips_redundant_subscript_macro_ref_checks() {
         let docs = TextDocs::new();
 
-        let mut task = Some(OngoingTask::FindMacroReferencesSubscripts {
+        let mut task = Some(OngoingTask::FindMacroReferences {
             id: NumberOrString::Number(1),
             onset: Instant::now(),
             progress: TaskProgress {
@@ -796,15 +823,17 @@ mod tests {
                 max_cycles: u32::MAX,
             },
             r#macro: "test".to_string(),
-            visited: vec![
-                "file:///sample/a.cmm".to_string(),
-                "file:///sample/b.cmm".to_string(),
-            ],
-            undone: vec![
-                "file:///sample/a.cmm".to_string(),
-                "file:///sample/b.cmm".to_string(),
-            ],
-            results: FileLocationMap::new(),
+            phase: FindMacroReferencesPhase::RefsInSubscripts {
+                visited: vec![
+                    "file:///sample/a.cmm".to_string(),
+                    "file:///sample/b.cmm".to_string(),
+                ],
+                undone: vec![
+                    "file:///sample/a.cmm".to_string(),
+                    "file:///sample/b.cmm".to_string(),
+                ],
+                results: FileLocationMap::new(),
+            },
         });
 
         let mut outgoing: Vec<Task> = Vec::new();

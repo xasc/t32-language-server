@@ -38,7 +38,7 @@ use expressions::{
     find_subroutine, locate_subscript,
 };
 
-use macros::find_scope_restricted_macro_references;
+use macros::find_macro_references_at_offset;
 
 pub enum MacroDefinitionResult {
     Final(Vec<MacroDefinition>),
@@ -316,7 +316,7 @@ pub fn find_macro_definition_references(
     }
 
     let (mut refs, mut callees) =
-        find_scope_restricted_macro_references(text, tree, t32, name, scope, span.start);
+        find_macro_references_at_offset(text, tree, t32, name, scope, span.start);
 
     if !refs.iter().any(|r| *r == span) {
         refs.push(BRange::from(span));
@@ -325,6 +325,22 @@ pub fn find_macro_definition_references(
     if !callees.is_empty() && scope == MacroScope::Private {
         callees.clear();
     }
+
+    refs.sort_by_key(|a| {
+        let span = a.inner();
+        (span.start, span.end)
+    });
+    (refs, callees)
+}
+
+pub fn find_stack_macro_references(
+    text: &str,
+    tree: &Tree,
+    t32: &FindMacroRefsLangContext,
+    scope: MacroScope,
+    name: &str,
+) -> (Vec<BRange>, Vec<Uri>) {
+    let (mut refs, callees) = find_macro_references_at_offset(text, tree, t32, name, scope, 0);
 
     refs.sort_by_key(|a| {
         let span = a.inner();

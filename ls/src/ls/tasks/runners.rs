@@ -44,7 +44,7 @@ pub enum Task {
         FileIndex,
         fn(RenameFileOperations, &mut FileIndex) -> ResolvedRenameFileOperations,
     ),
-    FindMacroReferencesDefinitions(
+    FindMacroReferencesFromDefinitions(
         NumberOrString,
         TextDocData,
         FindMacroRefsLangContext,
@@ -57,7 +57,7 @@ pub enum Task {
             Vec<MacroPropagationCompact>,
         ) -> FindMacroReferencesResult,
     ),
-    FindMacroReferencesSubscripts(
+    FindMacroReferencesInSubscripts(
         NumberOrString,
         TextDocData,
         FindMacroRefsLangContext,
@@ -124,8 +124,8 @@ pub enum Task {
 pub enum TaskDone {
     DidRenameFiles(ResolvedRenameFileOperations, FileIndex),
     FindMacroReferences(NumberOrString, Option<Vec<Location>>),
-    FindMacroReferencesSyncDefinitions(NumberOrString, FindMacroReferencesResult),
-    FindMacroReferencesSyncSubscripts(NumberOrString, FindMacroReferencesResult),
+    FindMacroReferencesFromDefinitionsSync(NumberOrString, FindMacroReferencesResult),
+    FindMacroReferencesInSubscriptsSync(NumberOrString, FindMacroReferencesResult),
     FindReferences(NumberOrString, Option<FindReferencesResult>),
     GoToDefinition(NumberOrString, Option<GotoDefinitionResult>),
     GoToExternalMacroDef(NumberOrString, Vec<LocationLink>),
@@ -279,11 +279,14 @@ impl TaskSystem {
                 let operations = rename_files(renamed, &mut file_idx);
                 TaskDone::DidRenameFiles(operations, file_idx)
             }
-            Task::FindMacroReferencesDefinitions(id, textdoc, t32, r#macro, range, find) => {
-                TaskDone::FindMacroReferencesSyncDefinitions(id, find(textdoc, t32, r#macro, range))
+            Task::FindMacroReferencesFromDefinitions(id, textdoc, t32, r#macro, range, find) => {
+                TaskDone::FindMacroReferencesFromDefinitionsSync(
+                    id,
+                    find(textdoc, t32, r#macro, range),
+                )
             }
-            Task::FindMacroReferencesSubscripts(id, textdoc, t32, r#macro, find) => {
-                TaskDone::FindMacroReferencesSyncSubscripts(id, find(textdoc, t32, r#macro))
+            Task::FindMacroReferencesInSubscripts(id, textdoc, t32, r#macro, find) => {
+                TaskDone::FindMacroReferencesInSubscriptsSync(id, find(textdoc, t32, r#macro))
             }
             Task::FindReferences(id, textdoc, t32, loc, _declaration_included, find) => {
                 TaskDone::FindReferences(id, find(textdoc, t32, loc))

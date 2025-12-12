@@ -12,10 +12,10 @@ use crate::{
     t32::{
         FindMacroRefsLangContext, FindRefsLangContext, GotoDefLangContext, MacroDefinition,
         MacroDefinitionResult, MacroScope, NodeKind, Subroutine, find_label_references,
-        find_macro_definition_references, find_subroutine_call_references,
-        find_subroutine_references, get_find_ref_ids, get_goto_def_ids, get_macro_scope,
-        goto_external_macro_definition, goto_file, goto_macro_definition,
-        goto_subroutine_definition, id_into_node,
+        find_macro_definition_references, find_stack_macro_references,
+        find_subroutine_call_references, find_subroutine_references, get_find_ref_ids,
+        get_goto_def_ids, get_macro_scope, goto_external_macro_definition, goto_file,
+        goto_macro_definition, goto_subroutine_definition, id_into_node,
     },
     utils::BRange,
 };
@@ -613,7 +613,8 @@ pub fn find_origin_macro_references(
 
     for origin in origins {
         let (lifetime, loc, mut occurrences) = origin.split();
-        // Add all files containing macro references with the same name as the global macro to the search list
+        // Add all files containing macro references with the same name as the global macro to the search list.
+        // Any of these files might contain a reference the global macro.
         if !occurrences.is_empty() {
             callees.append(&mut occurrences);
         }
@@ -627,6 +628,7 @@ pub fn find_origin_macro_references(
             loc,
         );
 
+        locs.reserve(spans.len());
         for span in spans {
             let inner = span.to_inner();
             locs.push(textdoc.doc.to_range(inner.start, inner.end));
@@ -637,12 +639,24 @@ pub fn find_origin_macro_references(
     FindMacroReferencesResult::build(textdoc.doc.uri, locs, callees)
 }
 
-pub fn find_script_macro_references(
-    _textdoc: TextDocData,
-    _t32: FindMacroRefsLangContext,
-    _name: String,
+pub fn find_infile_macro_references(
+    textdoc: TextDocData,
+    t32: FindMacroRefsLangContext,
+    name: String,
 ) -> FindMacroReferencesResult {
-    todo!()
+    let doc = &textdoc.doc;
+
+    // It does not matter here what exact scope the respective macro has.
+    // Either `GLOBAL` or `LOCAL` will do.
+    let (spans, scripts) =
+        find_stack_macro_references(&doc.text, &textdoc.tree, &t32, MacroScope::Local, &name);
+
+    let mut locs: Vec<LRange> = Vec::with_capacity(spans.len());
+    for span in spans {
+        let inner = span.to_inner();
+        locs.push(textdoc.doc.to_range(inner.start, inner.end));
+    }
+    FindMacroReferencesResult::build(textdoc.doc.uri, locs, scripts)
 }
 
 fn find_deepest_node<'a>(tree: &'a Tree, offset: usize, stop_at: &[u16]) -> Option<TreeCursor<'a>> {
@@ -2056,10 +2070,10 @@ mod tests {
 
         let result = find_origin_macro_references(
             TextDocData {
-                doc: doc.clone(),
-                tree: tree.clone(),
+                doc: doc,
+                tree: tree,
             },
-            FindMacroRefsLangContext::from(t32.clone()),
+            FindMacroRefsLangContext::from(t32),
             "&global_macro".to_string(),
             vec![MacroPropagationCompact::new(
                 MacroScope::Global,
@@ -2082,5 +2096,39 @@ mod tests {
             },
         }));
         assert!(result.subscripts.contains(&target));
+    }
+
+    #[test]
+    fn can_find_references_for_macros_on_stack() {
+        let file_idx = create_file_idx();
+
+        let uri =
+            Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
+                .unwrap();
+        let (doc, tree, t32) = read_doc(uri, file_idx).unwrap();
+
+        let result = find_infile_macro_references(
+            TextDocData { doc, tree },
+            FindMacroRefsLangContext::from(t32),
+            "&from_c_cmm".to_string(),
+        );
+
+        assert!(result.references.contains(&LRange {
+            start: Position {
+                line: 139,
+                character: 7
+            },
+            end: Position {
+                line: 139,
+                character: 18
+            },
+        }));
+
+        for target in [
+            to_file_uri("tests/samples/b/b.cmm"),
+            to_file_uri("tests/samples/c.cmm"),
+        ] {
+            assert!(result.subscripts.contains(&target));
+        }
     }
 }
