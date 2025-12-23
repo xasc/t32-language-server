@@ -4,7 +4,11 @@
 
 use std::ops::Range;
 
-use crate::t32::{CallExpression, MacroDefinitions, MacroScope, Subroutine};
+use crate::{
+    protocol::Uri,
+    t32::{CallExpression, MacroDefinitions, MacroScope, Subroutine, SubscriptCalls},
+    utils::BRange,
+};
 
 pub fn find_subroutine_for_call<'a>(
     text: &str,
@@ -49,4 +53,18 @@ pub fn get_macro_scope(macros: &MacroDefinitions, range: &Range<usize>) -> Optio
         }
     }
     None
+}
+
+pub fn locate_calls_to_file_target(calls: &SubscriptCalls, file: &Uri) -> Vec<BRange> {
+    let mut targets: Vec<BRange> = Vec::with_capacity(1);
+
+    for (_, loc) in calls
+        .targets
+        .iter()
+        .zip(calls.locations.iter())
+        .filter(|&(t, _)| t.is_some() && *t.as_ref().unwrap() == *file)
+    {
+        targets.push(BRange::from(loc.call.clone()));
+    }
+    targets
 }

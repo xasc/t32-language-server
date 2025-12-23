@@ -159,3 +159,15 @@ labelA:
     Data.In D:0x8000
 
 GOTO labelA
+
+PRINT "&from_c_cmm"
+
+&implicit=&private_macro+1
+
+GOSUB subP
+
+SUBROUTINE subP
+(
+    &implicit=&implicit+5.
+    RETURN
+)

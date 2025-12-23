@@ -4,9 +4,36 @@
 
 //! # [Note] Macro Definitions On-Assignment
 //!
-//! We ignore implicit definition of macros on first assignment. This only
-//! happens if there is no other definition for the macro. TRACE32 uses
-//! `LOCAL` macro definition for on-assignment definitions.
+//! TRACE32 adds an implicit `LOCAL` definition for macros on first assignment,
+//! if no explicit definition is available on the call stack. We are only
+//! tracking implicit definitions in the file where the macro reference is
+//! located. On the other hand, implicit definitions in scripts that call the
+//! file containing the macro reference are not determined.
+//! However, implicit macro definitions in calling files are not monitored,
+//! because the order in which call sequences are evaluated might result in
+//! false-positive results. Calling files are only visited once, so implicit
+//! definitions cannot be reliably overruled.
+//!
+//! ```ignore
+//!   Files
+//!     - a.cmm, b.cmm: Files with macro reference
+//!     - c.cmm: File with explicit definition
+//!     - d.cmm: File with macro assignment
+//!
+//!   Call chain evaluation order
+//!
+//!     First iteration    Second iteration
+//!
+//!     a.cmm              b.cmm
+//!     v                  v
+//!     c.cmm              d.cmm < : 'c.cmm' is not visited anymore. Assignment
+//!                        v       : is erroneously detected as implicit macro
+//!                        c.cmm   : definition, because the explicit definition
+//!                                : is not seen anymore during evaluation.
+//! ```
+//!
+//! Regardless of whether or not there are calling files, we must always assume
+//! that any script can be used independently.
 //!
 //!
 //! # [Note] Ambiguous Macro Definitions
@@ -102,13 +129,16 @@ use crate::{
     t32::{
         FileIndex, GotoDefLangContext, MacroDefinitionResult, NodeKind,
         ast::{
-            KEYWORD_GOTO, KEYWORD_SUBROUTINE_ENTRY, KEYWORD_SUBROUTINE_PARAMETERS,
-            KEYWORD_SUBROUTINE_RETURN, KEYWORDS_SCRIPT_CALL, KEYWORDS_SCRIPT_END,
-            get_block_opener_ids, get_string_body, get_subroutine_ids, node_into_id,
-            start_on_adjacent_lines,
+            KEYWORD_GOTO, KEYWORD_SUBROUTINE_RETURN, KEYWORDS_SCRIPT_CALL, KEYWORDS_SCRIPT_END,
+            get_block_opener_ids, get_string_body, get_subroutine_ids, start_on_adjacent_lines,
+        },
+        macros::{
+            defines_any_macro, defines_block_global_macro, defines_global_macro_implicitly,
+            extract_macro_defs, extract_params, find_macro_scope, may_define_macro_implicitly,
         },
         path::locate_script,
     },
+    utils::BRange,
 };
 
 /// `ENTRY` implicitly defines a `LOCAL` macro, but only if no `LOCAL`, `ENTRY`
@@ -120,7 +150,12 @@ pub enum MacroDefResolution {
     Final(MacroDefinition),
     /// Macro implicitly defined by `ENTRY`.
     Overridable(MacroDefinition),
-    /// No macro definition in file scope found. Definition might be provided by caller.
+    /// Without external definition the macro is implicitly defined as `LOCAL`
+    /// on first use (e.g by an assignment). Definition might be overridden by
+    /// callers.
+    Implicit(MacroDefinition),
+    /// No macro definition in file scope found. Definition might be provided
+    /// by caller.
     Indeterminate,
     /// No macro definition found. Search was aborted.
     Aborted,
@@ -254,28 +289,25 @@ pub fn find_macro_definition(
 
     let name = &text[r#macro.start_byte()..r#macro.end_byte()];
 
-    let defs = locate_all_macro_definitions(text, t32, &r#macro.byte_range(), name, tree);
-    eval_macro_definition_result(name, defs)
+    let defs =
+        locate_all_macro_definitions(text, t32, &BRange::from(r#macro.byte_range()), name, tree);
+    eval_macro_definition_result(defs)
 }
 
 pub fn find_external_macro_definition(
     text: &str,
     tree: &Tree,
     t32: &GotoDefLangContext,
-    r#macro: String,
-    callees: Vec<Range<usize>>,
+    r#macro: &String,
+    callees: Vec<BRange>,
 ) -> Option<MacroDefinitionResult> {
-    if !defines_named_macro(text, t32, &r#macro) {
-        return None;
-    }
-
     let mut defs: Vec<MacroDefResolution> = Vec::new();
     for callee in callees {
         defs.append(&mut locate_all_macro_definitions(
             text, t32, &callee, &r#macro, tree,
         ));
     }
-    eval_macro_definition_result(&r#macro, defs)
+    eval_macro_definition_result(defs)
 }
 
 pub fn find_call_target_definition(
@@ -364,7 +396,7 @@ pub fn find_all_macro_definitions(text: &str, tree: &Tree) -> MacroDefinitions {
     let lang = tree.language();
     let block_openers = get_block_opener_ids(&lang);
 
-    let id_macro_def = node_into_id(&tree.language(), NodeKind::MacroDefinition);
+    let id_macro_def = NodeKind::MacroDefinition.into_id(&tree.language());
 
     let mut privates: Vec<MacroDefinition> = Vec::new();
     let mut locals: Vec<MacroDefinition> = Vec::new();
@@ -398,7 +430,7 @@ pub fn find_all_macro_definitions(text: &str, tree: &Tree) -> MacroDefinitions {
             }
             debug_assert_eq!(
                 cursor.node().kind_id(),
-                node_into_id(&cursor.node().language(), NodeKind::MacroDefinition)
+                NodeKind::MacroDefinition.into_id(&cursor.node().language())
             );
         } else if block_openers.contains(&id) {
             if cursor.goto_first_child() {
@@ -652,19 +684,24 @@ pub fn locate_subscript(
 fn locate_all_macro_definitions(
     text: &str,
     t32: &GotoDefLangContext,
-    origin: &Range<usize>,
+    origin: &BRange,
     name: &str,
     tree: &Tree,
 ) -> Vec<MacroDefResolution> {
     let mut defs: Vec<MacroDefResolution> = Vec::new();
-    if let Some(subroutine) = resides_in_subroutine(&t32.subroutines, origin.start) {
-        if let Some(mut macros) =
-            find_definition_for_macro_in_subroutine(text, t32, origin, subroutine, name, tree)
-        {
+    if let Some(subroutine) = resides_in_subroutine(&t32.subroutines, origin.inner().start) {
+        if let Some(mut macros) = find_definition_for_macro_in_subroutine(
+            text,
+            t32,
+            origin.inner(),
+            subroutine,
+            name,
+            tree,
+        ) {
             defs.append(&mut macros);
         }
     } else if let Some(mut macros) =
-        find_explicit_macro_def(text, &t32.macros.globals, origin, name, tree)
+        find_explicit_or_implicit_macro_def(text, &t32.macros.globals, origin.inner(), name, tree)
     {
         defs.append(&mut macros);
     }
@@ -672,11 +709,10 @@ fn locate_all_macro_definitions(
 }
 
 fn eval_macro_definition_result(
-    name: &str,
     mut defs: Vec<MacroDefResolution>,
 ) -> Option<MacroDefinitionResult> {
     if defs.len() <= 0 {
-        return Some(MacroDefinitionResult::Indeterminate(name.to_string()));
+        return Some(MacroDefinitionResult::Indeterminate);
     }
 
     if defs.len() == 1 && defs[0] == MacroDefResolution::Aborted {
@@ -686,35 +722,46 @@ fn eval_macro_definition_result(
 
     let num = defs.len();
     if num <= 0 {
-        Some(MacroDefinitionResult::Indeterminate(name.to_string()))
+        Some(MacroDefinitionResult::Indeterminate)
     } else {
         // Other files are only checked for macro definitions if none is
         // found in the current file. This reduces the effort for finding
         // a matching definition.
         defs.retain(|m| *m != MacroDefResolution::Indeterminate);
         if defs.len() <= 0 {
-            return Some(MacroDefinitionResult::Indeterminate(name.to_string()));
+            return Some(MacroDefinitionResult::Indeterminate);
         }
+
+        let contains_unresolved = defs.len() != num
+            || defs.iter().any(|d| {
+                if let MacroDefResolution::Implicit(_) = d {
+                    true
+                } else {
+                    false
+                }
+            });
 
         let mut gotos: Vec<MacroDefinition> = Vec::with_capacity(defs.len());
         for def in defs {
             gotos.push(match def {
-                MacroDefResolution::Final(d) | MacroDefResolution::Overridable(d) => d,
-                _ => unreachable!(),
+                MacroDefResolution::Final(d)
+                | MacroDefResolution::Overridable(d)
+                | MacroDefResolution::Implicit(d) => d,
+                MacroDefResolution::Indeterminate | MacroDefResolution::Aborted => unreachable!(),
             });
         }
 
-        if gotos.len() == num {
+        if !contains_unresolved {
             Some(MacroDefinitionResult::Final(gotos))
         } else {
-            Some(MacroDefinitionResult::Partial(name.to_string(), gotos))
+            Some(MacroDefinitionResult::Partial(gotos))
         }
     }
 }
 
-/// Find PRACTICE macro definitions where the origin is in a subroutine, but
-/// it is externally defined. This is only possible for `LOCAL` and `GLOBAL`
-/// macros. Subroutine definitions cannot be nested.
+/// Find PRACTICE macro definitions for origins that are located is in a
+/// subroutine, but it is externally defined. This is only possible for `LOCAL`
+/// and `GLOBAL` macros. Subroutine definitions cannot be nested.
 pub fn find_definition_for_macro_in_subroutine(
     text: &str,
     t32: &GotoDefLangContext,
@@ -748,8 +795,8 @@ pub fn find_definition_for_macro_in_subroutine(
     // paths out of the subroutine and from the outside in.
     //
     // 1. Check for macro definition in subroutine body.
-    // 2. Find all macro definitions for subroutine calls. `PARAMETERS` cannot
-    //    define macros for called subroutines.
+    // 2. Find all macro definitions for subroutine calls. The `PARAMETERS`
+    //    command cannot define macros for called subroutines.
     // 3. Check for a global macro definition that is covering the subroutine.
     let inner = find_any_macro_def_in_subroutine_body(
         text,
@@ -762,7 +809,7 @@ pub fn find_definition_for_macro_in_subroutine(
         return Some(vec![inner.unwrap()]);
     }
 
-    let mut defs = find_macro_def_covering_subroutine_call(
+    let mut outer = find_macro_def_covering_subroutine_call(
         0,
         text,
         &subroutine.name,
@@ -772,60 +819,36 @@ pub fn find_definition_for_macro_in_subroutine(
         tree,
     );
 
-    let num = defs.len();
-    defs.retain(|m| *m != MacroDefResolution::Indeterminate);
+    let num = outer.len();
+    outer.retain(|m| *m != MacroDefResolution::Indeterminate);
 
-    if num != defs.len() {
+    if num != outer.len() {
         if let Some(MacroDefResolution::Overridable(_)) = inner {
             // The subroutine has an `ENTRY` command. It defines the macro if no
             // other global definition is present.
-            defs.push(inner.unwrap());
+            outer.push(inner.unwrap());
+        } else if let Some(MacroDefResolution::Implicit(_)) = inner {
+            // The subroutine features an implicit macro definition. It defines
+            // the macro if any of the higher levels on the call tree is
+            // lacking a corresponding definition.
+            outer.push(inner.unwrap());
         }
     }
 
-    if let Some(definition) = find_explicit_macro_def_in_script(text, origin, name, tree) {
-        if !defs.contains(&definition) {
-            defs.push(definition)
+    if let Some(definition) =
+        find_explicit_or_implicit_macro_def_in_script(text, origin, name, tree)
+    {
+        if !outer.contains(&definition) {
+            outer.push(definition)
         }
     }
 
-    if defs.len() > 0 {
-        Some(defs)
+    if outer.len() > 0 {
+        Some(outer)
     } else if globals.len() > 0 {
         Some(globals)
     } else {
         None
-    }
-}
-
-pub fn defines_named_macro(text: &str, t32: &GotoDefLangContext, name: &str) -> bool {
-    if let Some(macros) = &t32.macros.privates
-        && macros.iter().any(|m| text[m.r#macro.clone()] == *name)
-    {
-        return true;
-    }
-
-    if let Some(macros) = &t32.macros.locals
-        && macros.iter().any(|m| text[m.r#macro.clone()] == *name)
-    {
-        return true;
-    }
-
-    if !t32.parameters.is_empty()
-        && t32
-            .parameters
-            .iter()
-            .any(|m| text[m.r#macro.clone()] == *name)
-    {
-        return true;
-    }
-
-    if let Some(macros) = &t32.macros.globals
-        && macros.iter().any(|m| text[m.r#macro.clone()] == *name)
-    {
-        return true;
-    } else {
-        false
     }
 }
 
@@ -922,18 +945,24 @@ pub fn find_all_references_for_label(text: &str, label: &Label, tree: &Tree) -> 
     refs
 }
 
-/// Find PRACTICE macro definitions in a parent block relative to the origin node. Any
-/// explicit macro type (`PRIVATE`, `LOCAL`, `GLOBAL`) works.
-fn find_explicit_macro_def(
+/// Find PRACTICE macro definitions in a parent block relative to the origin
+/// node. Any explicit macro type (`PRIVATE`, `LOCAL`, `GLOBAL`) works. If no
+/// explicit definition can be found, we locate the place where the macro is
+/// used first.
+fn find_explicit_or_implicit_macro_def(
     text: &str,
     globals: &Option<Vec<MacroDefinition>>,
     origin: &Range<usize>,
     name: &str,
     tree: &Tree,
 ) -> Option<Vec<MacroDefResolution>> {
-    if let Some(def) =
-        find_explicit_macro_def_in_block(text, origin, name, tree.walk(), defines_any_macro)
-    {
+    if let Some(def) = find_explicit_or_implicit_macro_def_in_block(
+        text,
+        origin,
+        name,
+        tree.walk(),
+        defines_any_macro,
+    ) {
         Some(vec![def])
     } else if let Some(globals) = &globals {
         // See [Note: `GLOBAL` Macro Definitions]
@@ -959,11 +988,11 @@ fn find_any_macro_def_in_subroutine_body(
         name,
         subroutine,
         defines_any_macro,
-        defines_macro_implicitly,
+        may_define_macro_implicitly,
     )
 }
 
-fn find_global_macro_def_in_subroutine_body(
+fn find_block_global_macro_def_in_subroutine_body(
     text: &str,
     origin: &Range<usize>,
     name: &str,
@@ -979,24 +1008,31 @@ fn find_global_macro_def_in_subroutine_body(
     )
 }
 
-fn find_explicit_macro_def_in_script(
+fn find_explicit_or_implicit_macro_def_in_script(
     text: &str,
     origin: &Range<usize>,
     name: &str,
     tree: &Tree,
 ) -> Option<MacroDefResolution> {
-    find_explicit_macro_def_in_block(text, origin, name, tree.walk(), defines_any_macro)
+    find_explicit_or_implicit_macro_def_in_block(text, origin, name, tree.walk(), defines_any_macro)
 }
 
-fn find_explicit_macro_def_in_block(
+// TODO: Check whether `ENTRY` or `PARAMETERS` in the main path of scripts are handled properly.
+fn find_explicit_or_implicit_macro_def_in_block(
     text: &str,
     origin: &Range<usize>,
     name: &str,
     root: TreeCursor,
     select_macro: fn(text: &str, def: &mut TreeCursor, name: &str) -> Option<MacroDefinition>,
 ) -> Option<MacroDefResolution> {
-    let macro_def = NodeKind::MacroDefinition.into_id(&root.node().language());
-
+    let (macro_def, assign): (u16, u16) = {
+        let node = root.node();
+        let lang = node.language();
+        (
+            NodeKind::MacroDefinition.into_id(&lang),
+            NodeKind::AssignmentExpression.into_id(&lang),
+        )
+    };
     let mut definition: Option<MacroDefResolution> = None;
 
     let mut cursor = root;
@@ -1017,8 +1053,23 @@ fn find_explicit_macro_def_in_block(
             }
             debug_assert_eq!(
                 cursor.node().kind_id(),
-                node_into_id(&cursor.node().language(), NodeKind::MacroDefinition)
+                NodeKind::MacroDefinition.into_id(&cursor.node().language())
             );
+        } else if definition.is_none()
+            && id == assign
+            && let Some(span) = assign_lhs_matches_macro(text, name, &mut cursor)
+        {
+            // On the left hand side of assignment expressions, `LOCAL` macros
+            // can be defined implicitly.
+            debug_assert_eq!(
+                cursor.node().kind_id(),
+                NodeKind::AssignmentExpression.into_id(&cursor.node().language())
+            );
+            definition = Some(MacroDefResolution::Implicit(MacroDefinition {
+                cmd: cursor.node().byte_range(),
+                r#macro: span.into(),
+                docstring: find_docstring(&mut cursor),
+            }));
         } else if node.byte_range().contains(&origin.start) {
             if cursor.goto_first_child() {
                 continue;
@@ -1042,9 +1093,16 @@ fn find_any_macro_def_in_outer_block(
     select_macro: fn(text: &str, def: &mut TreeCursor, name: &str) -> Option<MacroDefinition>,
     select_params: fn(text: &str, def: &mut TreeCursor, name: &str) -> Option<MacroDefResolution>,
 ) -> Option<MacroDefResolution> {
-    let macro_def = NodeKind::MacroDefinition.into_id(&root.node().language());
-    let parameter = NodeKind::ParameterDeclaration.into_id(&root.node().language());
+    let (macro_def, parameter, assign): (u16, u16, u16) = {
+        let node = root.node();
+        let lang = node.language();
 
+        let macro_def = NodeKind::MacroDefinition.into_id(&lang);
+        let parameter = NodeKind::ParameterDeclaration.into_id(&lang);
+        let assign = NodeKind::AssignmentExpression.into_id(&lang);
+
+        (macro_def, parameter, assign)
+    };
     let mut definition: Option<MacroDefResolution> = None;
 
     let mut cursor = root;
@@ -1065,9 +1123,16 @@ fn find_any_macro_def_in_outer_block(
             }
             debug_assert_eq!(
                 cursor.node().kind_id(),
-                node_into_id(&cursor.node().language(), NodeKind::MacroDefinition)
+                NodeKind::MacroDefinition.into_id(&cursor.node().language())
             );
-        } else if definition.is_none() && id == parameter {
+        } else if definition.as_ref().is_none_or(|d| {
+            if let MacroDefResolution::Implicit(_) = d {
+                true
+            } else {
+                false
+            }
+        }) && id == parameter
+        {
             if let Some(mut def) = select_params(&text, &mut cursor, name) {
                 let docstring = find_docstring(&mut cursor);
                 if docstring.is_some() {
@@ -1082,8 +1147,23 @@ fn find_any_macro_def_in_outer_block(
             }
             debug_assert_eq!(
                 cursor.node().kind_id(),
-                node_into_id(&cursor.node().language(), NodeKind::ParameterDeclaration)
+                NodeKind::ParameterDeclaration.into_id(&cursor.node().language())
             );
+        } else if definition.is_none()
+            && id == assign
+            && let Some(span) = assign_lhs_matches_macro(text, name, &mut cursor)
+        {
+            // On the left hand side of assignment expressions, `LOCAL` macros
+            // can be defined implicitly.
+            debug_assert_eq!(
+                cursor.node().kind_id(),
+                NodeKind::AssignmentExpression.into_id(&cursor.node().language())
+            );
+            definition = Some(MacroDefResolution::Implicit(MacroDefinition {
+                cmd: cursor.node().byte_range(),
+                r#macro: span.into(),
+                docstring: find_docstring(&mut cursor),
+            }));
         } else if node.byte_range().contains(&origin.start) {
             if cursor.goto_first_child() {
                 continue;
@@ -1134,14 +1214,15 @@ fn find_macro_def_covering_subroutine_call(
             None => tree.walk(),
         };
 
-        let inner = find_global_macro_def_in_subroutine_body(text, &target.call, name, root);
+        let inner = find_block_global_macro_def_in_subroutine_body(text, &target.call, name, root);
 
         if let Some(MacroDefResolution::Final(definition)) = inner {
             // Macro definition was found in subroutine body.
             defs.push(MacroDefResolution::Final(definition));
         } else if let Some(sub) = subroutine {
             // Call is nested in another subroutine. Find all macro definitions
-            // in outer scopes.
+            // in outer scopes. Returns all macro definitions on higher levels
+            // of the call tree.
             let mut macros = find_macro_def_covering_subroutine_call(
                 level,
                 text,
@@ -1162,302 +1243,29 @@ fn find_macro_def_covering_subroutine_call(
                 {
                     macros[idx] = MacroDefResolution::Overridable(definition);
                 }
+            } else if let Some(MacroDefResolution::Implicit(span)) = inner {
+                // The subroutine has may have an implicit macro definition. It
+                // becomes active, if it is not overruled by all callers.
+                if let Some(idx) = macros
+                    .iter()
+                    .position(|m| *m == MacroDefResolution::Indeterminate)
+                {
+                    macros[idx] = MacroDefResolution::Implicit(span);
+                }
             }
             defs.append(&mut macros);
+        } else if let Some(MacroDefResolution::Implicit(span)) = inner {
+            // Call is not in a subroutine and only an implicit macro
+            // definition could be found.
+            defs.push(MacroDefResolution::Implicit(span));
         } else if let None = inner {
             // Subroutine call is not in a subroutine and no matching macro
             // definition was found. `ENTRY` commands on lower scopes might now
             // become active.
-            defs.push(MacroDefResolution::Indeterminate)
+            defs.push(MacroDefResolution::Indeterminate);
         }
     }
     defs
-}
-
-fn defines_any_macro(text: &str, cursor: &mut TreeCursor, name: &str) -> Option<MacroDefinition> {
-    debug_assert_eq!(
-        cursor.node().kind_id(),
-        node_into_id(&cursor.node().language(), NodeKind::MacroDefinition)
-    );
-
-    if !cursor.goto_first_child() {
-        return None;
-    }
-
-    debug_assert_eq!(
-        cursor.node().kind_id(),
-        node_into_id(&cursor.node().language(), NodeKind::Identifier)
-    );
-
-    while cursor.goto_next_sibling() {
-        let r#macro = cursor.node();
-        debug_assert_eq!(
-            r#macro.kind_id(),
-            node_into_id(&r#macro.language(), NodeKind::Macro)
-        );
-
-        let range = r#macro.byte_range();
-        if range.end >= text.len() {
-            break;
-        }
-
-        if &text[range] == name {
-            cursor.goto_parent();
-            return Some(MacroDefinition {
-                cmd: cursor.node().byte_range(),
-                r#macro: r#macro.byte_range(),
-                docstring: None,
-            });
-        }
-    }
-    cursor.goto_parent();
-    None
-}
-
-fn defines_block_global_macro(
-    text: &str,
-    cursor: &mut TreeCursor,
-    name: &str,
-) -> Option<MacroDefinition> {
-    debug_assert_eq!(
-        cursor.node().kind_id(),
-        node_into_id(&cursor.node().language(), NodeKind::MacroDefinition)
-    );
-
-    if !cursor.goto_first_child() {
-        return None;
-    }
-
-    debug_assert_eq!(
-        cursor.node().kind_id(),
-        node_into_id(&cursor.node().language(), NodeKind::Identifier)
-    );
-    if MacroScope::from(&text[cursor.node().byte_range()]) == MacroScope::Private {
-        cursor.goto_parent();
-        return None;
-    }
-
-    while cursor.goto_next_sibling() {
-        let r#macro = cursor.node();
-        debug_assert_eq!(
-            r#macro.kind_id(),
-            node_into_id(&r#macro.language(), NodeKind::Macro)
-        );
-
-        let range = r#macro.byte_range();
-        if range.end >= text.len() {
-            break;
-        }
-
-        if &text[range] == name {
-            cursor.goto_parent();
-            return Some(MacroDefinition {
-                cmd: cursor.node().byte_range(),
-                r#macro: r#macro.byte_range(),
-                docstring: None,
-            });
-        }
-    }
-    cursor.goto_parent();
-    None
-}
-
-fn defines_macro_implicitly(
-    text: &str,
-    cursor: &mut TreeCursor,
-    name: &str,
-) -> Option<MacroDefResolution> {
-    debug_assert_eq!(
-        cursor.node().kind_id(),
-        node_into_id(&cursor.node().language(), NodeKind::ParameterDeclaration)
-    );
-
-    if !cursor.goto_first_child() {
-        return None;
-    }
-
-    debug_assert_eq!(
-        cursor.node().kind_id(),
-        node_into_id(&cursor.node().language(), NodeKind::Identifier)
-    );
-
-    let command = &text[cursor.node().byte_range()];
-
-    if ![KEYWORD_SUBROUTINE_PARAMETERS, KEYWORD_SUBROUTINE_ENTRY]
-        .iter()
-        .any(|&c| c.eq_ignore_ascii_case(&command))
-    {
-        cursor.goto_parent();
-        return None;
-    }
-
-    while cursor.goto_next_sibling() {
-        let r#macro = cursor.node();
-        debug_assert_eq!(
-            r#macro.kind_id(),
-            node_into_id(&r#macro.language(), NodeKind::Macro)
-        );
-
-        let range = r#macro.byte_range();
-        if range.end >= text.len() {
-            break;
-        }
-
-        if &text[range] == name {
-            cursor.goto_parent();
-
-            let def = MacroDefinition {
-                cmd: cursor.node().byte_range(),
-                r#macro: r#macro.byte_range(),
-                docstring: None,
-            };
-            return Some(match command {
-                KEYWORD_SUBROUTINE_ENTRY => MacroDefResolution::Overridable(def),
-                KEYWORD_SUBROUTINE_PARAMETERS => MacroDefResolution::Final(def),
-                _ => unreachable!("Must not catch other commands. Aborts early."),
-            });
-        }
-    }
-    cursor.goto_parent();
-    None
-}
-
-fn defines_global_macro_implicitly(
-    text: &str,
-    cursor: &mut TreeCursor,
-    name: &str,
-) -> Option<MacroDefResolution> {
-    debug_assert_eq!(
-        cursor.node().kind_id(),
-        node_into_id(&cursor.node().language(), NodeKind::ParameterDeclaration)
-    );
-
-    if !cursor.goto_first_child() {
-        return None;
-    }
-
-    debug_assert_eq!(
-        cursor.node().kind_id(),
-        node_into_id(&cursor.node().language(), NodeKind::Identifier)
-    );
-
-    let command = &text[cursor.node().byte_range()];
-
-    if !KEYWORD_SUBROUTINE_ENTRY.eq_ignore_ascii_case(&command) {
-        cursor.goto_parent();
-        return None;
-    }
-
-    while cursor.goto_next_sibling() {
-        let r#macro = cursor.node();
-        debug_assert_eq!(
-            r#macro.kind_id(),
-            node_into_id(&r#macro.language(), NodeKind::Macro)
-        );
-
-        let range = r#macro.byte_range();
-        if range.end >= text.len() {
-            break;
-        }
-
-        if &text[range] == name {
-            cursor.goto_parent();
-
-            let def = MacroDefinition {
-                cmd: cursor.node().byte_range(),
-                r#macro: r#macro.byte_range(),
-                docstring: None,
-            };
-            return Some(match command {
-                KEYWORD_SUBROUTINE_ENTRY => MacroDefResolution::Overridable(def),
-                _ => unreachable!("Must not catch other commands. Aborts early."),
-            });
-        }
-    }
-    cursor.goto_parent();
-    None
-}
-
-fn extract_macro_defs(text: &str, cursor: &mut TreeCursor, macros: &mut Vec<MacroDefinition>) {
-    let def = cursor.node();
-    debug_assert_eq!(
-        def.kind_id(),
-        node_into_id(&def.language(), NodeKind::MacroDefinition)
-    );
-
-    if !cursor.goto_first_child() {
-        return;
-    }
-
-    debug_assert_eq!(
-        cursor.node().kind_id(),
-        node_into_id(&def.language(), NodeKind::Identifier)
-    );
-    debug_assert!(
-        [MacroScope::Private, MacroScope::Local, MacroScope::Global]
-            .contains(&MacroScope::from(&text[cursor.node().byte_range()]))
-    );
-
-    while cursor.goto_next_sibling() {
-        let r#macro = cursor.node();
-
-        debug_assert_eq!(
-            r#macro.kind_id(),
-            node_into_id(&r#macro.language(), NodeKind::Macro)
-        );
-
-        let range = r#macro.byte_range();
-        if range.end >= text.len() {
-            break;
-        }
-        macros.push(MacroDefinition {
-            cmd: def.byte_range(),
-            r#macro: r#macro.byte_range(),
-            docstring: None,
-        });
-    }
-    cursor.goto_parent();
-}
-
-fn extract_params(
-    text: &str,
-    cursor: &mut TreeCursor,
-    declarations: &mut Vec<ParameterDeclaration>,
-) {
-    let decl = cursor.node();
-    debug_assert_eq!(
-        decl.kind_id(),
-        node_into_id(&decl.language(), NodeKind::ParameterDeclaration)
-    );
-
-    if !cursor.goto_first_child() {
-        return;
-    }
-
-    debug_assert_eq!(
-        cursor.node().kind_id(),
-        node_into_id(&decl.language(), NodeKind::Identifier)
-    );
-
-    while cursor.goto_next_sibling() {
-        let r#macro = cursor.node();
-
-        debug_assert_eq!(
-            r#macro.kind_id(),
-            node_into_id(&r#macro.language(), NodeKind::Macro)
-        );
-
-        let range = r#macro.byte_range();
-        if range.end >= text.len() {
-            break;
-        }
-        declarations.push(ParameterDeclaration {
-            cmd: decl.byte_range(),
-            r#macro: r#macro.byte_range(),
-            docstring: None,
-        });
-    }
-    cursor.goto_parent();
 }
 
 fn extract_subroutine_def(cursor: &mut TreeCursor) -> Option<Subroutine> {
@@ -1479,7 +1287,7 @@ fn extract_subroutine_def(cursor: &mut TreeCursor) -> Option<Subroutine> {
     }
 
     let name = cursor.node();
-    if name.kind_id() != node_into_id(&lang, NodeKind::Identifier) {
+    if name.kind_id() != NodeKind::Identifier.into_id(&lang) {
         cursor.goto_parent();
         return None;
     }
@@ -1668,7 +1476,7 @@ fn extract_subroutine_call(cursor: &mut TreeCursor) -> Option<CallExpression> {
 
     debug_assert_eq!(
         target.kind_id(),
-        node_into_id(&target.language(), NodeKind::Identifier)
+        NodeKind::Identifier.into_id(&target.language())
     );
     cursor.goto_parent();
 
@@ -1677,6 +1485,36 @@ fn extract_subroutine_call(cursor: &mut TreeCursor) -> Option<CallExpression> {
         call: call.byte_range(),
         docstring: None,
     })
+}
+
+fn assign_lhs_matches_macro(text: &str, name: &str, cursor: &mut TreeCursor) -> Option<BRange> {
+    debug_assert_eq!(
+        cursor.node().kind_id(),
+        NodeKind::AssignmentExpression.into_id(&cursor.node().language())
+    );
+
+    if !cursor.goto_first_child() {
+        cursor.goto_parent();
+        return None;
+    }
+
+    let lhs = cursor.node();
+    cursor.goto_parent();
+
+    let id = {
+        let node = cursor.node();
+        let lang = node.language();
+
+        NodeKind::Macro.into_id(&lang)
+    };
+
+    let span = lhs.byte_range();
+
+    if lhs.kind_id() == id && text[span.clone()] == *name {
+        Some(BRange::from(span))
+    } else {
+        None
+    }
 }
 
 fn matches_call_to_subroutine(
@@ -1698,7 +1536,7 @@ fn matches_call_to_subroutine(
 
     debug_assert_eq!(
         target.kind_id(),
-        node_into_id(&target.language(), NodeKind::Identifier)
+        NodeKind::Identifier.into_id(&target.language())
     );
 
     cursor.goto_parent();
@@ -1721,7 +1559,7 @@ fn goto_subroutine_call_target<'a>(cursor: &'a mut TreeCursor) -> Option<Node<'a
 
     debug_assert_eq!(
         cursor.node().kind_id(),
-        node_into_id(&cursor.node().language(), NodeKind::Identifier)
+        NodeKind::Identifier.into_id(&cursor.node().language())
     );
 
     if !cursor.goto_next_sibling() {
@@ -1732,7 +1570,7 @@ fn goto_subroutine_call_target<'a>(cursor: &'a mut TreeCursor) -> Option<Node<'a
     let target = cursor.node();
     debug_assert_eq!(
         target.kind_id(),
-        node_into_id(&cursor.node().language(), NodeKind::Identifier)
+        NodeKind::Identifier.into_id(&cursor.node().language())
     );
     Some(target)
 }
@@ -1751,7 +1589,7 @@ fn extract_script_call(text: &str, cursor: &mut TreeCursor) -> Option<CallExpres
 
     debug_assert_eq!(
         cursor.node().kind_id(),
-        node_into_id(&cursor.node().language(), NodeKind::Identifier)
+        NodeKind::Identifier.into_id(&cursor.node().language())
     );
 
     let command = text[cursor.node().byte_range()].split(".").last()?;
@@ -1791,7 +1629,7 @@ fn extract_goto_target(text: &str, cursor: &mut TreeCursor) -> Option<Range<usiz
 
     debug_assert_eq!(
         cursor.node().kind_id(),
-        node_into_id(&cursor.node().language(), NodeKind::Identifier)
+        NodeKind::Identifier.into_id(&cursor.node().language())
     );
 
     let command = text[cursor.node().byte_range()].split(".").last()?;
@@ -1809,26 +1647,6 @@ fn extract_goto_target(text: &str, cursor: &mut TreeCursor) -> Option<Range<usiz
     Some(target)
 }
 
-fn find_macro_scope(text: &str, cursor: &mut TreeCursor) -> Option<MacroScope> {
-    debug_assert_eq!(
-        cursor.node().kind_id(),
-        node_into_id(&cursor.node().language(), NodeKind::MacroDefinition)
-    );
-
-    if !cursor.goto_first_child() {
-        return None;
-    }
-
-    debug_assert_eq!(
-        cursor.node().kind_id(),
-        node_into_id(&cursor.node().language(), NodeKind::Identifier)
-    );
-    let scope = Some(MacroScope::from(&text[cursor.node().byte_range()]));
-
-    cursor.goto_parent();
-    scope
-}
-
 fn find_docstring(cursor: &mut TreeCursor) -> Option<Range<usize>> {
     let target = cursor.node();
 
@@ -1836,7 +1654,7 @@ fn find_docstring(cursor: &mut TreeCursor) -> Option<Range<usize>> {
         unreachable!("Target node must have a parent.");
     }
 
-    let id_comment = node_into_id(&target.language(), NodeKind::Comment);
+    let id_comment = NodeKind::Comment.into_id(&target.language());
     let mut node = cursor.node();
 
     let mut docstring: Option<TRange> = None;
@@ -1904,7 +1722,7 @@ fn terminates_script(text: &str, cursor: &mut TreeCursor) -> bool {
 
     debug_assert_eq!(
         cursor.node().kind_id(),
-        node_into_id(&cursor.node().language(), NodeKind::Identifier)
+        NodeKind::Identifier.into_id(&cursor.node().language())
     );
 
     let Some(command) = text[cursor.node().byte_range()].split(".").last() else {
@@ -1924,7 +1742,7 @@ pub fn skip_comments(cursor: &mut TreeCursor) {
     let node = cursor.node();
     let lang = node.language();
 
-    let id = node_into_id(&lang, NodeKind::Comment);
+    let id = NodeKind::Comment.into_id(&lang);
 
     while cursor.node().kind_id() == id {
         if !cursor.goto_next_sibling() {

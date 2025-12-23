@@ -10,11 +10,14 @@ use crate::{protocol::Uri, utils::BRange};
 
 use super::{
     FindMacroRefsLangContext,
-    ast::{NodeKind, get_control_flow_block_ids, get_macro_container_expr_ids},
+    ast::{
+        KEYWORD_SUBROUTINE_ENTRY, KEYWORD_SUBROUTINE_PARAMETERS, NodeKind,
+        get_control_flow_block_ids, get_macro_container_expr_ids,
+    },
     cache::find_subroutine_for_call,
     expressions::{
-        CallExpression, MacroDefinition, MacroDefinitions, MacroScope, ParameterDeclaration,
-        SubscriptCalls,
+        CallExpression, MacroDefResolution, MacroDefinition, MacroDefinitions, MacroScope,
+        ParameterDeclaration, SubscriptCalls,
     },
 };
 
@@ -173,8 +176,353 @@ pub fn find_block_local_macro_references<'a>(
     ))
 }
 
-// TODO: find_macro_references_in_subroutine
-fn find_macro_references_and_call_transitions<'a>(
+pub fn defines_named_macro(
+    text: &str,
+    macros: &MacroDefinitions,
+    parameters: &[ParameterDeclaration],
+    macro_refs: &[BRange],
+    name: &str,
+) -> bool {
+    if let Some(defs) = &macros.privates
+        && defs.iter().any(|m| text[m.r#macro.clone()] == *name)
+    {
+        return true;
+    }
+
+    if let Some(macros) = &macros.locals
+        && macros.iter().any(|m| text[m.r#macro.clone()] == *name)
+    {
+        return true;
+    }
+
+    if !parameters.is_empty() && parameters.iter().any(|m| text[m.r#macro.clone()] == *name) {
+        return true;
+    }
+
+    if !macro_refs.is_empty() && macro_refs.iter().any(|r| text[r.inner().clone()] == *name) {
+        return true;
+    }
+
+    if let Some(defs) = &macros.globals
+        && defs.iter().any(|m| text[m.r#macro.clone()] == *name)
+    {
+        true
+    } else {
+        false
+    }
+}
+
+pub fn defines_any_macro(
+    text: &str,
+    cursor: &mut TreeCursor,
+    name: &str,
+) -> Option<MacroDefinition> {
+    debug_assert_eq!(
+        cursor.node().kind_id(),
+        NodeKind::MacroDefinition.into_id(&cursor.node().language())
+    );
+
+    if !cursor.goto_first_child() {
+        return None;
+    }
+
+    debug_assert_eq!(
+        cursor.node().kind_id(),
+        NodeKind::Identifier.into_id(&cursor.node().language())
+    );
+
+    while cursor.goto_next_sibling() {
+        let r#macro = cursor.node();
+        debug_assert_eq!(
+            r#macro.kind_id(),
+            NodeKind::Macro.into_id(&r#macro.language())
+        );
+
+        let range = r#macro.byte_range();
+        if range.end >= text.len() {
+            break;
+        }
+
+        if &text[range] == name {
+            cursor.goto_parent();
+            return Some(MacroDefinition {
+                cmd: cursor.node().byte_range(),
+                r#macro: r#macro.byte_range(),
+                docstring: None,
+            });
+        }
+    }
+    cursor.goto_parent();
+    None
+}
+
+pub fn defines_block_global_macro(
+    text: &str,
+    cursor: &mut TreeCursor,
+    name: &str,
+) -> Option<MacroDefinition> {
+    debug_assert_eq!(
+        cursor.node().kind_id(),
+        NodeKind::MacroDefinition.into_id(&cursor.node().language())
+    );
+
+    if !cursor.goto_first_child() {
+        return None;
+    }
+
+    debug_assert_eq!(
+        cursor.node().kind_id(),
+        NodeKind::Identifier.into_id(&cursor.node().language())
+    );
+    if MacroScope::from(&text[cursor.node().byte_range()]) == MacroScope::Private {
+        cursor.goto_parent();
+        return None;
+    }
+
+    while cursor.goto_next_sibling() {
+        let r#macro = cursor.node();
+        debug_assert_eq!(
+            r#macro.kind_id(),
+            NodeKind::Macro.into_id(&r#macro.language())
+        );
+
+        let range = r#macro.byte_range();
+        if range.end >= text.len() {
+            break;
+        }
+
+        if &text[range] == name {
+            cursor.goto_parent();
+            return Some(MacroDefinition {
+                cmd: cursor.node().byte_range(),
+                r#macro: r#macro.byte_range(),
+                docstring: None,
+            });
+        }
+    }
+    cursor.goto_parent();
+    None
+}
+
+pub fn may_define_macro_implicitly(
+    text: &str,
+    cursor: &mut TreeCursor,
+    name: &str,
+) -> Option<MacroDefResolution> {
+    debug_assert_eq!(
+        cursor.node().kind_id(),
+        NodeKind::ParameterDeclaration.into_id(&cursor.node().language())
+    );
+
+    if !cursor.goto_first_child() {
+        return None;
+    }
+
+    debug_assert_eq!(
+        cursor.node().kind_id(),
+        NodeKind::Identifier.into_id(&cursor.node().language())
+    );
+
+    let command = &text[cursor.node().byte_range()];
+
+    if ![KEYWORD_SUBROUTINE_PARAMETERS, KEYWORD_SUBROUTINE_ENTRY]
+        .iter()
+        .any(|&c| c.eq_ignore_ascii_case(&command))
+    {
+        cursor.goto_parent();
+        return None;
+    }
+
+    while cursor.goto_next_sibling() {
+        let r#macro = cursor.node();
+        debug_assert_eq!(
+            r#macro.kind_id(),
+            NodeKind::Macro.into_id(&r#macro.language())
+        );
+
+        let range = r#macro.byte_range();
+        if range.end >= text.len() {
+            break;
+        }
+
+        if &text[range] == name {
+            cursor.goto_parent();
+
+            let def = MacroDefinition {
+                cmd: cursor.node().byte_range(),
+                r#macro: r#macro.byte_range(),
+                docstring: None,
+            };
+            return Some(match command {
+                KEYWORD_SUBROUTINE_ENTRY => MacroDefResolution::Overridable(def),
+                KEYWORD_SUBROUTINE_PARAMETERS => MacroDefResolution::Final(def),
+                _ => unreachable!("Must not catch other commands. Aborts early."),
+            });
+        }
+    }
+    cursor.goto_parent();
+    None
+}
+
+pub fn defines_global_macro_implicitly(
+    text: &str,
+    cursor: &mut TreeCursor,
+    name: &str,
+) -> Option<MacroDefResolution> {
+    debug_assert_eq!(
+        cursor.node().kind_id(),
+        NodeKind::ParameterDeclaration.into_id(&cursor.node().language())
+    );
+
+    if !cursor.goto_first_child() {
+        return None;
+    }
+
+    debug_assert_eq!(
+        cursor.node().kind_id(),
+        NodeKind::Identifier.into_id(&cursor.node().language())
+    );
+
+    let command = &text[cursor.node().byte_range()];
+
+    if !KEYWORD_SUBROUTINE_ENTRY.eq_ignore_ascii_case(&command) {
+        cursor.goto_parent();
+        return None;
+    }
+
+    while cursor.goto_next_sibling() {
+        let r#macro = cursor.node();
+        debug_assert_eq!(
+            r#macro.kind_id(),
+            NodeKind::Macro.into_id(&r#macro.language())
+        );
+
+        let range = r#macro.byte_range();
+        if range.end >= text.len() {
+            break;
+        }
+
+        if &text[range] == name {
+            cursor.goto_parent();
+
+            let def = MacroDefinition {
+                cmd: cursor.node().byte_range(),
+                r#macro: r#macro.byte_range(),
+                docstring: None,
+            };
+            return Some(match command {
+                KEYWORD_SUBROUTINE_ENTRY => MacroDefResolution::Overridable(def),
+                _ => unreachable!("Must not catch other commands. Aborts early."),
+            });
+        }
+    }
+    cursor.goto_parent();
+    None
+}
+
+pub fn find_macro_scope(text: &str, cursor: &mut TreeCursor) -> Option<MacroScope> {
+    debug_assert_eq!(
+        cursor.node().kind_id(),
+        NodeKind::MacroDefinition.into_id(&cursor.node().language())
+    );
+
+    if !cursor.goto_first_child() {
+        return None;
+    }
+
+    debug_assert_eq!(
+        cursor.node().kind_id(),
+        NodeKind::Identifier.into_id(&cursor.node().language())
+    );
+    let scope = Some(MacroScope::from(&text[cursor.node().byte_range()]));
+
+    cursor.goto_parent();
+    scope
+}
+
+pub fn extract_macro_defs(text: &str, cursor: &mut TreeCursor, macros: &mut Vec<MacroDefinition>) {
+    let def = cursor.node();
+    debug_assert_eq!(
+        def.kind_id(),
+        NodeKind::MacroDefinition.into_id(&def.language())
+    );
+
+    if !cursor.goto_first_child() {
+        return;
+    }
+
+    debug_assert_eq!(
+        cursor.node().kind_id(),
+        NodeKind::Identifier.into_id(&def.language())
+    );
+    debug_assert!(
+        [MacroScope::Private, MacroScope::Local, MacroScope::Global]
+            .contains(&MacroScope::from(&text[cursor.node().byte_range()]))
+    );
+
+    while cursor.goto_next_sibling() {
+        let r#macro = cursor.node();
+
+        debug_assert_eq!(
+            r#macro.kind_id(),
+            NodeKind::Macro.into_id(&r#macro.language())
+        );
+
+        let range = r#macro.byte_range();
+        if range.end >= text.len() {
+            break;
+        }
+        macros.push(MacroDefinition {
+            cmd: def.byte_range(),
+            r#macro: r#macro.byte_range(),
+            docstring: None,
+        });
+    }
+    cursor.goto_parent();
+}
+
+pub fn extract_params(
+    text: &str,
+    cursor: &mut TreeCursor,
+    declarations: &mut Vec<ParameterDeclaration>,
+) {
+    let decl = cursor.node();
+    debug_assert_eq!(
+        decl.kind_id(),
+        NodeKind::ParameterDeclaration.into_id(&decl.language())
+    );
+
+    if !cursor.goto_first_child() {
+        return;
+    }
+
+    debug_assert_eq!(
+        cursor.node().kind_id(),
+        NodeKind::Identifier.into_id(&decl.language())
+    );
+
+    while cursor.goto_next_sibling() {
+        let r#macro = cursor.node();
+
+        debug_assert_eq!(
+            r#macro.kind_id(),
+            NodeKind::Macro.into_id(&r#macro.language())
+        );
+
+        let range = r#macro.byte_range();
+        if range.end >= text.len() {
+            break;
+        }
+        declarations.push(ParameterDeclaration {
+            cmd: decl.byte_range(),
+            r#macro: r#macro.byte_range(),
+            docstring: None,
+        });
+    }
+    cursor.goto_parent();
+}
+
+pub fn find_macro_references_and_call_transitions<'a>(
     text: &str,
     t32: &'a FindMacroRefsLangContext,
     name: &str,

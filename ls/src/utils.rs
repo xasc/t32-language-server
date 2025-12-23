@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: EUPL-1.2
 
-use std::{convert::From, ops::Range};
+use std::{cmp::Ordering, convert::From, ops::Range};
 
 use tree_sitter::Range as TRange;
 
@@ -40,8 +40,32 @@ impl From<BRange> for Range<usize> {
     }
 }
 
+impl Eq for BRange {}
+
+impl Ord for BRange {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let Self(inner) = self;
+        let Self(other_inner) = other;
+
+        if inner.start > other_inner.start || inner.end > other_inner.end {
+            Ordering::Greater
+        } else if inner.start < other_inner.start || inner.end < other_inner.end {
+            Ordering::Less
+        } else {
+            Ordering::Equal
+        }
+    }
+}
+
 impl PartialEq<Range<usize>> for BRange {
     fn eq(&self, other: &Range<usize>) -> bool {
-        self.0 == *other
+        let Self(range) = self;
+        *range == *other
+    }
+}
+
+impl PartialOrd for BRange {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }

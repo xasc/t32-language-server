@@ -20,8 +20,10 @@ use crate::{
     ls::{
         State, Tasks,
         doc::{TextDoc, TextDocData, TextDocStatus, TextDocs},
-        language::ExtMacroDefOrigin,
-        language::MacroPropagation,
+        language::{
+            FindDefintionsForMacroRefResult, MacroDefinitionLocation, MacroPropagation,
+            MacroReferenceOrigin,
+        },
         log_notif,
         lsp::Message,
         mainloop::{trace_doc_cannot_read, trace_doc_change},
@@ -35,9 +37,11 @@ use crate::{
             lang::{
                 process_find_references_req, process_find_references_result,
                 process_goto_definition_req, process_goto_definition_result,
-                progress_find_macro_def_references, progress_find_subscript_macro_refs,
-                progress_goto_external_macro_def, recv_find_macro_def_references_sync,
-                recv_find_subscript_macro_references_sync, recv_goto_external_macro_def_sync,
+                progress_find_external_macro_definitions, progress_find_macro_def_references,
+                progress_find_subscript_macro_refs, progress_goto_external_macro_def,
+                recv_find_external_definitions_for_macro_reference_sync,
+                recv_find_macro_def_references_sync, recv_find_subscript_macro_references_sync,
+                recv_goto_external_macro_def_sync,
             },
             workspace::{process_files_did_rename_notif, process_rename_files_result},
         },
@@ -58,7 +62,7 @@ pub enum OngoingTask {
         id: NumberOrString,
         onset: Instant,
         progress: TaskProgress,
-        r#macro: String,
+        origin: MacroReferenceOrigin,
         phase: FindMacroReferencesPhase,
     },
     FindReferences(NumberOrString, Instant),
@@ -67,7 +71,7 @@ pub enum OngoingTask {
         id: NumberOrString,
         onset: Instant,
         progress: TaskProgress,
-        origin: ExtMacroDefOrigin,
+        origin: MacroReferenceOrigin,
         visited: FileCallMap,
         undone: ExtMacroDefLookups,
         results: Vec<LocationLink>,
@@ -80,19 +84,20 @@ pub enum OngoingTask {
 
 #[derive(Debug)]
 pub enum FindMacroReferencesPhase {
-    RefsInSubscripts {
+    ReferencesInSubscripts {
         visited: Vec<Uri>,
         results: FileLocationMap,
         undone: Vec<Uri>,
     },
-    RefsFromDefinitions {
+    ReferencesFromDefinitions {
         definitions: Vec<MacroPropagation>,
         results: FileLocationMap,
         undone: Vec<Uri>,
     },
-    _ExternalDefinitions {
-        visited: Vec<Uri>,
-        results: Vec<MacroPropagation>,
+    ExternalDefinitions {
+        definitions: Vec<MacroPropagation>,
+        visited: FileCallMap,
+        results: MacroDefinitionLocationMap,
         undone: ExtMacroDefLookups,
     },
 }
@@ -124,10 +129,17 @@ pub struct FileCallMap {
     files: Vec<(Uri, u32)>,
     calls: Vec<Vec<Uri>>,
 }
+
 #[derive(Clone, Debug)]
 pub struct FileLocationMap {
     files: Vec<(Uri, u32)>,
     locations: Vec<Vec<Range>>,
+}
+
+#[derive(Debug)]
+pub struct MacroDefinitionLocationMap {
+    files: Vec<(Uri, u32)>,
+    macros: Vec<Vec<MacroDefinitionLocation>>,
 }
 
 #[derive(Clone, Debug)]
@@ -176,6 +188,31 @@ impl FileLocationMap {
             }
         }
         locs
+    }
+}
+
+impl MacroDefinitionLocationMap {
+    pub fn new() -> Self {
+        Self {
+            files: Vec::new(),
+            macros: Vec::new(),
+        }
+    }
+
+    pub fn insert(&mut self, file: &Uri, def: MacroDefinitionLocation) {
+        debug_assert_eq!(self.files.len(), self.macros.len());
+        match self.files.binary_search_by(|(f, _)| f.cmp(file)) {
+            Ok(ii) => match self.macros[ii].binary_search_by(|m| m.cmp(&def)) {
+                Ok(_) => return,
+                Err(idx) => self.macros[ii].insert(idx, def),
+            },
+            Err(ii) => {
+                self.files
+                    .insert(ii, (file.clone(), self.macros.len() as u32));
+                self.macros.push(vec![def]);
+            }
+        }
+        debug_assert_eq!(self.files.len(), self.macros.len());
     }
 }
 
@@ -267,6 +304,17 @@ impl ExtMacroDefLookups {
 
         self.files.clear();
         self.callees.clear();
+
+        debug_assert_eq!(self.files.len(), self.callees.len());
+    }
+
+    pub fn add(&mut self, file: Uri, callee: Uri) {
+        debug_assert_eq!(self.files.len(), self.callees.len());
+
+        self.files.push(file);
+        self.callees.push(callee);
+
+        debug_assert_eq!(self.files.len(), self.callees.len());
     }
 }
 
@@ -406,6 +454,32 @@ fn process_completed_task(
                 for file in missing_files {
                     outgoing.push(Some(trace_doc_unknown(&file)));
                 }
+            }
+        }
+        TaskDone::FindExternalDefinitionsForMacroRefSync(id, result) => {
+            let mut uri: Option<Uri> = None;
+            if cfg.trace_level != TraceValue::Off {
+                uri = match &result {
+                    FindDefintionsForMacroRefResult::Final(_, file)
+                    | FindDefintionsForMacroRefResult::Partial(_, file, _) => Some(file.clone()),
+                };
+            }
+            recv_find_external_definitions_for_macro_reference_sync(&id, result, &mut ts.ongoing);
+
+            if cfg.trace_level != TraceValue::Off {
+                let idx = find_ongoing_task_by_id(&id, &ts.ongoing);
+
+                let onset = match &ts.ongoing[idx] {
+                    Some(OngoingTask::FindMacroReferences { onset, .. }) => onset,
+                    _ => unreachable!("No other type possible."),
+                };
+                let Some(uri) = uri else { unreachable!() };
+
+                outgoing.push(Some(trace_find_ext_definitions_for_macro_ref(
+                    Instant::now() - *onset,
+                    id,
+                    uri,
+                )));
             }
         }
         TaskDone::FindMacroReferences(id, locations) => {
@@ -804,13 +878,15 @@ fn progress_multi_part_tasks(
                 progress_goto_external_macro_def(docs, job, &mut tasks, &mut ts.completed)?
             }
             OngoingTask::FindMacroReferences { phase, .. } => match phase {
-                FindMacroReferencesPhase::RefsFromDefinitions { .. } => {
+                FindMacroReferencesPhase::ReferencesFromDefinitions { .. } => {
                     progress_find_macro_def_references(docs, job, &mut tasks)?
                 }
-                FindMacroReferencesPhase::RefsInSubscripts { .. } => {
+                FindMacroReferencesPhase::ReferencesInSubscripts { .. } => {
                     progress_find_subscript_macro_refs(docs, job, &mut tasks, &mut ts.completed)?
                 }
-                _ => todo!(),
+                FindMacroReferencesPhase::ExternalDefinitions { .. } => {
+                    progress_find_external_macro_definitions(docs, job, &mut tasks)?
+                }
             },
             _ => (),
         }
@@ -984,6 +1060,24 @@ fn trace_find_subscript_macro_refs_sync(
         params: LogTraceParams {
             message: format!(
                 "INFO: Find subscript macro sync with ID {} and file \"{}\" completed in {:.4} seconds.",
+                id,
+                file,
+                duration.as_secs_f32()
+            ),
+            verbose: None,
+        },
+    })
+}
+
+fn trace_find_ext_definitions_for_macro_ref(
+    duration: Duration,
+    id: NumberOrString,
+    file: Uri,
+) -> Message {
+    Message::Notification(Notification::LogTraceNotification {
+        params: LogTraceParams {
+            message: format!(
+                "INFO: Find external definitions for macro reference with ID {} and file \"{}\" in {:.4} seconds.",
                 id,
                 file,
                 duration.as_secs_f32()

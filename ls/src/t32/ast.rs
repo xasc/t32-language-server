@@ -123,7 +123,7 @@ impl NodeKind {
     }
 }
 
-pub fn node_into_id(lang: &Language, node: NodeKind) -> u16 {
+fn node_into_id(lang: &Language, node: NodeKind) -> u16 {
     lang.id_for_node_kind(
         match node {
             NodeKind::ArgumentList => NODE_ARGUMENT_LIST,

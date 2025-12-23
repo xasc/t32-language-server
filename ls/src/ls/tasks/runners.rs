@@ -24,10 +24,10 @@ use crate::{
     ls::{
         doc::{TextDoc, TextDocData},
         language::{
-            FindMacroReferencesResult, FindReferencesResult, GotoDefinitionResult,
-            MacroPropagationCompact,
+            FindDefintionsForMacroRefResult, FindMacroReferencesResult, FindReferencesResult,
+            GotoDefinitionResult, MacroPropagationCompact, MacroReferenceOrigin,
         },
-        tasks::{ExtMacroDefOrigin, OngoingTaskHandle, RenameFileOperations},
+        tasks::{OngoingTaskHandle, RenameFileOperations},
         workspace::{FileIndex, ResolvedRenameFileOperations, WorkspaceMembers},
     },
     protocol::{
@@ -44,6 +44,21 @@ pub enum Task {
         FileIndex,
         fn(RenameFileOperations, &mut FileIndex) -> ResolvedRenameFileOperations,
     ),
+    FindExternalDefinitionsForMacroRef {
+        id: NumberOrString,
+        textdoc: TextDocData,
+        t32: GotoDefLangContext,
+        callers: Vec<Uri>,
+        origin: MacroReferenceOrigin,
+        callee: Uri,
+        find: fn(
+            TextDocData,
+            GotoDefLangContext,
+            Vec<Uri>,
+            MacroReferenceOrigin,
+            Uri,
+        ) -> FindDefintionsForMacroRefResult,
+    },
     FindMacroReferencesFromDefinitions(
         NumberOrString,
         TextDocData,
@@ -84,12 +99,14 @@ pub enum Task {
         textdoc: TextDocData,
         t32: GotoDefLangContext,
         callers: Vec<Uri>,
-        origin: ExtMacroDefOrigin,
+        origin: MacroReferenceOrigin,
+        backtrace: Uri,
         find: fn(
             TextDocData,
             GotoDefLangContext,
             Vec<Uri>,
-            ExtMacroDefOrigin,
+            MacroReferenceOrigin,
+            Uri,
         ) -> (Option<GotoDefinitionResult>, Vec<Uri>),
     },
     TextDocNew(
@@ -123,6 +140,7 @@ pub enum Task {
 #[derive(Debug)]
 pub enum TaskDone {
     DidRenameFiles(ResolvedRenameFileOperations, FileIndex),
+    FindExternalDefinitionsForMacroRefSync(NumberOrString, FindDefintionsForMacroRefResult),
     FindMacroReferences(NumberOrString, Option<Vec<Location>>),
     FindMacroReferencesFromDefinitionsSync(NumberOrString, FindMacroReferencesResult),
     FindMacroReferencesInSubscriptsSync(NumberOrString, FindMacroReferencesResult),
@@ -279,6 +297,18 @@ impl TaskSystem {
                 let operations = rename_files(renamed, &mut file_idx);
                 TaskDone::DidRenameFiles(operations, file_idx)
             }
+            Task::FindExternalDefinitionsForMacroRef {
+                id,
+                textdoc,
+                t32,
+                callers,
+                origin,
+                callee,
+                find,
+            } => {
+                let defs = (find)(textdoc, t32, callers, origin, callee);
+                TaskDone::FindExternalDefinitionsForMacroRefSync(id, defs)
+            }
             Task::FindMacroReferencesFromDefinitions(id, textdoc, t32, r#macro, range, find) => {
                 TaskDone::FindMacroReferencesFromDefinitionsSync(
                     id,
@@ -300,10 +330,11 @@ impl TaskSystem {
                 t32,
                 callers,
                 origin,
+                backtrace,
                 find,
             } => {
                 let uri = textdoc.doc.uri.clone();
-                let defs = (find)(textdoc, t32, callers, origin);
+                let defs = (find)(textdoc, t32, callers, origin, backtrace);
 
                 TaskDone::GoToExternalMacroDefSync(id, defs.0, uri, defs.1)
             }

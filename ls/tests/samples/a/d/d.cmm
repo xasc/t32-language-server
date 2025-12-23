@@ -1,0 +1,29 @@
+// SPDX-FileCopyrightText: 2024 Christoph Sax <c_sax@mailbox.org>
+//
+// SPDX-License-Identifier: EUPL-1.2
+
+DO "../a.cmm"
+
+PRIVATE &from_c_cmm
+
+LOCAL &a
+
+&a=2
+
+SUBROUTINE subA
+(
+    PRIVATE &a
+    &a=1
+
+    GOSUB subB
+    RETURN
+)
+
+SUBROUTINE subB
+(
+    PRINT "&a"
+
+    RETURN
+)
+
+GOSUB subA

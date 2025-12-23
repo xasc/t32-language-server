@@ -30,3 +30,7 @@ subA:
 GOSUB subA
 
 PRINT "&global_macro"
+
+LOCAL &from_c_cmm
+
+DO a/d/d.cmm

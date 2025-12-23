@@ -12,7 +12,7 @@ use tree_sitter::{Language, Parser, Tree, TreeCursor};
 use tree_sitter_t32;
 
 pub use ast::{NodeKind, id_into_node};
-pub use cache::get_macro_scope;
+pub use cache::{get_macro_scope, locate_calls_to_file_target};
 pub use expressions::{
     CallExpression, CallExpressions, CallLocations, Label, MacroDefinition, MacroDefinitions,
     MacroScope, ParameterDeclaration, Subroutine, SubscriptCalls,
@@ -26,24 +26,23 @@ pub use expressions::{
     find_external_macro_definition as goto_external_macro_definition,
 };
 
-pub use macros::find_any_macro_references;
+pub use macros::{defines_named_macro, find_any_macro_references};
 
 use std::ops::Range;
 
 use crate::{ls::FileIndex, protocol::Uri, utils::BRange};
 
 use expressions::{
-    defines_named_macro, find_all_references_for_label, find_all_references_for_subroutine,
-    find_call_target_definition, find_file_target, find_label, find_macro_definition,
-    find_subroutine, locate_subscript,
+    find_all_references_for_label, find_all_references_for_subroutine, find_call_target_definition,
+    find_file_target, find_label, find_macro_definition, find_subroutine, locate_subscript,
 };
 
 use macros::find_macro_references_at_offset;
 
 pub enum MacroDefinitionResult {
     Final(Vec<MacroDefinition>),
-    Partial(String, Vec<MacroDefinition>),
-    Indeterminate(String),
+    Partial(Vec<MacroDefinition>),
+    Indeterminate,
 }
 
 #[derive(Clone, Debug)]
@@ -68,6 +67,7 @@ pub struct FindMacroRefsLangContext {
 #[derive(Clone, Debug)]
 pub struct FindRefsLangContext {
     pub macros: MacroDefinitions,
+    pub macro_refs: Vec<BRange>,
     pub subroutines: Vec<Subroutine>,
     pub calls: CallExpressions,
     pub parameters: Vec<ParameterDeclaration>,
@@ -77,6 +77,7 @@ pub struct FindRefsLangContext {
 #[derive(Clone, Debug)]
 pub struct GotoDefLangContext {
     pub macros: MacroDefinitions,
+    pub macro_refs: Vec<BRange>,
     pub subroutines: Vec<Subroutine>,
     pub calls: CallExpressions,
     pub parameters: Vec<ParameterDeclaration>,
@@ -105,6 +106,7 @@ impl From<LangExpressions> for FindRefsLangContext {
     fn from(t32: LangExpressions) -> Self {
         FindRefsLangContext {
             macros: t32.macros,
+            macro_refs: t32.macro_refs,
             subroutines: t32.subroutines,
             calls: t32.calls,
             parameters: t32.parameters,
@@ -117,6 +119,7 @@ impl From<FindRefsLangContext> for GotoDefLangContext {
     fn from(t32: FindRefsLangContext) -> Self {
         GotoDefLangContext {
             macros: t32.macros,
+            macro_refs: t32.macro_refs,
             subroutines: t32.subroutines,
             calls: t32.calls,
             parameters: t32.parameters,
@@ -128,6 +131,7 @@ impl From<LangExpressions> for GotoDefLangContext {
     fn from(t32: LangExpressions) -> Self {
         GotoDefLangContext {
             macros: t32.macros,
+            macro_refs: t32.macro_refs,
             subroutines: t32.subroutines,
             calls: t32.calls,
             parameters: t32.parameters,
@@ -154,7 +158,7 @@ pub fn parse(text: &[u8], incremental: Option<&Tree>) -> Tree {
 pub fn get_goto_def_ids(lang: &Language) -> [u16; 3] {
     let mut ids = [0u16; 3];
     for (ii, &node) in ast::GOTO_DEF_SOURCES.iter().enumerate() {
-        ids[ii] = ast::node_into_id(&lang, node);
+        ids[ii] = node.into_id(&lang);
     }
     ids
 }
@@ -162,12 +166,12 @@ pub fn get_goto_def_ids(lang: &Language) -> [u16; 3] {
 pub fn get_find_ref_ids(lang: &Language) -> [u16; 5] {
     let mut ids = [0u16; 5];
     for (ii, &node) in ast::FIND_REF_SOURCES.iter().enumerate() {
-        ids[ii] = ast::node_into_id(&lang, node);
+        ids[ii] = node.into_id(&lang);
     }
     ids
 }
 
-pub fn goto_macro_definition(
+pub fn goto_infile_macro_definition(
     text: &str,
     tree: &Tree,
     t32: &GotoDefLangContext,
@@ -187,8 +191,8 @@ pub fn goto_macro_definition(
     debug_assert_eq!(node.kind_id(), NodeKind::Macro.into_id(&node.language()),);
 
     let name = &text[node.start_byte()..node.end_byte()];
-    if !defines_named_macro(text, t32, name) {
-        return Some(MacroDefinitionResult::Indeterminate(name.to_string()));
+    if !defines_named_macro(text, &t32.macros, &t32.parameters, &t32.macro_refs, name) {
+        return Some(MacroDefinitionResult::Indeterminate);
     }
     find_macro_definition(text, tree, t32, node)
 }
