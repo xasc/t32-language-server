@@ -634,37 +634,7 @@ mod test {
 
     use url::Url;
 
-    fn files() -> Vec<Url> {
-        vec![
-            Url::from_file_path(path::absolute("tests/samples/c.cmm").expect("File must exist."))
-                .unwrap(),
-            Url::from_file_path(
-                path::absolute("tests/samples/same.cmm").expect("File must exist."),
-            )
-            .unwrap(),
-            Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
-                .unwrap(),
-            Url::from_file_path(
-                path::absolute("tests/samples/a/same.cmm").expect("File must exist."),
-            )
-            .unwrap(),
-            Url::from_file_path(
-                path::absolute("tests/samples/a/d/d.cmmt").expect("File must exist."),
-            )
-            .unwrap(),
-            Url::from_file_path(path::absolute("tests/samples/b/b.cmm").expect("File must exist."))
-                .unwrap(),
-            Url::from_file_path(
-                path::absolute("tests/samples/b/same.cmm").expect("File must exist."),
-            )
-            .unwrap(),
-        ]
-    }
-
-    fn create_file_idx() -> FileIndex {
-        let files = files();
-        index_files(files)
-    }
+    use crate::utils::create_file_idx;
 
     #[test]
     fn can_update_file_idx() {

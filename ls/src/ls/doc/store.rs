@@ -664,11 +664,10 @@ impl<'a> TextDocs {
                 continue;
             }
 
-            let globals = t32.as_ref().unwrap().macros.globals.as_ref();
-            if globals.is_none() {
+            let globals = &t32.as_ref().unwrap().macros.globals;
+            if globals.is_empty() {
                 continue;
             }
-            let globals = globals.unwrap();
 
             let num = globals.len();
             nums.push(num as u32);
@@ -880,40 +879,16 @@ mod test {
     use crate::{
         ls::{
             doc::{
-                find_macro_definitions, find_parameter_declarations, find_subroutines_and_labels,
-                read_doc, textdoc::create_line_map_for_text,
+                find_parameter_declarations, find_subroutines_and_labels, read_doc,
+                textdoc::create_line_map_for_text,
             },
             workspace::{FileIndex, index_files, rename_files},
         },
-        t32::{self, CallExpressions, LANGUAGE_ID, find_any_macro_references},
+        t32::{
+            self, CallExpressions, LANGUAGE_ID, find_any_macro_references, find_macro_definitions,
+        },
+        utils::{files, to_file_uri},
     };
-
-    fn files() -> Vec<Url> {
-        vec![
-            Url::from_file_path(path::absolute("tests/samples/c.cmm").expect("File must exist."))
-                .unwrap(),
-            Url::from_file_path(
-                path::absolute("tests/samples/same.cmm").expect("File must exist."),
-            )
-            .unwrap(),
-            Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
-                .unwrap(),
-            Url::from_file_path(
-                path::absolute("tests/samples/a/same.cmm").expect("File must exist."),
-            )
-            .unwrap(),
-            Url::from_file_path(
-                path::absolute("tests/samples/a/d/d.cmmt").expect("File must exist."),
-            )
-            .unwrap(),
-            Url::from_file_path(path::absolute("tests/samples/b/b.cmm").expect("File must exist."))
-                .unwrap(),
-            Url::from_file_path(
-                path::absolute("tests/samples/b/same.cmm").expect("File must exist."),
-            )
-            .unwrap(),
-        ]
-    }
 
     fn create_file_idx() -> FileIndex {
         let files = files();
@@ -940,7 +915,6 @@ mod test {
         };
         let tree = t32::parse(text.as_bytes(), None);
 
-        let macros = find_macro_definitions(&doc.text, &tree);
         let (subroutines, labels) = find_subroutines_and_labels(&doc.text, &tree);
         let parameters = find_parameter_declarations(&doc.text, &tree);
         let calls = CallExpressions {
@@ -948,6 +922,7 @@ mod test {
             scripts: None,
         };
         let macro_refs = find_any_macro_references(&tree);
+        let macros = find_macro_definitions(&doc.text, &subroutines, &calls.subroutines, &tree);
 
         (
             doc,
@@ -1208,10 +1183,8 @@ mod test {
         let file_idx = create_file_idx();
         let mut docs = create_doc_store(&files, &file_idx);
 
-        let uri_a =
-            Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
-                .unwrap()
-                .to_string();
+        let uri_a = to_file_uri("tests/samples/a/a.cmm");
+        let uri_d = to_file_uri("tests/samples/a/d/d.cmm");
         let uri_a1 = Url::from_file_path(path::absolute("a1.cmm").unwrap())
             .unwrap()
             .to_string();
@@ -1219,7 +1192,7 @@ mod test {
         let hits = docs
             .get_all_scripts_with_macro("&a")
             .expect("Must find references for macro.");
-        assert_eq!(&hits[..], [uri_a.clone()]);
+        assert_eq!(&hits[..], [uri_a.clone(), uri_d.clone()]);
 
         let text = "LOCAL &a\n&a=3\n";
         let (doc, tree, expr) = create_doc(&uri_a1, &text);
@@ -1228,7 +1201,7 @@ mod test {
         let hits = docs
             .get_all_scripts_with_macro("&a")
             .expect("Must find references for macro.");
-        let uris = [uri_a.clone(), uri_a1.clone()];
+        let uris = [uri_a.clone(), uri_d.clone(), uri_a1.clone()];
         assert_eq!(&hits[..], uris);
 
         let hits = docs
@@ -1246,7 +1219,7 @@ mod test {
         let hits = docs
             .get_all_scripts_with_macro("&a")
             .expect("Must find references for macro.");
-        let uris = [uri_a1];
+        let uris = [uri_d, uri_a1];
         assert_eq!(&hits[..], uris);
     }
 }

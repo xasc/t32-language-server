@@ -11,13 +11,15 @@ use crate::{protocol::Uri, utils::BRange};
 use super::{
     FindMacroRefsLangContext,
     ast::{
-        KEYWORD_SUBROUTINE_ENTRY, KEYWORD_SUBROUTINE_PARAMETERS, NodeKind,
-        get_control_flow_block_ids, get_macro_container_expr_ids,
+        KEYWORD_SUBROUTINE_ENTRY, KEYWORD_SUBROUTINE_PARAMETERS, NodeKind, get_block_opener_ids,
+        get_control_flow_block_ids, get_macro_container_expr_ids, get_subroutine_ids,
     },
     cache::find_subroutine_for_call,
     expressions::{
-        CallExpression, MacroDefResolution, MacroDefinition, MacroDefinitions, MacroScope,
-        ParameterDeclaration, SubscriptCalls,
+        CallExpression, CallSites, MacroDefResolution, MacroDefinition, MacroDefinitions,
+        MacroDefinitionsImplicit, MacroScope, ParameterDeclaration,
+        RECURSION_BREAKER_SUBROUTINE_SCAN, Subroutine, SubscriptCalls, extract_assign_lhs_macro,
+        find_docstring, goto_subroutine,
     },
 };
 
@@ -25,6 +27,41 @@ pub struct MacroReferencesBlockCaptures<'a> {
     pub references: Vec<BRange>,
     pub subroutines: Vec<&'a CallExpression>,
     pub scripts: Vec<&'a Uri>,
+}
+
+struct MacroDefinitionsCutoff {
+    privates: usize,
+    locals: usize,
+    globals: usize,
+    implicit: MacroDefinitionsImplicitCutoff,
+}
+
+struct MacroDefinitionsImplicitCutoff {
+    privates: usize,
+    locals: usize,
+}
+
+impl MacroDefinitionsCutoff {
+    pub fn set(macros: &MacroDefinitions) -> Self {
+        Self {
+            privates: macros.privates.len(),
+            locals: macros.locals.len(),
+            globals: macros.globals.len(),
+            implicit: MacroDefinitionsImplicitCutoff {
+                privates: macros.implicit.privates.len(),
+                locals: macros.implicit.locals.len(),
+            },
+        }
+    }
+
+    pub fn restore(&self, macros: &mut MacroDefinitions) {
+        macros.privates.truncate(self.privates);
+        macros.locals.truncate(self.locals);
+        macros.globals.truncate(self.globals);
+
+        macros.implicit.privates.truncate(self.implicit.privates);
+        macros.implicit.locals.truncate(self.implicit.locals);
+    }
 }
 
 impl<'a> MacroReferencesBlockCaptures<'a> {
@@ -35,6 +72,293 @@ impl<'a> MacroReferencesBlockCaptures<'a> {
             scripts: Vec::new(),
         }
     }
+}
+
+/// Finds all PRACTICE macros with `PRIVATE`, `LOCAL` and `GLOBAL` scope.
+/// Implicit definitions are detected both in main script body and subroutines.
+///
+/// TODO: Visit explicit definitions of subroutines without callers
+pub fn find_all_macro_definitions(
+    text: &str,
+    subroutines: &[Subroutine],
+    calls: &[CallExpression],
+    tree: &Tree,
+) -> MacroDefinitions {
+    let mut cursor = tree.walk();
+
+    let (macro_def, assign, call, declaration, id_subroutines, block_openers): (
+        u16,
+        u16,
+        u16,
+        u16,
+        [u16; 2],
+        [u16; 8],
+    ) = {
+        let lang = tree.language();
+
+        let id_macro_def = NodeKind::MacroDefinition.into_id(&lang);
+        let id_assign = NodeKind::AssignmentExpression.into_id(&lang);
+        let id_call = NodeKind::SubroutineCallExpression.into_id(&lang);
+        let id_declaration = NodeKind::ParameterDeclaration.into_id(&lang);
+
+        let subroutines = get_subroutine_ids(&lang);
+        let block_openers = get_block_opener_ids(&lang);
+
+        (
+            id_macro_def,
+            id_assign,
+            id_call,
+            id_declaration,
+            subroutines,
+            block_openers,
+        )
+    };
+
+    let calls: CallSites = {
+        let mut spans: Vec<BRange> = Vec::with_capacity(calls.len());
+        let mut targets: Vec<BRange> = Vec::with_capacity(calls.len());
+
+        for CallExpression { call, target, .. } in calls {
+            spans.push(call.clone().into());
+            targets.push(target.clone().into());
+        }
+        CallSites::new(spans, targets)
+    };
+
+    // Subroutines that have no corresponding subroutine call need to
+    // be visited separately. They only have the block-global
+    // definitions from the main script body available.
+    let subroutines_with_callers: Vec<usize> = subroutines
+        .iter()
+        .filter(|&s| {
+            calls
+                .get_targets()
+                .iter()
+                .any(|t| &text[t.inner().clone()] == &text[s.name.clone()])
+        })
+        .map(|s| s.definition.start)
+        .collect();
+
+    let mut privates: Vec<MacroDefinition> = Vec::new();
+    let mut locals: Vec<MacroDefinition> = Vec::new();
+    let mut globals: Vec<MacroDefinition> = Vec::new();
+
+    let mut implicit_main: MacroDefinitionsImplicit = MacroDefinitionsImplicit::new();
+    let mut implicit_subroutines: MacroDefinitionsImplicit = MacroDefinitionsImplicit::new();
+
+    if !cursor.goto_first_child() {
+        return MacroDefinitions::new();
+    }
+
+    // Capture all explicit (`PRIVATE`, `LOCAL`, and `GLOBAL`) and implicit
+    // macro definitions. All definitions in subroutines are captured in the
+    // called sub functions.
+    'outer: loop {
+        let node = cursor.node();
+
+        let id = node.kind_id();
+        let span = BRange::from(node.byte_range());
+
+        if id == macro_def {
+            if let Some(scope) = find_macro_scope(text, &mut cursor) {
+                let (num, macros) = match scope {
+                    MacroScope::Local => (locals.len(), &mut locals),
+                    MacroScope::Global => (globals.len(), &mut globals),
+                    MacroScope::Private => (privates.len(), &mut privates),
+                };
+
+                extract_macro_defs(text, &mut cursor, macros);
+                if macros.len() != num {
+                    let docstring = find_docstring(&mut cursor);
+                    if docstring.is_some() {
+                        for def in macros[num..].iter_mut() {
+                            def.docstring = docstring.clone();
+                        }
+                    }
+                }
+            }
+            debug_assert_eq!(
+                cursor.node().kind_id(),
+                NodeKind::MacroDefinition.into_id(&cursor.node().language())
+            );
+        } else if id == call
+            && let Some(target) = calls.get_target(&span)
+        {
+            let subroutine = subroutines
+                .iter()
+                .find(|s| text[s.name.clone()] == text[target.inner().clone()]);
+
+            if let Some(sub) = subroutine {
+                // `PRIVATE` macros are block-local macros. Other types propagate
+                // across subroutine calls.
+                let mut macros = MacroDefinitions {
+                    privates: Vec::new(),
+                    locals: locals.clone(),
+                    globals: globals.clone(),
+                    implicit: implicit_main.clone(),
+                };
+
+                let defs = find_macro_defs_in_subroutine_call_chain(
+                    text,
+                    tree,
+                    subroutines,
+                    &calls,
+                    BRange::from(sub.definition.clone()),
+                    &mut macros,
+                    0,
+                );
+
+                for def in defs.privates {
+                    if !privates.contains(&def) {
+                        privates.push(def);
+                    }
+                }
+
+                for def in defs.locals {
+                    if !locals.contains(&def) {
+                        locals.push(def);
+                    }
+                }
+
+                for def in defs.globals {
+                    if !globals.contains(&def) {
+                        globals.push(def);
+                    }
+                }
+                implicit_subroutines.add(defs.implicit);
+            }
+        } else if id == assign
+            && let Some(span) = extract_assign_lhs_macro(&mut cursor)
+        {
+            // Macro assignment can create implicit `LOCAL` definitions for
+            // macros.
+            let name: &str = &text[span.inner().clone()];
+
+            // Check whether the macro is already defined.
+            if !(privates
+                .iter()
+                .chain(locals.iter())
+                .chain(globals.iter())
+                .any(|d| text[d.r#macro.clone()] == *name)
+                || implicit_main
+                    .privates
+                    .iter()
+                    .chain(implicit_main.locals.iter())
+                    .any(|d| text[d.inner().clone()] == *name))
+            {
+                implicit_main.locals.push(span);
+            }
+        } else if id == declaration {
+            let mut parameters: Vec<ParameterDeclaration> = Vec::new();
+
+            extract_params(text, &mut cursor, &mut parameters);
+
+            let ext_block_global_defs_ignored =
+                params_ignore_block_global_definitions(text, &mut cursor);
+
+            for param in parameters {
+                let name: &str = &text[param.r#macro.clone()];
+
+                // The `PARAMETERS` command can create an implicit `PRIVATE`
+                // macro definition. The `ENTRY` command can create implicit
+                // `LOCAL` definitions for macros.
+                if privates
+                    .iter()
+                    .chain(locals.iter())
+                    .chain(globals.iter())
+                    .any(|d| text[d.r#macro.clone()] == *name)
+                {
+                    continue;
+                }
+
+                if implicit_main
+                    .privates
+                    .iter()
+                    .chain(implicit_main.locals.iter())
+                    .any(|d| text[d.inner().clone()] == *name)
+                {
+                    continue;
+                }
+
+                if ext_block_global_defs_ignored {
+                    implicit_main.privates.push(BRange::from(param.r#macro));
+                } else {
+                    implicit_main.locals.push(BRange::from(param.r#macro));
+                }
+            }
+            debug_assert_eq!(
+                cursor.node().kind_id(),
+                NodeKind::ParameterDeclaration.into_id(&cursor.node().language())
+            );
+        } else if id_subroutines.contains(&id)
+            && !subroutines_with_callers.contains(&span.inner().start)
+        {
+            // Subroutines that have no corresponding subroutine call need to
+            // be visited separately. They only have the block-global
+            // definition context from the main script body available.
+
+            let mut macros = MacroDefinitions {
+                privates: Vec::new(),
+                locals: locals.clone(),
+                globals: globals.clone(),
+                implicit: implicit_main.clone(),
+            };
+
+            let defs = find_macro_defs_in_subroutine_call_chain(
+                text,
+                tree,
+                subroutines,
+                &calls,
+                BRange::from(span),
+                &mut macros,
+                0,
+            );
+
+            for def in defs.privates {
+                if !privates.contains(&def) {
+                    privates.push(def);
+                }
+            }
+
+            for def in defs.locals {
+                if !locals.contains(&def) {
+                    locals.push(def);
+                }
+            }
+
+            for def in defs.globals {
+                if !globals.contains(&def) {
+                    globals.push(def);
+                }
+            }
+            implicit_subroutines.add(defs.implicit);
+        } else if block_openers.contains(&id) {
+            if cursor.goto_first_child() {
+                continue;
+            }
+        }
+
+        while !cursor.goto_next_sibling() {
+            if !cursor.goto_parent() {
+                break 'outer;
+            }
+        }
+    }
+
+    let defs: MacroDefinitions = {
+        implicit_main.add(implicit_subroutines);
+
+        let mut macros = MacroDefinitions {
+            privates,
+            locals,
+            globals,
+            implicit: implicit_main,
+        };
+        macros.sort();
+
+        macros
+    };
+    defs
 }
 
 pub fn find_any_macro_references(tree: &Tree) -> Vec<BRange> {
@@ -180,36 +504,42 @@ pub fn defines_named_macro(
     text: &str,
     macros: &MacroDefinitions,
     parameters: &[ParameterDeclaration],
-    macro_refs: &[BRange],
     name: &str,
 ) -> bool {
-    if let Some(defs) = &macros.privates
-        && defs.iter().any(|m| text[m.r#macro.clone()] == *name)
+    if macros
+        .privates
+        .iter()
+        .any(|m| text[m.r#macro.clone()] == *name)
     {
         return true;
     }
 
-    if let Some(macros) = &macros.locals
-        && macros.iter().any(|m| text[m.r#macro.clone()] == *name)
+    if macros
+        .locals
+        .iter()
+        .any(|m| text[m.r#macro.clone()] == *name)
     {
         return true;
     }
 
-    if !parameters.is_empty() && parameters.iter().any(|m| text[m.r#macro.clone()] == *name) {
+    if parameters.iter().any(|m| text[m.r#macro.clone()] == *name) {
         return true;
     }
 
-    if !macro_refs.is_empty() && macro_refs.iter().any(|r| text[r.inner().clone()] == *name) {
-        return true;
-    }
-
-    if let Some(defs) = &macros.globals
-        && defs.iter().any(|m| text[m.r#macro.clone()] == *name)
+    if macros
+        .implicit
+        .privates
+        .iter()
+        .chain(macros.implicit.locals.iter())
+        .any(|m| text[m.inner().clone()] == *name)
     {
-        true
-    } else {
-        false
+        return true;
     }
+
+    macros
+        .globals
+        .iter()
+        .any(|m| text[m.r#macro.clone()] == *name)
 }
 
 pub fn defines_any_macro(
@@ -418,6 +748,32 @@ pub fn defines_global_macro_implicitly(
     }
     cursor.goto_parent();
     None
+}
+
+pub fn params_ignore_block_global_definitions(text: &str, cursor: &mut TreeCursor) -> bool {
+    debug_assert_eq!(
+        cursor.node().kind_id(),
+        NodeKind::ParameterDeclaration.into_id(&cursor.node().language())
+    );
+
+    if !cursor.goto_first_child() {
+        return false;
+    }
+
+    debug_assert_eq!(
+        cursor.node().kind_id(),
+        NodeKind::Identifier.into_id(&cursor.node().language())
+    );
+    let command = &text[cursor.node().byte_range()];
+
+    cursor.goto_parent();
+
+    if KEYWORD_SUBROUTINE_ENTRY.eq_ignore_ascii_case(&command) {
+        false
+    } else {
+        debug_assert_eq!(*command, *KEYWORD_SUBROUTINE_PARAMETERS);
+        true
+    }
 }
 
 pub fn find_macro_scope(text: &str, cursor: &mut TreeCursor) -> Option<MacroScope> {
@@ -642,6 +998,228 @@ pub fn find_macro_references_and_call_transitions<'a>(
     captures
 }
 
+fn find_macro_defs_in_subroutine_call_chain(
+    text: &str,
+    tree: &Tree,
+    subroutines: &[Subroutine],
+    calls: &CallSites,
+    body: BRange,
+    macros: &mut MacroDefinitions,
+    mut level: usize,
+) -> MacroDefinitions {
+    // Break recursion loops
+    level += 1;
+    if level > RECURSION_BREAKER_SUBROUTINE_SCAN {
+        return MacroDefinitions::new();
+    }
+
+    let mut cursor: TreeCursor = goto_subroutine(tree, body.inner().start);
+
+    if !cursor.goto_first_child() {
+        return MacroDefinitions::new();
+    }
+
+    let (macro_def, assign, call, declaration, block_openers): (u16, u16, u16, u16, [u16; 8]) = {
+        let lang = tree.language();
+
+        let id_macro_def = NodeKind::MacroDefinition.into_id(&lang);
+        let id_assign = NodeKind::AssignmentExpression.into_id(&lang);
+        let id_call = NodeKind::SubroutineCallExpression.into_id(&lang);
+        let id_declaration = NodeKind::ParameterDeclaration.into_id(&lang);
+
+        let block_openers = get_block_opener_ids(&lang);
+
+        (
+            id_macro_def,
+            id_assign,
+            id_call,
+            id_declaration,
+            block_openers,
+        )
+    };
+
+    let mut privates: Vec<MacroDefinition> = Vec::new();
+    let mut locals: Vec<MacroDefinition> = Vec::new();
+    let mut globals: Vec<MacroDefinition> = Vec::new();
+    let mut implicit: MacroDefinitionsImplicit = MacroDefinitionsImplicit::new();
+
+    let mut defs_subroutines: MacroDefinitions = MacroDefinitions::new();
+
+    'outer: loop {
+        let node = cursor.node();
+        if node.start_byte() > body.inner().end {
+            break 'outer;
+        }
+        let id = node.kind_id();
+        let span = BRange::from(node.byte_range());
+
+        if id == macro_def {
+            if let Some(scope) = find_macro_scope(text, &mut cursor) {
+                let (num, macros) = match scope {
+                    MacroScope::Local => (locals.len(), &mut locals),
+                    MacroScope::Global => (globals.len(), &mut globals),
+                    MacroScope::Private => (privates.len(), &mut privates),
+                };
+
+                extract_macro_defs(text, &mut cursor, macros);
+                if macros.len() != num {
+                    let docstring = find_docstring(&mut cursor);
+                    if docstring.is_some() {
+                        for def in macros[num..].iter_mut() {
+                            def.docstring = docstring.clone();
+                        }
+                    }
+                }
+            }
+            debug_assert_eq!(
+                cursor.node().kind_id(),
+                NodeKind::MacroDefinition.into_id(&cursor.node().language())
+            );
+        } else if id == call
+            && let Some(target) = calls.get_target(&span)
+        {
+            let subroutine = subroutines
+                .iter()
+                .find(|s| text[s.name.clone()] == text[target.inner().clone()]);
+
+            if let Some(sub) = subroutine {
+                let cutoff = MacroDefinitionsCutoff::set(macros);
+
+                // `PRIVATE` macros are block-local macros. Other types propagate
+                // across subroutine calls.
+                macros.locals.append(&mut locals.clone());
+                macros.globals.append(&mut globals.clone());
+                macros.implicit.locals.append(&mut implicit.locals.clone());
+
+                let defs = find_macro_defs_in_subroutine_call_chain(
+                    text,
+                    tree,
+                    subroutines,
+                    &calls,
+                    BRange::from(sub.definition.clone()),
+                    macros,
+                    level,
+                );
+                defs_subroutines.add(defs);
+
+                cutoff.restore(macros);
+            }
+        } else if id == assign
+            && let Some(span) = extract_assign_lhs_macro(&mut cursor)
+        {
+            // Macro assignment can create implicit `LOCAL` definitions for
+            // macros.
+            let name: &str = &text[span.inner().clone()];
+
+            // Check whether the macro is already defined.
+            if !(privates
+                .iter()
+                .chain(locals.iter())
+                .chain(globals.iter())
+                .chain(macros.locals.iter())
+                .chain(macros.globals.iter())
+                .any(|d| text[d.r#macro.clone()] == *name)
+                || macros
+                    .implicit
+                    .locals
+                    .iter()
+                    .chain(implicit.privates.iter())
+                    .chain(implicit.locals.iter())
+                    .any(|d| text[d.inner().clone()] == *name))
+            {
+                implicit.locals.push(span);
+            }
+        } else if id == declaration {
+            let mut parameters: Vec<ParameterDeclaration> = Vec::new();
+
+            extract_params(text, &mut cursor, &mut parameters);
+
+            let ext_block_global_defs_ignored =
+                params_ignore_block_global_definitions(text, &mut cursor);
+
+            for param in parameters {
+                let name: &str = &text[param.r#macro.clone()];
+
+                if ext_block_global_defs_ignored {
+                    // `PARAMETERS` command ignores external block-global macro
+                    // definitions. It can create implicit `PRIVATE` definition
+                    // for macros.
+
+                    if privates
+                        .iter()
+                        .chain(locals.iter())
+                        .chain(globals.iter())
+                        .chain(macros.globals.iter())
+                        .any(|d| text[d.r#macro.clone()] == *name)
+                    {
+                        continue;
+                    }
+
+                    if implicit
+                        .privates
+                        .iter()
+                        .chain(implicit.locals.iter())
+                        .any(|d| text[d.inner().clone()] == *name)
+                    {
+                        continue;
+                    }
+                    implicit.privates.push(BRange::from(param.r#macro));
+                } else {
+                    // `ENTRY` command Can create implicit `LOCAL` definition
+                    // for macros.
+
+                    if privates
+                        .iter()
+                        .chain(locals.iter())
+                        .chain(globals.iter())
+                        .chain(macros.locals.iter())
+                        .chain(macros.globals.iter())
+                        .any(|d| text[d.r#macro.clone()] == *name)
+                    {
+                        continue;
+                    }
+
+                    if implicit
+                        .privates
+                        .iter()
+                        .chain(implicit.locals.iter())
+                        .chain(macros.implicit.locals.iter())
+                        .any(|d| text[d.inner().clone()] == *name)
+                    {
+                        continue;
+                    }
+                    implicit.locals.push(BRange::from(param.r#macro));
+                }
+            }
+            debug_assert_eq!(
+                cursor.node().kind_id(),
+                NodeKind::ParameterDeclaration.into_id(&cursor.node().language())
+            );
+        } else if block_openers.contains(&id) {
+            // Subroutine definitions cannot be nested.
+            if cursor.goto_first_child() {
+                continue;
+            }
+        }
+
+        while !cursor.goto_next_sibling() {
+            if !cursor.goto_parent() {
+                break 'outer;
+            }
+        }
+    }
+
+    let mut defs = MacroDefinitions {
+        privates,
+        locals,
+        globals,
+        implicit,
+    };
+    defs.add(defs_subroutines);
+
+    defs
+}
+
 fn filter_macro_defs_by_name(
     text: &str,
     name: &str,
@@ -649,27 +1227,21 @@ fn filter_macro_defs_by_name(
 ) -> Vec<Range<usize>> {
     let mut have_name: Vec<Range<usize>> = Vec::new();
 
-    if let Some(macros) = &macros.privates {
-        for MacroDefinition { r#macro, .. } in macros {
-            if text[r#macro.clone()] == *name {
-                have_name.push(r#macro.clone())
-            }
+    for MacroDefinition { r#macro, .. } in &macros.privates {
+        if text[r#macro.clone()] == *name {
+            have_name.push(r#macro.clone())
         }
     }
 
-    if let Some(macros) = &macros.locals {
-        for MacroDefinition { r#macro, .. } in macros {
-            if text[r#macro.clone()] == *name {
-                have_name.push(r#macro.clone())
-            }
+    for MacroDefinition { r#macro, .. } in &macros.locals {
+        if text[r#macro.clone()] == *name {
+            have_name.push(r#macro.clone())
         }
     }
 
-    if let Some(macros) = &macros.globals {
-        for MacroDefinition { r#macro, .. } in macros {
-            if text[r#macro.clone()] == *name {
-                have_name.push(r#macro.clone())
-            }
+    for MacroDefinition { r#macro, .. } in &macros.globals {
+        if text[r#macro.clone()] == *name {
+            have_name.push(r#macro.clone())
         }
     }
     have_name

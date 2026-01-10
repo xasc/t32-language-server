@@ -13,6 +13,11 @@ mod tasks;
 mod transport;
 mod workspace;
 
+pub use crate::ls::workspace::FileIndex;
+
+#[cfg(test)]
+pub use crate::ls::workspace::index_files;
+
 use std::time::{Duration, Instant};
 
 use url;
@@ -34,8 +39,6 @@ use crate::{
         ResponseError, ServerCapabilities, TraceValue,
     },
 };
-
-pub use crate::ls::workspace::FileIndex;
 
 struct InitializationStatus {
     msg: Message,

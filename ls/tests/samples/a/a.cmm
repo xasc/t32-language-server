@@ -171,3 +171,11 @@ SUBROUTINE subP
     &implicit=&implicit+5.
     RETURN
 )
+
+SUBROUTINE subQ
+(
+    PRIVATE &param
+    PARAMETERS &param
+
+    PRINT "&param"
+)

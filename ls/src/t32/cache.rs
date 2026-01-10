@@ -29,27 +29,21 @@ pub fn find_subroutine_for_call<'a>(
 }
 
 pub fn get_macro_scope(macros: &MacroDefinitions, range: &Range<usize>) -> Option<MacroScope> {
-    if let Some(macros) = &macros.privates {
-        for def in macros {
-            if def.r#macro.contains(&range.start) {
-                return Some(MacroScope::Private);
-            }
+    for def in &macros.privates {
+        if def.r#macro.contains(&range.start) {
+            return Some(MacroScope::Private);
         }
     }
 
-    if let Some(macros) = &macros.locals {
-        for def in macros {
-            if def.r#macro.contains(&range.start) {
-                return Some(MacroScope::Local);
-            }
+    for def in &macros.locals {
+        if def.r#macro.contains(&range.start) {
+            return Some(MacroScope::Local);
         }
     }
 
-    if let Some(macros) = &macros.globals {
-        for def in macros {
-            if def.r#macro.contains(&range.start) {
-                return Some(MacroScope::Global);
-            }
+    for def in &macros.globals {
+        if def.r#macro.contains(&range.start) {
+            return Some(MacroScope::Global);
         }
     }
     None

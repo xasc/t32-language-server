@@ -4,7 +4,19 @@
 
 use std::{cmp::Ordering, convert::From, ops::Range};
 
+#[cfg(test)]
+use std::path;
+
 use tree_sitter::Range as TRange;
+
+#[cfg(test)]
+use url::Url;
+
+#[cfg(test)]
+use crate::{
+    ls::{FileIndex, index_files},
+    protocol::Uri,
+};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BRange(Range<usize>);
@@ -16,6 +28,10 @@ impl BRange {
 
     pub fn inner(&self) -> &Range<usize> {
         &self.0
+    }
+
+    pub fn contains(&self, offset: &usize) -> bool {
+        self.0.contains(offset)
     }
 }
 
@@ -68,4 +84,39 @@ impl PartialOrd for BRange {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
+}
+
+#[cfg(test)]
+pub fn files() -> Vec<Url> {
+    vec![
+        Url::from_file_path(path::absolute("tests/samples/c.cmm").expect("File must exist."))
+            .unwrap(),
+        Url::from_file_path(path::absolute("tests/samples/same.cmm").expect("File must exist."))
+            .unwrap(),
+        Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
+            .unwrap(),
+        Url::from_file_path(path::absolute("tests/samples/a/same.cmm").expect("File must exist."))
+            .unwrap(),
+        Url::from_file_path(path::absolute("tests/samples/a/d/d.cmm").expect("File must exist."))
+            .unwrap(),
+        Url::from_file_path(path::absolute("tests/samples/a/d/d.cmmt").expect("File must exist."))
+            .unwrap(),
+        Url::from_file_path(path::absolute("tests/samples/b/b.cmm").expect("File must exist."))
+            .unwrap(),
+        Url::from_file_path(path::absolute("tests/samples/b/same.cmm").expect("File must exist."))
+            .unwrap(),
+    ]
+}
+
+#[cfg(test)]
+pub fn to_file_uri(file: &str) -> Uri {
+    Url::from_file_path(path::absolute(file).expect("File must exist."))
+        .unwrap()
+        .to_string()
+}
+
+#[cfg(test)]
+pub fn create_file_idx() -> FileIndex {
+    let files = files();
+    index_files(files)
 }

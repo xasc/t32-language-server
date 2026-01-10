@@ -20,13 +20,18 @@ pub use expressions::{
 
 pub use expressions::{
     find_all_call_expressions as find_call_expressions,
-    find_all_macro_definitions as find_macro_definitions,
     find_all_parameter_declarations as find_parameter_declarations,
     find_all_subroutines_and_labels as find_subroutines_and_labels,
     find_external_macro_definition as goto_external_macro_definition,
 };
 
-pub use macros::{defines_named_macro, find_any_macro_references};
+pub use macros::{
+    defines_named_macro, find_all_macro_definitions as find_macro_definitions,
+    find_any_macro_references,
+};
+
+#[cfg(test)]
+pub use expressions::MacroDefinitionsImplicit;
 
 use std::ops::Range;
 
@@ -67,7 +72,6 @@ pub struct FindMacroRefsLangContext {
 #[derive(Clone, Debug)]
 pub struct FindRefsLangContext {
     pub macros: MacroDefinitions,
-    pub macro_refs: Vec<BRange>,
     pub subroutines: Vec<Subroutine>,
     pub calls: CallExpressions,
     pub parameters: Vec<ParameterDeclaration>,
@@ -77,7 +81,6 @@ pub struct FindRefsLangContext {
 #[derive(Clone, Debug)]
 pub struct GotoDefLangContext {
     pub macros: MacroDefinitions,
-    pub macro_refs: Vec<BRange>,
     pub subroutines: Vec<Subroutine>,
     pub calls: CallExpressions,
     pub parameters: Vec<ParameterDeclaration>,
@@ -106,7 +109,6 @@ impl From<LangExpressions> for FindRefsLangContext {
     fn from(t32: LangExpressions) -> Self {
         FindRefsLangContext {
             macros: t32.macros,
-            macro_refs: t32.macro_refs,
             subroutines: t32.subroutines,
             calls: t32.calls,
             parameters: t32.parameters,
@@ -119,7 +121,6 @@ impl From<FindRefsLangContext> for GotoDefLangContext {
     fn from(t32: FindRefsLangContext) -> Self {
         GotoDefLangContext {
             macros: t32.macros,
-            macro_refs: t32.macro_refs,
             subroutines: t32.subroutines,
             calls: t32.calls,
             parameters: t32.parameters,
@@ -131,7 +132,6 @@ impl From<LangExpressions> for GotoDefLangContext {
     fn from(t32: LangExpressions) -> Self {
         GotoDefLangContext {
             macros: t32.macros,
-            macro_refs: t32.macro_refs,
             subroutines: t32.subroutines,
             calls: t32.calls,
             parameters: t32.parameters,
@@ -191,7 +191,7 @@ pub fn goto_infile_macro_definition(
     debug_assert_eq!(node.kind_id(), NodeKind::Macro.into_id(&node.language()),);
 
     let name = &text[node.start_byte()..node.end_byte()];
-    if !defines_named_macro(text, &t32.macros, &t32.parameters, &t32.macro_refs, name) {
+    if !defines_named_macro(text, &t32.macros, &t32.parameters, name) {
         return Some(MacroDefinitionResult::Indeterminate);
     }
     find_macro_definition(text, tree, t32, node)

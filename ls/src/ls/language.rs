@@ -833,47 +833,11 @@ mod tests {
         },
         protocol::Range as LRange,
         t32::LangExpressions,
+        utils::{files, to_file_uri},
     };
-
-    fn files() -> Vec<Url> {
-        vec![
-            Url::from_file_path(path::absolute("tests/samples/c.cmm").expect("File must exist."))
-                .unwrap(),
-            Url::from_file_path(
-                path::absolute("tests/samples/same.cmm").expect("File must exist."),
-            )
-            .unwrap(),
-            Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
-                .unwrap(),
-            Url::from_file_path(
-                path::absolute("tests/samples/a/same.cmm").expect("File must exist."),
-            )
-            .unwrap(),
-            Url::from_file_path(
-                path::absolute("tests/samples/a/d/d.cmm").expect("File must exist."),
-            )
-            .unwrap(),
-            Url::from_file_path(
-                path::absolute("tests/samples/a/d/d.cmmt").expect("File must exist."),
-            )
-            .unwrap(),
-            Url::from_file_path(path::absolute("tests/samples/b/b.cmm").expect("File must exist."))
-                .unwrap(),
-            Url::from_file_path(
-                path::absolute("tests/samples/b/same.cmm").expect("File must exist."),
-            )
-            .unwrap(),
-        ]
-    }
 
     fn create_file_idx() -> FileIndex {
         workspace::index_files(files())
-    }
-
-    fn to_file_uri(file: &str) -> Uri {
-        Url::from_file_path(path::absolute(file).expect("File must exist."))
-            .unwrap()
-            .to_string()
     }
 
     fn find_def(file: &str, position: Position) -> Option<GotoDefinitionResult> {
@@ -2210,6 +2174,14 @@ mod tests {
                 },
                 MacroScope::Local,
             ),
+            (
+                "&x",
+                Range {
+                    start: 919usize,
+                    end: 921usize,
+                },
+                MacroScope::Local,
+            ),
         ]
         .into_iter()
         .zip(
@@ -2317,6 +2289,91 @@ mod tests {
                             end: Position {
                                 line: 170,
                                 character: 23,
+                            },
+                        },
+                    ],
+                    Vec::new(),
+                ),
+                (
+                    vec![
+                        LRange {
+                            start: Position {
+                                line: 82,
+                                character: 10,
+                            },
+                            end: Position {
+                                line: 82,
+                                character: 12,
+                            },
+                        },
+                        LRange {
+                            start: Position {
+                                line: 84,
+                                character: 11,
+                            },
+                            end: Position {
+                                line: 84,
+                                character: 13,
+                            },
+                        },
+                        LRange {
+                            start: Position {
+                                line: 91,
+                                character: 11,
+                            },
+                            end: Position {
+                                line: 91,
+                                character: 13,
+                            },
+                        },
+                        LRange {
+                            start: Position {
+                                line: 98,
+                                character: 15,
+                            },
+                            end: Position {
+                                line: 98,
+                                character: 17,
+                            },
+                        },
+                        LRange {
+                            start: Position {
+                                line: 100,
+                                character: 11,
+                            },
+                            end: Position {
+                                line: 100,
+                                character: 13,
+                            },
+                        },
+                        LRange {
+                            start: Position {
+                                line: 107,
+                                character: 11,
+                            },
+                            end: Position {
+                                line: 107,
+                                character: 13,
+                            },
+                        },
+                        LRange {
+                            start: Position {
+                                line: 109,
+                                character: 10,
+                            },
+                            end: Position {
+                                line: 109,
+                                character: 12,
+                            },
+                        },
+                        LRange {
+                            start: Position {
+                                line: 115,
+                                character: 11,
+                            },
+                            end: Position {
+                                line: 115,
+                                character: 13,
                             },
                         },
                     ],

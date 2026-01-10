@@ -26,11 +26,11 @@ pub fn import_doc(r#in: TextDocumentItem, files: FileIndex) -> (TextDoc, Tree, L
     let doc = TextDoc::from(r#in);
     let tree = t32::parse(doc.text.as_bytes(), None);
 
-    let macros = find_macro_definitions(&doc.text, &tree);
     let (subroutines, labels) = find_subroutines_and_labels(&doc.text, &tree);
     let parameters = find_parameter_declarations(&doc.text, &tree);
     let calls = resolve_call_expressions(&doc.text, &tree, &files);
     let macro_refs = find_any_macro_references(&tree);
+    let macros = find_macro_definitions(&doc.text, &subroutines, &calls.subroutines, &tree);
 
     (
         doc,
@@ -57,12 +57,13 @@ pub fn update_doc(
         textdoc.tree.edit(&edits);
         t32::parse(textdoc.doc.text.as_bytes(), Some(&textdoc.tree));
     }
+    let (doc, tree) = (&textdoc.doc, &textdoc.tree);
 
-    let macros = find_macro_definitions(&textdoc.doc.text, &textdoc.tree);
-    let (subroutines, labels) = find_subroutines_and_labels(&textdoc.doc.text, &textdoc.tree);
-    let parameters = find_parameter_declarations(&textdoc.doc.text, &textdoc.tree);
-    let calls = resolve_call_expressions(&textdoc.doc.text, &textdoc.tree, &files);
-    let macro_refs = find_any_macro_references(&textdoc.tree);
+    let (subroutines, labels) = find_subroutines_and_labels(&doc.text, tree);
+    let parameters = find_parameter_declarations(&doc.text, tree);
+    let calls = resolve_call_expressions(&doc.text, tree, &files);
+    let macro_refs = find_any_macro_references(&tree);
+    let macros = find_macro_definitions(&doc.text, &subroutines, &calls.subroutines, tree);
 
     (
         textdoc.doc,
@@ -86,11 +87,11 @@ pub fn read_doc(r#in: Url, files: FileIndex) -> Result<(TextDoc, Tree, LangExpre
     };
     let tree = t32::parse(doc.text.as_bytes(), None);
 
-    let macros = find_macro_definitions(&doc.text, &tree);
     let (subroutines, labels) = find_subroutines_and_labels(&doc.text, &tree);
     let parameters = find_parameter_declarations(&doc.text, &tree);
     let calls = resolve_call_expressions(&doc.text, &tree, &files);
     let macro_refs = find_any_macro_references(&tree);
+    let macros = find_macro_definitions(&doc.text, &subroutines, &calls.subroutines, &tree);
 
     Ok((
         doc,
@@ -149,7 +150,8 @@ mod test {
 
     use crate::{
         ls::workspace::index_files,
-        t32::{CallExpressions, MacroDefinitions},
+        t32::{CallExpressions, MacroDefinition, MacroDefinitions, MacroDefinitionsImplicit},
+        utils::BRange,
     };
 
     fn create_file_idx() -> FileIndex {
@@ -263,15 +265,77 @@ mod test {
             },
         ) = read_doc(file, file_idx).expect("Must not fail.");
 
-        assert!(!globals.clone().is_none_or(|s| s.is_empty()));
+        assert!(!globals.is_empty());
         assert!(
             globals
-                .as_ref()
-                .unwrap()
                 .iter()
                 .find_map(|s| (doc.text[s.r#macro.clone()] == *"&global_macro").then_some(()))
                 .is_some()
         );
+    }
+
+    #[test]
+    fn can_find_implicitly_defined_macros() {
+        let file_idx = FileIndex::new();
+
+        let file =
+            Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
+                .unwrap();
+
+        let (
+            _,
+            _,
+            LangExpressions {
+                macros:
+                    MacroDefinitions {
+                        implicit: MacroDefinitionsImplicit { privates, locals },
+                        ..
+                    },
+                ..
+            },
+        ) = read_doc(file, file_idx).expect("Must not fail.");
+
+        for def in [
+            BRange::from(447usize..449usize),
+            BRange::from(450usize..452usize),
+            BRange::from(659usize..665usize),
+            BRange::from(919usize..921usize),
+            BRange::from(1586usize..1595usize),
+        ] {
+            assert!(locals.contains(&def));
+        }
+        assert!(!locals.contains(&BRange::from(459usize..470usize)));
+
+        for def in [BRange::from(1042usize..1044usize)] {
+            assert!(privates.contains(&def));
+        }
+        assert!(!privates.contains(&BRange::from(1737usize..1743usize)));
+    }
+
+    #[test]
+    fn can_find_macro_definitions_in_subroutines_without_caller() {
+        let file_idx = FileIndex::new();
+
+        let file =
+            Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
+                .unwrap();
+
+        let (
+            _,
+            _,
+            LangExpressions {
+                macros: MacroDefinitions { privates, .. },
+                ..
+            },
+        ) = read_doc(file, file_idx).expect("Must not fail.");
+
+        for def in [MacroDefinition {
+            cmd: 1707usize..1722usize,
+            r#macro: 1715usize..1721usize,
+            docstring: None,
+        }] {
+            assert!(privates.contains(&def));
+        }
     }
 
     #[test]
@@ -291,11 +355,9 @@ mod test {
             },
         ) = read_doc(file, file_idx).expect("Must not fail.");
 
-        assert!(!locals.clone().is_none_or(|s| s.is_empty()));
+        assert!(!locals.is_empty());
         assert!(
             locals
-                .as_ref()
-                .unwrap()
                 .iter()
                 .find_map(|s| (doc.text[s.r#macro.clone()] == *"&local_macro").then_some(()))
                 .is_some()
@@ -319,11 +381,9 @@ mod test {
             },
         ) = read_doc(file, file_idx).expect("Must not fail.");
 
-        assert!(!privates.clone().is_none_or(|s| s.is_empty()));
+        assert!(!privates.is_empty());
         assert!(
             privates
-                .as_ref()
-                .unwrap()
                 .iter()
                 .find_map(|s| (doc.text[s.r#macro.clone()] == *"&private_macro").then_some(()))
                 .is_some()
