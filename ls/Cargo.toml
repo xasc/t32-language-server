@@ -14,6 +14,7 @@ keywords = [
   "lauterbach"
 ]
 categories = ["parsing", "text-editors"]
+license = "EUPL-1.2"
 repository = "https://codeberg.org/xasc/t32-language-server/"
 edition = "2024"
 
