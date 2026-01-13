@@ -1,6 +1,16 @@
 // SPDX-FileCopyrightText: 2024 Christoph Sax <c_sax@mailbox.org>
 //
 // SPDX-License-Identifier: EUPL-1.2
+//
+
+//! [Note] Workflow Macro Reference Retrieval
+//! =========================================
+//!
+//! The prerequisite for finding all locations where a macro is referenced is
+//! the detection of all corresponding macro definitions. Once the definitions
+//! are known, we can determine all references in both the same file and called
+//! scripts.
+//!
 
 use crate::{
     ls::{
@@ -21,7 +31,7 @@ use crate::{
             find_ongoing_task_by_id, trace_doc_unknown, try_schedule,
         },
     },
-    protocol::{NumberOrString, ReferenceParams, TraceValue, Uri},
+    protocol::{Location, NumberOrString, ReferenceParams, TraceValue, Uri},
     t32::{FindMacroRefsLangContext, FindRefsLangContext, GotoDefLangContext, MacroScope},
 };
 
@@ -120,11 +130,15 @@ pub fn process_find_references_result(
                     return None;
                 }
 
-                // We are dealing with an implicitly defined macro. No
-                // definitions in the file where the request originated from
-                // or any callers of this file where external might be defined.
-                prepare_find_implcit_definitions_req(id.clone(), origin.name, &mut ts.ongoing);
-                return None;
+                // We are dealing with an implicitly defined macro. There are
+                // neither any definitions in the file where the request
+                // originated from or not any callers of this file where
+                // external might be defined. Implicit definitions have already
+                // been checked, too, so we only have the request origin.
+                Some(vec![Location {
+                    uri: origin.uri,
+                    range: origin.span,
+                }])
             }
             FindReferencesPartialResult::FileTarget => todo!(),
         },
@@ -232,6 +246,7 @@ pub fn progress_find_external_macro_definitions(
     docs: &TextDocs,
     task: &mut Option<OngoingTask>,
     outgoing: &mut Vec<Task>,
+    done: &mut Vec<Option<TaskDone>>,
 ) -> Result<(), ReturnCode> {
     let Some(OngoingTask::FindMacroReferences { progress, .. }) = task else {
         unreachable!("Must not be called with any other variant.");
@@ -250,20 +265,26 @@ pub fn progress_find_external_macro_definitions(
         };
 
         if definitions.is_empty() {
-            todo!("Needs handling for implicit macro definitions.");
+            done.push(Some(TaskDone::FindMacroReferences(
+                id,
+                Some(vec![Location {
+                    uri: origin.uri,
+                    range: origin.span,
+                }]),
+            )));
+        } else {
+            *task = Some(OngoingTask::FindMacroReferences {
+                id,
+                onset,
+                progress: TaskProgress::new(definitions.len() as u32),
+                origin,
+                phase: FindMacroReferencesPhase::ReferencesFromDefinitions {
+                    definitions,
+                    results: FileLocationMap::new(),
+                    undone: Vec::new(),
+                },
+            });
         }
-
-        *task = Some(OngoingTask::FindMacroReferences {
-            id,
-            onset,
-            progress: TaskProgress::new(definitions.len() as u32),
-            origin,
-            phase: FindMacroReferencesPhase::ReferencesFromDefinitions {
-                definitions,
-                results: FileLocationMap::new(),
-                undone: Vec::new(),
-            },
-        });
     } else if progress.ready() {
         next_lookups_find_external_macro_defs(docs, task.as_mut().unwrap(), outgoing);
     }
@@ -468,14 +489,6 @@ fn prepare_find_macro_references_req(
             undone: Vec::new(),
         },
     });
-}
-
-fn prepare_find_implcit_definitions_req(
-    _id: NumberOrString,
-    _macro: String,
-    _ongoing: &mut Vec<Option<OngoingTask>>,
-) {
-    todo!()
 }
 
 fn next_lookups_find_macro_def_references(

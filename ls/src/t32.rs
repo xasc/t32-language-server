@@ -14,24 +14,25 @@ use tree_sitter_t32;
 pub use ast::{NodeKind, id_into_node};
 pub use cache::{get_macro_scope, locate_calls_to_file_target};
 pub use expressions::{
-    CallExpression, CallExpressions, CallLocations, Label, MacroDefinition, MacroDefinitions,
-    MacroScope, ParameterDeclaration, Subroutine, SubscriptCalls,
+    CallExpression, CallExpressions, CallLocations, Label, MacroDefinition, MacroScope,
+    ParameterDeclaration, Subroutine, SubscriptCalls,
 };
+pub use macros::MacroDefinitions;
+
+#[cfg(test)]
+pub use macros::MacroDefinitionsImplicit;
 
 pub use expressions::{
     find_all_call_expressions as find_call_expressions,
     find_all_parameter_declarations as find_parameter_declarations,
     find_all_subroutines_and_labels as find_subroutines_and_labels,
-    find_external_macro_definition as goto_external_macro_definition,
 };
 
 pub use macros::{
     defines_named_macro, find_all_macro_definitions as find_macro_definitions,
-    find_any_macro_references,
+    find_any_macro_references, find_external_macro_definition as goto_external_macro_definition,
+    find_macro_definition,
 };
-
-#[cfg(test)]
-pub use expressions::MacroDefinitionsImplicit;
 
 use std::ops::Range;
 
@@ -39,7 +40,7 @@ use crate::{ls::FileIndex, protocol::Uri, utils::BRange};
 
 use expressions::{
     find_all_references_for_label, find_all_references_for_subroutine, find_call_target_definition,
-    find_file_target, find_label, find_macro_definition, find_subroutine, locate_subscript,
+    find_file_target, find_label, find_subroutine, locate_subscript,
 };
 
 use macros::find_macro_references_at_offset;

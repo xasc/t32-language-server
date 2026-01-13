@@ -885,7 +885,12 @@ fn progress_multi_part_tasks(
                     progress_find_subscript_macro_refs(docs, job, &mut tasks, &mut ts.completed)?
                 }
                 FindMacroReferencesPhase::ExternalDefinitions { .. } => {
-                    progress_find_external_macro_definitions(docs, job, &mut tasks)?
+                    progress_find_external_macro_definitions(
+                        docs,
+                        job,
+                        &mut tasks,
+                        &mut ts.completed,
+                    )?
                 }
             },
             _ => (),
