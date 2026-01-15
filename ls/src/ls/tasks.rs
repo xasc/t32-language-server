@@ -55,7 +55,7 @@ use crate::{
     t32::{LANGUAGE_ID, lang_id_supported},
 };
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum OngoingTask {
     DidRenameFiles(Instant),
     FindMacroReferences {
@@ -82,7 +82,7 @@ pub enum OngoingTask {
     },
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum FindMacroReferencesPhase {
     ReferencesInSubscripts {
         visited: Vec<Uri>,
@@ -94,6 +94,8 @@ pub enum FindMacroReferencesPhase {
         results: FileLocationMap,
         undone: Vec<Uri>,
     },
+    // TODO: Do not convert file location to `MacroPropagation`. Wait until all locations have
+    // been determined.
     ExternalDefinitions {
         definitions: Vec<MacroPropagation>,
         visited: FileCallMap,
@@ -107,7 +109,7 @@ pub enum OngoingTaskHandle {
     Uri(Uri),
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct TaskProgress {
     completed: u32,
     pub total: u32,
@@ -118,25 +120,25 @@ pub struct TaskProgress {
 /// To find macro defintions in other files, we need to check for the presence
 /// of script calls. `LOCAL` and `GLOBAL` macro definitions remain valid in
 /// subscripts.
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ExtMacroDefLookups {
     pub files: Vec<Uri>,
     pub callees: Vec<Uri>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FileCallMap {
     files: Vec<(Uri, u32)>,
     calls: Vec<Vec<Uri>>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FileLocationMap {
     files: Vec<(Uri, u32)>,
     locations: Vec<Vec<Range>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct MacroDefinitionLocationMap {
     files: Vec<(Uri, u32)>,
     macros: Vec<Vec<MacroDefinitionLocation>>,
@@ -263,6 +265,11 @@ impl TaskProgress {
         }
     }
 
+    #[cfg(test)]
+    pub fn set_cycles(&mut self, cycles: u32) {
+        self.cycles = cycles;
+    }
+
     pub fn finished(&self) -> bool {
         self.total <= 0
     }
@@ -294,6 +301,14 @@ impl TaskProgress {
 }
 
 impl ExtMacroDefLookups {
+    #[cfg(test)]
+    pub fn new() -> Self {
+        Self {
+            files: Vec::new(),
+            callees: Vec::new(),
+        }
+    }
+
     pub fn is_empty(&self) -> bool {
         debug_assert_eq!(self.files.len(), self.callees.len());
         self.files.is_empty()

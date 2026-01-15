@@ -8,8 +8,22 @@
 //!
 //! The prerequisite for finding all locations where a macro is referenced is
 //! the detection of all corresponding macro definitions. Once the definitions
-//! are known, we can determine all references in both the same file and called
-//! scripts.
+//! are known, we can determine all references in both the same file and all
+//! called scripts.
+//! The full workflow for macro reference retrieval looks like this:
+//!
+//!   1.  Find all macro definitions in the file of the initial macro location.
+//!       It initial macro location has been selected by the client.
+//!   2.  If the file with the initial macro location is called by other
+//!       scripts and any macro definitions may originate from calling scripts,
+//!       we look for additional macro definitions in callers. The step is
+//!       skipped if there are no calling scripts or all macro definitions were
+//!       already found in the script with the initial macro reference.
+//!   3.  All macro references in the file with a corresponding macro definition
+//!       can be found in a single file iteration over the file. However, we
+//!       need to capture all calls to subscripts for the next phase.
+//!   4.  Capture all macros references in subscripts that are called from the
+//!       files with a macro definitions.
 //!
 
 use crate::{
@@ -132,9 +146,9 @@ pub fn process_find_references_result(
 
                 // We are dealing with an implicitly defined macro. There are
                 // neither any definitions in the file where the request
-                // originated from or not any callers of this file where
+                // originated from nor any callers of this file where
                 // external might be defined. Implicit definitions have already
-                // been checked, too, so we only have the request origin.
+                // been checked, so the only result is the request origin.
                 Some(vec![Location {
                     uri: origin.uri,
                     range: origin.span,
@@ -187,7 +201,7 @@ pub fn progress_find_macro_def_references(
             },
         });
     } else if progress.ready() {
-        next_lookups_find_macro_def_references(docs, task.as_mut().unwrap(), outgoing)?;
+        next_lookups_find_macro_def_references(docs, task.as_mut().unwrap(), outgoing);
     }
     Ok(())
 }
@@ -237,7 +251,7 @@ pub fn progress_find_subscript_macro_refs(
             Some(results.to_locations()),
         )));
     } else if progress.ready() {
-        next_lookups_find_subscript_macro_refs(docs, task.as_mut().unwrap(), outgoing)?;
+        next_lookups_find_subscript_macro_refs(docs, task.as_mut().unwrap(), outgoing);
     }
     Ok(())
 }
@@ -494,8 +508,8 @@ fn prepare_find_macro_references_req(
 fn next_lookups_find_macro_def_references(
     docs: &TextDocs,
     task: &mut OngoingTask,
-    next: &mut Vec<Task>,
-) -> Result<(), ReturnCode> {
+    outgoing: &mut Vec<Task>,
+) {
     let OngoingTask::FindMacroReferences {
         id,
         progress,
@@ -521,11 +535,11 @@ fn next_lookups_find_macro_def_references(
         let mut defs: Vec<MacroPropagationCompact> =
             vec![MacroPropagationCompact::from(first.clone())];
 
-        for (jj, next) in definitions[ii + 1..].iter().enumerate() {
-            if touched[jj] > 0 || *next.get_uri() != *uri {
+        for (jj, outgoing) in definitions[ii + 1..].iter().enumerate() {
+            if touched[jj] > 0 || *outgoing.get_uri() != *uri {
                 continue;
             }
-            defs.push(MacroPropagationCompact::from(next.clone()));
+            defs.push(MacroPropagationCompact::from(outgoing.clone()));
             touched[jj] = 1;
         }
 
@@ -533,7 +547,7 @@ fn next_lookups_find_macro_def_references(
             .get_doc_data(uri)
             .expect("File must be known at this point.");
 
-        next.push(Task::FindMacroReferencesFromDefinitions(
+        outgoing.push(Task::FindMacroReferencesFromDefinitions(
             id.clone(),
             TextDocData {
                 doc: doc.clone(),
@@ -549,15 +563,13 @@ fn next_lookups_find_macro_def_references(
         total += 1;
     }
     progress.total = total;
-
-    Ok(())
 }
 
 fn next_lookups_find_subscript_macro_refs(
     docs: &TextDocs,
     task: &mut OngoingTask,
-    next: &mut Vec<Task>,
-) -> Result<(), ReturnCode> {
+    outgoing: &mut Vec<Task>,
+) {
     let OngoingTask::FindMacroReferences {
         id,
         progress,
@@ -577,12 +589,14 @@ fn next_lookups_find_subscript_macro_refs(
     // The second iteration will stop as soon as it encounters the macro
     // definition.
     let mut total: u32 = 0;
-    for uri in undone.iter().filter(|&s| !visited.contains(s)) {
+    undone.retain(|s| !visited.contains(s));
+
+    for uri in undone.into_iter() {
         let (doc, tree, t32) = docs
             .get_doc_data(uri)
             .expect("File must be known at this point.");
 
-        next.push(Task::FindMacroReferencesInSubscripts(
+        outgoing.push(Task::FindMacroReferencesInSubscripts(
             id.clone(),
             TextDocData {
                 doc: doc.clone(),
@@ -594,10 +608,9 @@ fn next_lookups_find_subscript_macro_refs(
         ));
         total += 1;
     }
-    progress.total = total;
-    undone.clear();
+    visited.append(undone);
 
-    Ok(())
+    progress.total = total;
 }
 
 fn queue_find_external_macro_definitions_req(
@@ -645,7 +658,7 @@ fn queue_find_external_macro_definitions_req(
 fn next_lookups_find_external_macro_defs(
     docs: &TextDocs,
     task: &mut OngoingTask,
-    next: &mut Vec<Task>,
+    outgoing: &mut Vec<Task>,
 ) {
     let (id, origin, progress, undone, visited): (
         &NumberOrString,
@@ -672,7 +685,7 @@ fn next_lookups_find_external_macro_defs(
         _ => unreachable!("Must not be called with any other variant."),
     };
     progress.total =
-        queue_find_external_macro_definitions_req(id, docs, origin, undone, visited, next);
+        queue_find_external_macro_definitions_req(id, docs, origin, undone, visited, outgoing);
 }
 
 #[cfg(test)]
@@ -681,7 +694,73 @@ mod tests {
 
     use std::{time::Instant, u32};
 
-    use crate::protocol::{Position, Range};
+    use crate::{
+        ls::{TaskSystem, tasks::TaskProgress},
+        protocol::{Position, Range},
+        utils::{BRange, create_doc_store, create_file_idx, files, to_file_uri},
+    };
+
+    #[test]
+    fn can_query_lookups_for_macro_definition_references() {
+        let files = files();
+        let file_idx = create_file_idx();
+        let docs = create_doc_store(&files, &file_idx);
+
+        let id = NumberOrString::Number(1);
+        let onset = Instant::now();
+
+        let origin = MacroReferenceOrigin {
+            name: "&local_macro".to_string(),
+            span: Range {
+                start: Position {
+                    line: 38,
+                    character: 4,
+                },
+                end: Position {
+                    line: 38,
+                    character: 16,
+                },
+            },
+            uri: to_file_uri("tests/samples/a/a.cmm"),
+        };
+
+        let definitions = vec![MacroPropagation::Local(FileLocation {
+            uri: origin.uri.clone(),
+            range: BRange::from(509..521),
+        })];
+
+        let mut ongoing = OngoingTask::FindMacroReferences {
+            id: id.clone(),
+            onset: onset.clone(),
+            progress: TaskProgress::new(10),
+            origin: origin.clone(),
+            phase: FindMacroReferencesPhase::ReferencesFromDefinitions {
+                definitions: definitions.clone(),
+                results: FileLocationMap::new(),
+                undone: Vec::new(),
+            },
+        };
+
+        let mut outgoing: Vec<Task> = Vec::new();
+
+        next_lookups_find_macro_def_references(&docs, &mut ongoing, &mut outgoing);
+
+        assert!(
+            ongoing
+                == OngoingTask::FindMacroReferences {
+                    id,
+                    onset,
+                    progress: TaskProgress::new(1),
+                    origin,
+                    phase: FindMacroReferencesPhase::ReferencesFromDefinitions {
+                        definitions,
+                        results: FileLocationMap::new(),
+                        undone: Vec::new()
+                    },
+                }
+        );
+        assert!(!outgoing.is_empty());
+    }
 
     #[test]
     fn skips_redundant_subscript_macro_ref_checks() {
@@ -737,5 +816,867 @@ mod tests {
 
         assert!(outgoing.is_empty());
         assert!(!completed.is_empty());
+    }
+
+    #[test]
+    fn can_process_find_refs_result_for_macro_only_defined_in_file() {
+        let files = files();
+        let file_idx = create_file_idx();
+        let docs = create_doc_store(&files, &file_idx);
+
+        let id = NumberOrString::Number(1);
+        let onset = Instant::now();
+
+        let mut ts = Tasks {
+            runner: TaskSystem::build(),
+            blocked: Vec::new(),
+            ongoing: vec![Some(OngoingTask::FindReferences(id.clone(), onset.clone()))],
+            completed: Vec::new(),
+        };
+
+        let origin = MacroReferenceOrigin {
+            name: "&a".to_string(),
+            span: Range {
+                start: Position {
+                    line: 10,
+                    character: 0,
+                },
+                end: Position {
+                    line: 10,
+                    character: 2,
+                },
+            },
+            uri: to_file_uri("tests/samples/a/d/d.cmm"),
+        };
+
+        let find_refs_res = Some(FindReferencesResult::Partial(
+            FindReferencesPartialResult::MacroDefsComplete {
+                origin: origin.clone(),
+                definitions: vec![(
+                    FileLocation {
+                        uri: to_file_uri("tests/samples/a/d/d.cmm"),
+                        range: BRange::from(149..151),
+                    },
+                    Some(MacroScope::Local),
+                )],
+            },
+        ));
+
+        let result = process_find_references_result(&docs, &id, find_refs_res, &mut ts);
+
+        assert!(result.is_none());
+        assert!(ts.completed.is_empty());
+        assert!(ts.ongoing[0].as_ref().is_some_and(|t| {
+            let OngoingTask::FindMacroReferences { progress, .. } = t else {
+                unreachable!()
+            };
+            progress.ready()
+        }));
+        assert!(ts.ongoing[0].take().is_some_and(|t| t
+            == OngoingTask::FindMacroReferences {
+                id: id,
+                onset,
+                progress: TaskProgress::new(1),
+                origin,
+                phase: FindMacroReferencesPhase::ReferencesFromDefinitions {
+                    definitions: vec![MacroPropagation::Local(FileLocation {
+                        uri: to_file_uri("tests/samples/a/d/d.cmm"),
+                        range: BRange::from(149..151),
+                    })],
+                    results: FileLocationMap::new(),
+                    undone: Vec::new(),
+                },
+            }));
+    }
+
+    #[test]
+    fn can_process_find_refs_result_for_externally_defined_macro() {
+        let files = files();
+        let file_idx = create_file_idx();
+        let docs = create_doc_store(&files, &file_idx);
+
+        let id = NumberOrString::Number(1);
+        let onset = Instant::now();
+
+        let mut ts = Tasks {
+            runner: TaskSystem::build(),
+            blocked: Vec::new(),
+            ongoing: vec![Some(OngoingTask::FindReferences(id.clone(), onset.clone()))],
+            completed: Vec::new(),
+        };
+
+        let origin = MacroReferenceOrigin {
+            name: "&from_c_cmm".to_string(),
+            span: Range {
+                start: Position {
+                    line: 139,
+                    character: 7,
+                },
+                end: Position {
+                    line: 139,
+                    character: 18,
+                },
+            },
+            uri: to_file_uri("tests/samples/a/a.cmm"),
+        };
+
+        let lookups: ExtMacroDefLookups = {
+            let mut def_lookups = ExtMacroDefLookups::new();
+
+            def_lookups.add(
+                to_file_uri("tests/samples/c.cmm"),
+                to_file_uri("tests/samples/a/a.cmm"),
+            );
+
+            def_lookups.add(
+                to_file_uri("tests/samples/a/d/d.cmm"),
+                to_file_uri("tests/samples/a/a.cmm"),
+            );
+            def_lookups
+        };
+
+        let find_refs_res = Some(FindReferencesResult::Partial(
+            FindReferencesPartialResult::MacroDefsIncomplete {
+                origin: origin.clone(),
+                definitions: Vec::new(),
+            },
+        ));
+
+        let result = process_find_references_result(&docs, &id, find_refs_res, &mut ts);
+
+        assert!(result.is_none());
+        assert!(ts.ongoing[0].as_ref().is_some_and(|t| {
+            let OngoingTask::FindMacroReferences { progress, .. } = t else {
+                unreachable!()
+            };
+            progress.ready()
+        }));
+        assert!(ts.ongoing[0].take().is_some_and(|t| t
+            == OngoingTask::FindMacroReferences {
+                id,
+                onset,
+                progress: TaskProgress::new(2),
+                origin,
+                phase: FindMacroReferencesPhase::ExternalDefinitions {
+                    definitions: Vec::new(),
+                    visited: FileCallMap::new(),
+                    results: MacroDefinitionLocationMap::new(),
+                    undone: lookups,
+                }
+            }));
+    }
+
+    #[test]
+    fn can_process_find_refs_result_for_macro_without_definition() {
+        let files = files();
+        let file_idx = create_file_idx();
+        let docs = create_doc_store(&files, &file_idx);
+
+        let id = NumberOrString::Number(1);
+        let onset = Instant::now();
+
+        let mut ts = Tasks {
+            runner: TaskSystem::build(),
+            blocked: Vec::new(),
+            ongoing: vec![Some(OngoingTask::FindReferences(id.clone(), onset.clone()))],
+            completed: Vec::new(),
+        };
+
+        let origin = MacroReferenceOrigin {
+            name: "&undefined".to_string(),
+            span: Range {
+                start: Position {
+                    line: 6,
+                    character: 7,
+                },
+                end: Position {
+                    line: 6,
+                    character: 17,
+                },
+            },
+            uri: to_file_uri("tests/samples/orphan.cmm"),
+        };
+
+        let find_refs_res = Some(FindReferencesResult::Partial(
+            FindReferencesPartialResult::MacroDefsIncomplete {
+                origin: origin.clone(),
+                definitions: Vec::new(),
+            },
+        ));
+
+        let result = process_find_references_result(&docs, &id, find_refs_res, &mut ts);
+
+        assert!(result.is_some_and(|r| r
+            == FindReferencesResponse {
+                id,
+                result: Some(vec![Location {
+                    uri: origin.uri,
+                    range: origin.span
+                }])
+            }));
+    }
+
+    #[test]
+    fn can_progress_macro_ref_lookup_from_definition() {
+        let id = NumberOrString::Number(1);
+        let onset = Instant::now();
+
+        let mut progress = TaskProgress::new(1);
+
+        let origin = MacroReferenceOrigin {
+            name: "&local_macro".to_string(),
+            span: Range {
+                start: Position {
+                    line: 38,
+                    character: 4,
+                },
+                end: Position {
+                    line: 38,
+                    character: 16,
+                },
+            },
+            uri: to_file_uri("tests/samples/a/a.cmm"),
+        };
+
+        let references: Vec<Range> = vec![
+            Range {
+                start: Position {
+                    line: 38,
+                    character: 4,
+                },
+                end: Position {
+                    line: 38,
+                    character: 16,
+                },
+            },
+            Range {
+                start: Position {
+                    line: 139,
+                    character: 7,
+                },
+                end: Position {
+                    line: 139,
+                    character: 18,
+                },
+            },
+            Range {
+                start: Position {
+                    line: 162,
+                    character: 7,
+                },
+                end: Position {
+                    line: 162,
+                    character: 18,
+                },
+            },
+        ];
+
+        let definitions = vec![MacroPropagation::Local(FileLocation {
+            uri: to_file_uri("tests/samples/a/a.cmm"),
+            range: BRange::from(509..521),
+        })];
+
+        let sync = FindMacroReferencesResult {
+            uri: to_file_uri("tests/samples/a/a.cmm"),
+            references: references.clone(),
+            subscripts: vec![to_file_uri("test/samples/b/b.cmm")],
+        };
+
+        let mut ongoing = vec![Some(OngoingTask::FindMacroReferences {
+            id: id.clone(),
+            onset: onset.clone(),
+            progress: progress.clone(),
+            origin: origin.clone(),
+            phase: FindMacroReferencesPhase::ReferencesFromDefinitions {
+                definitions: definitions.clone(),
+                results: FileLocationMap::new(),
+                undone: Vec::new(),
+            },
+        })];
+
+        let results: FileLocationMap = {
+            let mut locations = FileLocationMap::new();
+            for loc in references {
+                locations.insert(&sync.uri, loc);
+            }
+            locations
+        };
+        progress.set_cycles(1);
+
+        recv_find_macro_def_references_sync(&id, sync, &mut ongoing);
+
+        let ongoing = ongoing[0].take();
+        assert!(ongoing.as_ref().is_some_and(|t| *t
+            == OngoingTask::FindMacroReferences {
+                id,
+                onset,
+                progress,
+                origin,
+                phase: FindMacroReferencesPhase::ReferencesFromDefinitions {
+                    definitions,
+                    results,
+                    undone: vec![to_file_uri("test/samples/b/b.cmm")],
+                },
+            }));
+
+        assert!(ongoing.as_ref().is_some_and(|t| {
+            let OngoingTask::FindMacroReferences { progress, .. } = t else {
+                panic!()
+            };
+            progress.ready()
+        }));
+
+        assert!(ongoing.is_some_and(|t| {
+            let OngoingTask::FindMacroReferences {
+                phase: FindMacroReferencesPhase::ReferencesFromDefinitions { undone, .. },
+                ..
+            } = t
+            else {
+                panic!()
+            };
+            undone == vec![to_file_uri("test/samples/b/b.cmm")]
+        }));
+    }
+
+    #[test]
+    fn can_queue_lookups_for_externally_defined_macros() {
+        let files = files();
+        let file_idx = create_file_idx();
+        let docs = create_doc_store(&files, &file_idx);
+
+        let id = NumberOrString::Number(1);
+        let onset = Instant::now();
+
+        let progress = TaskProgress::new(2);
+
+        let origin = MacroReferenceOrigin {
+            name: "&from_c_cmm".to_string(),
+            span: Range {
+                start: Position {
+                    line: 139,
+                    character: 7,
+                },
+                end: Position {
+                    line: 139,
+                    character: 18,
+                },
+            },
+            uri: to_file_uri("tests/samples/a/a.cmm"),
+        };
+
+        let undone: ExtMacroDefLookups = {
+            let mut def_lookups = ExtMacroDefLookups::new();
+
+            def_lookups.add(
+                to_file_uri("tests/samples/c.cmm"),
+                to_file_uri("tests/samples/a/a.cmm"),
+            );
+
+            def_lookups.add(
+                to_file_uri("tests/samples/a/d/d.cmm"),
+                to_file_uri("tests/samples/a/a.cmm"),
+            );
+            def_lookups
+        };
+
+        let mut ongoing = OngoingTask::FindMacroReferences {
+            id: id.clone(),
+            onset: onset.clone(),
+            progress: progress.clone(),
+            origin: origin.clone(),
+            phase: FindMacroReferencesPhase::ExternalDefinitions {
+                definitions: Vec::new(),
+                visited: FileCallMap::new(),
+                results: MacroDefinitionLocationMap::new(),
+                undone: undone.clone(),
+            },
+        };
+
+        let visited: FileCallMap = {
+            let mut calls = FileCallMap::new();
+
+            for (file, callee) in undone.files.into_iter().zip(undone.callees.into_iter()) {
+                calls.insert(file, callee);
+            }
+            calls
+        };
+
+        let mut outgoing: Vec<Task> = Vec::new();
+
+        next_lookups_find_external_macro_defs(&docs, &mut ongoing, &mut outgoing);
+
+        assert!(
+            ongoing
+                == OngoingTask::FindMacroReferences {
+                    id,
+                    onset,
+                    progress,
+                    origin,
+                    phase: FindMacroReferencesPhase::ExternalDefinitions {
+                        definitions: Vec::new(),
+                        visited,
+                        results: MacroDefinitionLocationMap::new(),
+                        undone: ExtMacroDefLookups::new(),
+                    }
+                }
+        );
+        assert!(!outgoing.is_empty());
+    }
+
+    #[test]
+    fn can_skip_redundant_lookups_for_externally_defined_macros() {
+        let files = files();
+        let file_idx = create_file_idx();
+        let docs = create_doc_store(&files, &file_idx);
+
+        let id = NumberOrString::Number(1);
+        let onset = Instant::now();
+
+        let origin = MacroReferenceOrigin {
+            name: "&from_c_cmm".to_string(),
+            span: Range {
+                start: Position {
+                    line: 139,
+                    character: 7,
+                },
+                end: Position {
+                    line: 139,
+                    character: 18,
+                },
+            },
+            uri: to_file_uri("tests/samples/a/a.cmm"),
+        };
+
+        let undone: ExtMacroDefLookups = {
+            let mut def_lookups = ExtMacroDefLookups::new();
+
+            def_lookups.add(
+                to_file_uri("tests/samples/c.cmm"),
+                to_file_uri("tests/samples/a/a.cmm"),
+            );
+
+            def_lookups.add(
+                to_file_uri("tests/samples/a/d/d.cmm"),
+                to_file_uri("tests/samples/a/a.cmm"),
+            );
+            def_lookups
+        };
+
+        let visited: FileCallMap = {
+            let mut calls = FileCallMap::new();
+
+            for (file, callee) in undone
+                .clone()
+                .files
+                .into_iter()
+                .zip(undone.clone().callees.into_iter())
+            {
+                calls.insert(file, callee);
+            }
+            calls
+        };
+
+        let mut ongoing = OngoingTask::FindMacroReferences {
+            id: id.clone(),
+            onset: onset.clone(),
+            progress: TaskProgress::new(2),
+            origin: origin.clone(),
+            phase: FindMacroReferencesPhase::ExternalDefinitions {
+                definitions: Vec::new(),
+                visited: visited.clone(),
+                results: MacroDefinitionLocationMap::new(),
+                undone: undone.clone(),
+            },
+        };
+        let mut outgoing: Vec<Task> = Vec::new();
+
+        next_lookups_find_external_macro_defs(&docs, &mut ongoing, &mut outgoing);
+
+        assert!(
+            ongoing
+                == OngoingTask::FindMacroReferences {
+                    id,
+                    onset,
+                    progress: TaskProgress::new(0),
+                    origin,
+                    phase: FindMacroReferencesPhase::ExternalDefinitions {
+                        definitions: Vec::new(),
+                        visited,
+                        results: MacroDefinitionLocationMap::new(),
+                        undone: ExtMacroDefLookups::new(),
+                    }
+                }
+        );
+        assert!(outgoing.is_empty());
+    }
+
+    #[test]
+    fn can_progress_external_definition_lookup_for_partial_definitions() {
+        let id = NumberOrString::Number(1);
+        let onset = Instant::now();
+
+        let progress = TaskProgress::new(1);
+
+        let origin = MacroReferenceOrigin {
+            name: "&from_c_cmm".to_string(),
+            span: Range {
+                start: Position {
+                    line: 139,
+                    character: 7,
+                },
+                end: Position {
+                    line: 139,
+                    character: 18,
+                },
+            },
+            uri: to_file_uri("tests/samples/a/a.cmm"),
+        };
+
+        let mut ongoing = vec![Some(OngoingTask::FindMacroReferences {
+            id: id.clone(),
+            onset: onset.clone(),
+            progress: progress.clone(),
+            origin: origin.clone(),
+            phase: FindMacroReferencesPhase::ExternalDefinitions {
+                definitions: Vec::new(),
+                visited: FileCallMap::new(),
+                results: MacroDefinitionLocationMap::new(),
+                undone: ExtMacroDefLookups::new(),
+            },
+        })];
+
+        let sync = FindDefintionsForMacroRefResult::Partial(
+            Vec::new(),
+            to_file_uri("tests/samples/a/d/d.cmm"),
+            vec![to_file_uri("tests/samples/c.cmm")],
+        );
+
+        let lookups: ExtMacroDefLookups = {
+            let mut lu: ExtMacroDefLookups = ExtMacroDefLookups::new();
+
+            lu.add(
+                to_file_uri("tests/samples/c.cmm"),
+                to_file_uri("tests/samples/a/d/d.cmm"),
+            );
+            lu
+        };
+
+        let mut progress = TaskProgress::new(1);
+        progress.set_cycles(1);
+
+        recv_find_external_definitions_for_macro_reference_sync(&id, sync, &mut ongoing);
+
+        let ongoing = ongoing[0].take();
+        assert!(ongoing.as_ref().is_some_and(|t| *t
+            == OngoingTask::FindMacroReferences {
+                id,
+                onset,
+                progress,
+                origin,
+                phase: FindMacroReferencesPhase::ExternalDefinitions {
+                    definitions: Vec::new(),
+                    visited: FileCallMap::new(),
+                    results: MacroDefinitionLocationMap::new(),
+                    undone: lookups,
+                },
+            }));
+
+        assert!(ongoing.is_some_and(|t| {
+            let OngoingTask::FindMacroReferences { progress, .. } = t else {
+                panic!()
+            };
+            progress.ready()
+        }));
+    }
+
+    #[test]
+    fn can_progress_external_definition_lookup_for_final_definitions() {
+        let id = NumberOrString::Number(1);
+        let onset = Instant::now();
+
+        let progress = TaskProgress::new(1);
+
+        let origin = MacroReferenceOrigin {
+            name: "&from_c_cmm".to_string(),
+            span: Range {
+                start: Position {
+                    line: 139,
+                    character: 7,
+                },
+                end: Position {
+                    line: 139,
+                    character: 18,
+                },
+            },
+            uri: to_file_uri("tests/samples/a/a.cmm"),
+        };
+
+        let definitions: Vec<MacroDefinitionLocation> = vec![
+            MacroDefinitionLocation::Local(BRange::from(411..422)),
+            MacroDefinitionLocation::Local(BRange::from(497..508)),
+        ];
+
+        let mut ongoing = vec![Some(OngoingTask::FindMacroReferences {
+            id: id.clone(),
+            onset: onset.clone(),
+            progress: progress.clone(),
+            origin: origin.clone(),
+            phase: FindMacroReferencesPhase::ExternalDefinitions {
+                definitions: Vec::new(),
+                visited: FileCallMap::new(),
+                results: MacroDefinitionLocationMap::new(),
+                undone: ExtMacroDefLookups::new(),
+            },
+        })];
+
+        let sync = FindDefintionsForMacroRefResult::Final(
+            definitions.clone(),
+            to_file_uri("tests/samples/c.cmm"),
+        );
+
+        let results: MacroDefinitionLocationMap = {
+            let uri = to_file_uri("tests/samples/c.cmm");
+
+            let mut locations = MacroDefinitionLocationMap::new();
+            for loc in definitions {
+                locations.insert(&uri, loc);
+            }
+            locations
+        };
+
+        let mut progress = TaskProgress::new(0);
+        progress.set_cycles(1);
+
+        recv_find_external_definitions_for_macro_reference_sync(&id, sync, &mut ongoing);
+
+        let ongoing = ongoing[0].take();
+        assert!(ongoing.as_ref().is_some_and(|t| *t
+            == OngoingTask::FindMacroReferences {
+                id,
+                onset,
+                progress,
+                origin,
+                phase: FindMacroReferencesPhase::ExternalDefinitions {
+                    definitions: Vec::new(),
+                    visited: FileCallMap::new(),
+                    results,
+                    undone: ExtMacroDefLookups::new(),
+                },
+            }));
+
+        assert!(ongoing.is_some_and(|t| {
+            let OngoingTask::FindMacroReferences { progress, .. } = t else {
+                panic!()
+            };
+            progress.finished()
+        }));
+    }
+
+    #[test]
+    fn can_queue_lookups_for_subscript_macro_refernces() {
+        let files = files();
+        let file_idx = create_file_idx();
+        let docs = create_doc_store(&files, &file_idx);
+
+        let id = NumberOrString::Number(1);
+        let onset = Instant::now();
+
+        let origin = MacroReferenceOrigin {
+            name: "&local_macro".to_string(),
+            span: Range {
+                start: Position {
+                    line: 38,
+                    character: 4,
+                },
+                end: Position {
+                    line: 38,
+                    character: 16,
+                },
+            },
+            uri: to_file_uri("tests/samples/a/a.cmm"),
+        };
+
+        let mut ongoing = OngoingTask::FindMacroReferences {
+            id: id.clone(),
+            onset: onset.clone(),
+            progress: TaskProgress::new(1),
+            origin: origin.clone(),
+            phase: FindMacroReferencesPhase::ReferencesInSubscripts {
+                visited: Vec::new(),
+                results: FileLocationMap::new(),
+                undone: vec![to_file_uri("tests/samples/b/b.cmm")],
+            },
+        };
+        let mut outgoing: Vec<Task> = Vec::new();
+
+        next_lookups_find_subscript_macro_refs(&docs, &mut ongoing, &mut outgoing);
+
+        assert!(
+            ongoing
+                == OngoingTask::FindMacroReferences {
+                    id,
+                    onset,
+                    progress: TaskProgress::new(1),
+                    origin,
+                    phase: FindMacroReferencesPhase::ReferencesInSubscripts {
+                        visited: vec![to_file_uri("tests/samples/b/b.cmm")],
+                        results: FileLocationMap::new(),
+                        undone: Vec::new(),
+                    },
+                }
+        );
+        assert!(!outgoing.is_empty());
+    }
+
+    #[test]
+    fn visits_subscripts_for_macro_reference_lookup_only_once() {
+        let files = files();
+        let file_idx = create_file_idx();
+        let docs = create_doc_store(&files, &file_idx);
+
+        let id = NumberOrString::Number(1);
+        let onset = Instant::now();
+
+        let origin = MacroReferenceOrigin {
+            name: "&local_macro".to_string(),
+            span: Range {
+                start: Position {
+                    line: 38,
+                    character: 4,
+                },
+                end: Position {
+                    line: 38,
+                    character: 16,
+                },
+            },
+            uri: to_file_uri("tests/samples/a/a.cmm"),
+        };
+
+        let mut ongoing = OngoingTask::FindMacroReferences {
+            id: id.clone(),
+            onset: onset.clone(),
+            progress: TaskProgress::new(1),
+            origin: origin.clone(),
+            phase: FindMacroReferencesPhase::ReferencesInSubscripts {
+                visited: vec![to_file_uri("tests/samples/b/b.cmm")],
+                results: FileLocationMap::new(),
+                undone: vec![to_file_uri("tests/samples/b/b.cmm")],
+            },
+        };
+        let mut outgoing: Vec<Task> = Vec::new();
+
+        next_lookups_find_subscript_macro_refs(&docs, &mut ongoing, &mut outgoing);
+
+        assert!(
+            ongoing
+                == OngoingTask::FindMacroReferences {
+                    id,
+                    onset,
+                    progress: TaskProgress::new(0),
+                    origin,
+                    phase: FindMacroReferencesPhase::ReferencesInSubscripts {
+                        visited: vec![to_file_uri("tests/samples/b/b.cmm")],
+                        results: FileLocationMap::new(),
+                        undone: Vec::new(),
+                    },
+                }
+        );
+        assert!(outgoing.is_empty());
+    }
+
+    #[test]
+    fn can_progress_macro_ref_lookup_in_subscripts() {
+        let id = NumberOrString::Number(1);
+        let onset = Instant::now();
+
+        let mut progress = TaskProgress::new(1);
+
+        let origin = MacroReferenceOrigin {
+            name: "&from_c_cmm".to_string(),
+            span: Range {
+                start: Position {
+                    line: 139,
+                    character: 7,
+                },
+                end: Position {
+                    line: 139,
+                    character: 18,
+                },
+            },
+            uri: to_file_uri("tests/samples/a/a.cmm"),
+        };
+
+        let references: Vec<Range> = vec![
+            Range {
+                start: Position {
+                    line: 139,
+                    character: 7,
+                },
+                end: Position {
+                    line: 139,
+                    character: 18,
+                },
+            },
+            Range {
+                start: Position {
+                    line: 162,
+                    character: 7,
+                },
+                end: Position {
+                    line: 162,
+                    character: 18,
+                },
+            },
+        ];
+
+        let sync = FindMacroReferencesResult {
+            uri: to_file_uri("tests/samples/a/a.cmm"),
+            references: references.clone(),
+            subscripts: vec![to_file_uri("test/samples/b/b.cmm")],
+        };
+
+        let mut ongoing = vec![Some(OngoingTask::FindMacroReferences {
+            id: id.clone(),
+            onset: onset.clone(),
+            progress: progress.clone(),
+            origin: origin.clone(),
+            phase: FindMacroReferencesPhase::ReferencesInSubscripts {
+                visited: Vec::new(),
+                results: FileLocationMap::new(),
+                undone: Vec::new(),
+            },
+        })];
+
+        let results: FileLocationMap = {
+            let mut locations = FileLocationMap::new();
+            for loc in references {
+                locations.insert(&sync.uri, loc);
+            }
+            locations
+        };
+        progress.set_cycles(1);
+
+        recv_find_subscript_macro_references_sync(&id, sync, &mut ongoing);
+
+        let ongoing = ongoing[0].take();
+        assert!(ongoing.as_ref().is_some_and(|t| *t
+            == OngoingTask::FindMacroReferences {
+                id,
+                onset,
+                progress,
+                origin,
+                phase: FindMacroReferencesPhase::ReferencesInSubscripts {
+                    visited: Vec::new(),
+                    results,
+                    undone: vec![to_file_uri("test/samples/b/b.cmm")]
+                },
+            }));
+
+        assert!(ongoing.is_some_and(|t| {
+            let OngoingTask::FindMacroReferences { progress, .. } = t else {
+                panic!()
+            };
+            progress.ready()
+        }));
     }
 }

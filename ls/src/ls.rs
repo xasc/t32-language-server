@@ -16,7 +16,12 @@ mod workspace;
 pub use crate::ls::workspace::FileIndex;
 
 #[cfg(test)]
-pub use crate::ls::workspace::index_files;
+pub use crate::ls::{
+    doc::read_doc,
+    doc::{TextDoc, TextDocs},
+    tasks::TaskSystem,
+    workspace::index_files,
+};
 
 use std::time::{Duration, Instant};
 
@@ -28,17 +33,19 @@ use crate::{
     ls::lsp::Message,
     ls::transport::StdioChannel,
     ls::{
-        doc::TextDocs,
         proc::{ProcState, proc_alive},
         request::{Notification, Request},
         response::{ErrorResponse, InitializeResponse, Response},
-        tasks::{OngoingTask, Task, TaskDone, TaskSystem},
+        tasks::{OngoingTask, Task, TaskDone},
     },
     protocol::{
         ErrorCodes, InitializeError, InitializeParams, InitializeResult, LogTraceParams,
         ResponseError, ServerCapabilities, TraceValue,
     },
 };
+
+#[cfg(not(test))]
+use crate::ls::{doc::TextDocs, tasks::TaskSystem};
 
 struct InitializationStatus {
     msg: Message,

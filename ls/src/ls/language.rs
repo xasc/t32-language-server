@@ -54,14 +54,14 @@ pub enum GotoDefinitionResult {
     PartialMacro(Uri, String, LRange, Vec<LocationLink>),
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum MacroDefinitionLocation {
     Private(BRange),
     Local(BRange),
     Global(BRange),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum MacroPropagation {
     Private(FileLocation),
     Local(FileLocation),
@@ -82,17 +82,17 @@ pub struct FindMacroReferencesResult {
     pub subscripts: Vec<Uri>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct MacroReferenceOrigin {
     pub name: String,
     pub span: LRange,
     pub uri: Uri,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FileLocation {
     pub uri: Uri,
-    pub range: Range<usize>,
+    pub range: BRange,
 }
 
 impl FindMacroReferencesResult {
@@ -195,6 +195,36 @@ impl MacroPropagation {
             MacroPropagation::Global(loc, _) => &loc.uri,
         }
     }
+
+    #[expect(unused)]
+    pub fn try_from_macro_def_loc(
+        uri: &Uri,
+        r#macro: MacroDefinitionLocation,
+        files: Option<Vec<Uri>>,
+    ) -> Result<Self, ()> {
+        match r#macro {
+            MacroDefinitionLocation::Private(loc) => Ok(Self::Private(FileLocation {
+                uri: uri.clone(),
+                range: loc,
+            })),
+            MacroDefinitionLocation::Local(loc) => Ok(Self::Local(FileLocation {
+                uri: uri.clone(),
+                range: loc,
+            })),
+            MacroDefinitionLocation::Global(loc) => {
+                if files.is_none() {
+                    return Err(());
+                }
+                Ok(Self::Global(
+                    FileLocation {
+                        uri: uri.clone(),
+                        range: loc,
+                    },
+                    files.unwrap(),
+                ))
+            }
+        }
+    }
 }
 
 impl MacroPropagationCompact {
@@ -281,13 +311,9 @@ impl LocationLink {
 impl From<MacroPropagation> for MacroPropagationCompact {
     fn from(r#macro: MacroPropagation) -> Self {
         match r#macro {
-            MacroPropagation::Private(loc) => {
-                MacroPropagationCompact::Private(BRange::from(loc.range))
-            }
-            MacroPropagation::Local(loc) => MacroPropagationCompact::Local(BRange::from(loc.range)),
-            MacroPropagation::Global(loc, files) => {
-                MacroPropagationCompact::Global(BRange::from(loc.range), files)
-            }
+            MacroPropagation::Private(loc) => Self::Private(BRange::from(loc.range)),
+            MacroPropagation::Local(loc) => Self::Local(BRange::from(loc.range)),
+            MacroPropagation::Global(loc, files) => Self::Global(BRange::from(loc.range), files),
         }
     }
 }
@@ -579,7 +605,7 @@ pub fn find_references(
                         origins.push((
                             FileLocation {
                                 uri: textdoc.doc.uri.clone(),
-                                range: def.r#macro,
+                                range: BRange::from(def.r#macro),
                             },
                             scope,
                         ));
@@ -603,7 +629,7 @@ pub fn find_references(
                         origins.push((
                             FileLocation {
                                 uri: textdoc.doc.uri.clone(),
-                                range: def.r#macro,
+                                range: BRange::from(def.r#macro),
                             },
                             scope,
                         ));

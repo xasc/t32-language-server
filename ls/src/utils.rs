@@ -13,9 +13,13 @@ use tree_sitter::Range as TRange;
 use url::Url;
 
 #[cfg(test)]
+use tree_sitter::Tree;
+
+#[cfg(test)]
 use crate::{
-    ls::{FileIndex, index_files},
+    ls::{FileIndex, TextDoc, TextDocs, index_files, read_doc},
     protocol::Uri,
+    t32::LangExpressions,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -91,6 +95,8 @@ pub fn files() -> Vec<Url> {
     vec![
         Url::from_file_path(path::absolute("tests/samples/c.cmm").expect("File must exist."))
             .unwrap(),
+        Url::from_file_path(path::absolute("tests/samples/orphan.cmm").expect("File must exist."))
+            .unwrap(),
         Url::from_file_path(path::absolute("tests/samples/same.cmm").expect("File must exist."))
             .unwrap(),
         Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
@@ -119,4 +125,14 @@ pub fn to_file_uri(file: &str) -> Uri {
 pub fn create_file_idx() -> FileIndex {
     let files = files();
     index_files(files)
+}
+
+#[cfg(test)]
+pub fn create_doc_store(files: &Vec<Url>, index: &FileIndex) -> TextDocs {
+    let mut members: Vec<(TextDoc, Tree, LangExpressions)> = Vec::new();
+    for uri in files {
+        let (doc, tree, expr) = read_doc(uri.clone(), index.clone()).expect("Must not fail.");
+        members.push((doc, tree, expr));
+    }
+    TextDocs::from_workspace(members)
 }

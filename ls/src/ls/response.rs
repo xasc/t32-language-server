@@ -32,7 +32,7 @@ pub struct ErrorResponse {
     pub error: ResponseError,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct FindReferencesResponse {
     pub id: NumberOrString,
     pub result: Option<Vec<Location>>,
