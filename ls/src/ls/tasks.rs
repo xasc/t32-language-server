@@ -77,7 +77,7 @@ pub enum OngoingTask {
         results: Vec<LocationLink>,
     },
     TextDocUpdate {
-        uri: String,
+        uri: Uri,
         onset: Instant,
     },
 }
@@ -232,7 +232,7 @@ impl OngoingTask {
         match self {
             OngoingTask::DidRenameFiles(onset)
             | OngoingTask::FindMacroReferences { onset, .. }
-            | OngoingTask::FindReferences(.., onset)
+            | OngoingTask::FindReferences(_, onset)
             | OngoingTask::GoToExternalMacroDef { onset, .. }
             | OngoingTask::GoToDefinition(.., onset)
             | OngoingTask::TextDocUpdate { onset, .. } => onset,
@@ -718,21 +718,60 @@ fn try_schedule_blocked(
 fn task_blocked(job: &Task, ongoing: &[Option<OngoingTask>]) -> bool {
     match job {
         Task::DidRenameFiles(RenameFileOperations { old, .. }, ..) => {
+            // Continue with rename operations even though other requests that
+            // query file data are ongoing.
             ongoing.iter().any(|o| match o {
-                Some(OngoingTask::DidRenameFiles(..)) => true,
-                Some(OngoingTask::TextDocUpdate { uri: file, .. }) => old.contains(&file),
+                Some(task) => match task {
+                    OngoingTask::DidRenameFiles(..) => true,
+                    OngoingTask::TextDocUpdate { uri: file, .. } => old.contains(&file),
+                    OngoingTask::FindMacroReferences { .. }
+                    | OngoingTask::FindReferences(..)
+                    | OngoingTask::GoToDefinition(..)
+                    | OngoingTask::GoToExternalMacroDef { .. } => false,
+                },
                 None => unreachable!("Not empty slots allowed."),
-                _ => false,
             })
         }
-        Task::FindReferences(
-            _,
-            TextDocData {
-                doc: TextDoc { uri, .. },
-                ..
-            },
-            ..,
-        )
+        Task::FindExternalDefinitionsForMacroRef {
+            textdoc:
+                TextDocData {
+                    doc: TextDoc { uri, .. },
+                    ..
+                },
+            ..
+        }
+        | Task::FindMacroReferencesFromDefinitions {
+            textdoc:
+                TextDocData {
+                    doc: TextDoc { uri, .. },
+                    ..
+                },
+            ..
+        }
+        | Task::FindMacroReferencesInSubscripts {
+            textdoc:
+                TextDocData {
+                    doc: TextDoc { uri, .. },
+                    ..
+                },
+            ..
+        }
+        | Task::FindReferences {
+            textdoc:
+                TextDocData {
+                    doc: TextDoc { uri, .. },
+                    ..
+                },
+            ..
+        }
+        | Task::GoToExternalMacroDef {
+            textdoc:
+                TextDocData {
+                    doc: TextDoc { uri, .. },
+                    ..
+                },
+            ..
+        }
         | Task::GoToDefinition(
             _,
             TextDocData {
@@ -749,18 +788,32 @@ fn task_blocked(job: &Task, ongoing: &[Option<OngoingTask>]) -> bool {
             ..,
         )
         | Task::TextDocNew(TextDocumentItem { uri, .. }, ..) => ongoing.iter().any(|o| match o {
-            Some(OngoingTask::DidRenameFiles(..)) => true,
-            Some(OngoingTask::TextDocUpdate { uri: file, .. }) => file == uri,
+            // Wait with requests that retrieve file data only until file
+            // renaming and file data updates have completed.
+            Some(task) => match task {
+                OngoingTask::DidRenameFiles(..) => true,
+                OngoingTask::TextDocUpdate { uri: file, .. } => file == uri,
+                OngoingTask::FindMacroReferences { .. }
+                | OngoingTask::FindReferences(..)
+                | OngoingTask::GoToDefinition(..)
+                | OngoingTask::GoToExternalMacroDef { .. } => false,
+            },
             None => unreachable!("Not empty slots allowed."),
-            _ => false,
         }),
         Task::WorkspaceFileScan(url, ..) => ongoing.iter().any(|o| match o {
-            Some(OngoingTask::DidRenameFiles(..)) => true,
-            Some(OngoingTask::TextDocUpdate { uri: file, .. }) => file == url.as_str(),
+            // Delay workspace scan only until file renaming and file data updates have completed.
+            Some(task) => match task {
+                OngoingTask::DidRenameFiles(..) => true,
+                OngoingTask::TextDocUpdate { uri: file, .. } => file == url.as_str(),
+                OngoingTask::FindMacroReferences { .. }
+                | OngoingTask::FindReferences(..)
+                | OngoingTask::GoToDefinition(..)
+                | OngoingTask::GoToExternalMacroDef { .. } => false,
+            },
             None => unreachable!("Not empty slots allowed."),
-            _ => false,
         }),
-        _ => false,
+        // Complete these requests as fast as possible.
+        Task::WorkspaceFileDiscovery(..) | Task::WorkspaceFileIndexNew(..) => false,
     }
 }
 
@@ -770,7 +823,7 @@ fn task_blocked(job: &Task, ongoing: &[Option<OngoingTask>]) -> bool {
 fn add_task_status_tracking(job: &Task, ongoing: &mut Vec<Option<OngoingTask>>) {
     let t = match job {
         Task::DidRenameFiles { .. } => OngoingTask::DidRenameFiles(Instant::now()),
-        Task::FindReferences(id, ..) => OngoingTask::FindReferences(id.clone(), Instant::now()),
+        Task::FindReferences { id, .. } => OngoingTask::FindReferences(id.clone(), Instant::now()),
         Task::GoToDefinition(id, ..) => OngoingTask::GoToDefinition(id.clone(), Instant::now()),
         Task::TextDocNew(TextDocumentItem { uri, .. }, ..)
         | Task::TextDocEdit(

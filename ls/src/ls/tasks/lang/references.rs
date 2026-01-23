@@ -23,7 +23,7 @@
 //!       can be found in a single file iteration over the file. However, we
 //!       need to capture all calls to subscripts for the next phase.
 //!   4.  Capture all macros references in subscripts that are called from the
-//!       files with a macro definitions.
+//!       files with a corresponding macro definitions.
 //!
 
 use crate::{
@@ -72,17 +72,17 @@ pub fn process_find_references_req(
 
     try_schedule(
         &mut ts.runner,
-        Task::FindReferences(
+        Task::FindReferences {
             id,
-            TextDocData {
+            textdoc: TextDocData {
                 doc: doc.clone(),
                 tree: tree.clone(),
             },
-            FindRefsLangContext::from(t32.clone()),
-            params.position,
-            params.context.include_declaration,
-            find_references,
-        ),
+            t32: FindRefsLangContext::from(t32.clone()),
+            position: params.position,
+            declaration_included: params.context.include_declaration,
+            find: find_references,
+        },
         &mut ts.ongoing,
         &mut ts.blocked,
     )?;
@@ -547,17 +547,17 @@ fn next_lookups_find_macro_def_references(
             .get_doc_data(uri)
             .expect("File must be known at this point.");
 
-        outgoing.push(Task::FindMacroReferencesFromDefinitions(
-            id.clone(),
-            TextDocData {
+        outgoing.push(Task::FindMacroReferencesFromDefinitions {
+            id: id.clone(),
+            textdoc: TextDocData {
                 doc: doc.clone(),
                 tree: tree.clone(),
             },
-            FindMacroRefsLangContext::from(t32.clone()),
-            origin.name.clone(),
-            defs,
-            find_macro_references_from_origin,
-        ));
+            t32: FindMacroRefsLangContext::from(t32.clone()),
+            r#macro: origin.name.clone(),
+            definitions: defs,
+            find: find_macro_references_from_origin,
+        });
 
         touched[ii] = 1;
         total += 1;
@@ -596,16 +596,16 @@ fn next_lookups_find_subscript_macro_refs(
             .get_doc_data(uri)
             .expect("File must be known at this point.");
 
-        outgoing.push(Task::FindMacroReferencesInSubscripts(
-            id.clone(),
-            TextDocData {
+        outgoing.push(Task::FindMacroReferencesInSubscripts {
+            id: id.clone(),
+            textdoc: TextDocData {
                 doc: doc.clone(),
                 tree: tree.clone(),
             },
-            FindMacroRefsLangContext::from(t32.clone()),
-            origin.name.clone(),
-            find_infile_macro_references,
-        ));
+            t32: FindMacroRefsLangContext::from(t32.clone()),
+            r#macro: origin.name.clone(),
+            find: find_infile_macro_references,
+        });
         total += 1;
     }
     visited.append(undone);
