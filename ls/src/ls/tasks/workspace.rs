@@ -12,7 +12,7 @@ use crate::{
         tasks::{RenameFileOperations, Task, TaskDone, Tasks, try_schedule},
         workspace::{FileIndex, WorkspaceMembers, index_files, locate_files, rename_files},
     },
-    protocol::FileRename,
+    protocol::{FileRename, NumberOrString},
     t32::SUFFIXES,
 };
 
@@ -62,7 +62,12 @@ pub fn process_files_did_rename_notif(
     renamed: Vec<FileRename>,
     files: FileIndex,
 ) -> Result<(), ReturnCode> {
-    let job = Task::DidRenameFiles(RenameFileOperations::from(renamed), files, rename_files);
+    let job = Task::DidRenameFiles(
+        NumberOrString::String(tasks.counter.next_id()),
+        RenameFileOperations::from(renamed),
+        files,
+        rename_files,
+    );
     try_schedule(
         &mut tasks.runner,
         job,

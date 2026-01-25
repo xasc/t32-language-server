@@ -359,3 +359,10 @@ pub fn to_stdin(cin: &mut ChildStdin, msg: &str) {
     let _ = cin.write_all(msg.as_bytes());
     let _ = cin.flush();
 }
+
+#[allow(dead_code)]
+pub fn to_file_uri(file: &str) -> String {
+    Url::from_file_path(path::absolute(file).expect("File must exist."))
+        .unwrap()
+        .to_string()
+}

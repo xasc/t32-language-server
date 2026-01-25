@@ -4,6 +4,8 @@
 
 use std::{cmp::Ordering, ops::Range};
 
+use serde::Serialize;
+
 use tree_sitter::{Node, Tree, TreeCursor};
 
 use crate::{
@@ -61,20 +63,6 @@ pub enum MacroDefinitionLocation {
     Global(BRange),
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum MacroPropagation {
-    Private(FileLocation),
-    Local(FileLocation),
-    Global(FileLocation, Vec<Uri>),
-}
-
-#[derive(Debug, Clone)]
-pub enum MacroPropagationCompact {
-    Private(BRange),
-    Local(BRange),
-    Global(BRange, Vec<Uri>),
-}
-
 #[derive(Debug)]
 pub struct FindMacroReferencesResult {
     pub uri: Uri,
@@ -82,7 +70,7 @@ pub struct FindMacroReferencesResult {
     pub subscripts: Vec<Uri>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct MacroReferenceOrigin {
     pub name: String,
     pub span: LRange,
@@ -105,146 +93,12 @@ impl FindMacroReferencesResult {
     }
 }
 
-impl Eq for MacroDefinitionLocation {}
-
-impl Ord for MacroDefinitionLocation {
-    fn cmp(&self, other: &Self) -> Ordering {
-        match self {
-            MacroDefinitionLocation::Private(span)
-            | MacroDefinitionLocation::Local(span)
-            | MacroDefinitionLocation::Global(span) => match other {
-                MacroDefinitionLocation::Private(other_span)
-                | MacroDefinitionLocation::Local(other_span)
-                | MacroDefinitionLocation::Global(other_span) => {
-                    let cmp = span.cmp(other_span);
-                    if cmp != Ordering::Equal {
-                        return cmp;
-                    }
-                }
-            },
-        }
-        match self {
-            MacroDefinitionLocation::Private(_) => match other {
-                MacroDefinitionLocation::Private(_) => Ordering::Equal,
-                MacroDefinitionLocation::Local(_) | MacroDefinitionLocation::Global(_) => {
-                    Ordering::Less
-                }
-            },
-            MacroDefinitionLocation::Local(_) => match other {
-                MacroDefinitionLocation::Private(_) => Ordering::Greater,
-                MacroDefinitionLocation::Local(_) => Ordering::Equal,
-                MacroDefinitionLocation::Global(_) => Ordering::Less,
-            },
-            MacroDefinitionLocation::Global(_) => match other {
-                MacroDefinitionLocation::Private(_) | MacroDefinitionLocation::Local(_) => {
-                    Ordering::Greater
-                }
-                MacroDefinitionLocation::Global(_) => Ordering::Equal,
-            },
-        }
-    }
-}
-
-impl PartialEq for MacroDefinitionLocation {
-    fn eq(&self, other: &Self) -> bool {
-        self.cmp(other) == Ordering::Equal
-    }
-}
-
-impl PartialOrd for MacroDefinitionLocation {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
 impl MacroDefinitionLocation {
-    pub fn new(scope: MacroScope, definition: MacroDefinition) -> Self {
-        match scope {
-            MacroScope::Private => Self::Private(BRange::from(definition.r#macro)),
-            MacroScope::Local => Self::Local(BRange::from(definition.r#macro)),
-            MacroScope::Global => Self::Global(BRange::from(definition.r#macro)),
-        }
-    }
-}
-
-impl MacroPropagation {
-    pub fn new(
-        docs: &TextDocs,
-        name: &str,
-        origin: FileLocation,
-        scope: Option<MacroScope>,
-    ) -> Self {
-        match scope {
-            Some(MacroScope::Private) => MacroPropagation::Private(origin),
-            // Assume block-global, if no other scope is provided.
-            None | Some(MacroScope::Local) => MacroPropagation::Local(origin),
-            Some(MacroScope::Global) => {
-                let refs = match docs.get_all_scripts_with_macro(name) {
-                    Some(files) => files.clone(),
-                    None => Vec::new(),
-                };
-                MacroPropagation::Global(origin, refs)
-            }
-        }
-    }
-
-    pub fn get_uri(&self) -> &Uri {
+    pub fn split(self) -> (MacroScope, BRange) {
         match self {
-            MacroPropagation::Private(loc) => &loc.uri,
-            MacroPropagation::Local(loc) => &loc.uri,
-            MacroPropagation::Global(loc, _) => &loc.uri,
-        }
-    }
-
-    #[expect(unused)]
-    pub fn try_from_macro_def_loc(
-        uri: &Uri,
-        r#macro: MacroDefinitionLocation,
-        files: Option<Vec<Uri>>,
-    ) -> Result<Self, ()> {
-        match r#macro {
-            MacroDefinitionLocation::Private(loc) => Ok(Self::Private(FileLocation {
-                uri: uri.clone(),
-                range: loc,
-            })),
-            MacroDefinitionLocation::Local(loc) => Ok(Self::Local(FileLocation {
-                uri: uri.clone(),
-                range: loc,
-            })),
-            MacroDefinitionLocation::Global(loc) => {
-                if files.is_none() {
-                    return Err(());
-                }
-                Ok(Self::Global(
-                    FileLocation {
-                        uri: uri.clone(),
-                        range: loc,
-                    },
-                    files.unwrap(),
-                ))
-            }
-        }
-    }
-}
-
-impl MacroPropagationCompact {
-    #[allow(dead_code)]
-    pub fn new(scope: MacroScope, loc: BRange, files: Option<Vec<Uri>>) -> Self {
-        match scope {
-            MacroScope::Private => MacroPropagationCompact::Private(loc),
-            MacroScope::Local => MacroPropagationCompact::Local(loc),
-            MacroScope::Global => MacroPropagationCompact::Global(
-                loc,
-                files.expect("Must be provided for construction."),
-            ),
-        }
-    }
-
-    pub fn split(self) -> (MacroScope, BRange, Vec<Uri>) {
-        match self {
-            MacroPropagationCompact::Private(span) => (MacroScope::Private, span, Vec::new()),
-            MacroPropagationCompact::Local(span) => (MacroScope::Local, span, Vec::new()),
-            MacroPropagationCompact::Global(span, files) => (MacroScope::Global, span, files),
+            Self::Private(span) => (MacroScope::Private, span),
+            Self::Local(span) => (MacroScope::Local, span),
+            Self::Global(span) => (MacroScope::Global, span),
         }
     }
 }
@@ -308,12 +162,73 @@ impl LocationLink {
     }
 }
 
-impl From<MacroPropagation> for MacroPropagationCompact {
-    fn from(r#macro: MacroPropagation) -> Self {
-        match r#macro {
-            MacroPropagation::Private(loc) => Self::Private(BRange::from(loc.range)),
-            MacroPropagation::Local(loc) => Self::Local(BRange::from(loc.range)),
-            MacroPropagation::Global(loc, files) => Self::Global(BRange::from(loc.range), files),
+impl Eq for MacroDefinitionLocation {}
+
+impl Ord for MacroDefinitionLocation {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match self {
+            MacroDefinitionLocation::Private(span)
+            | MacroDefinitionLocation::Local(span)
+            | MacroDefinitionLocation::Global(span) => match other {
+                MacroDefinitionLocation::Private(other_span)
+                | MacroDefinitionLocation::Local(other_span)
+                | MacroDefinitionLocation::Global(other_span) => {
+                    let cmp = span.cmp(other_span);
+                    if cmp != Ordering::Equal {
+                        return cmp;
+                    }
+                }
+            },
+        }
+        match self {
+            MacroDefinitionLocation::Private(_) => match other {
+                MacroDefinitionLocation::Private(_) => Ordering::Equal,
+                MacroDefinitionLocation::Local(_) | MacroDefinitionLocation::Global(_) => {
+                    Ordering::Less
+                }
+            },
+            MacroDefinitionLocation::Local(_) => match other {
+                MacroDefinitionLocation::Private(_) => Ordering::Greater,
+                MacroDefinitionLocation::Local(_) => Ordering::Equal,
+                MacroDefinitionLocation::Global(_) => Ordering::Less,
+            },
+            MacroDefinitionLocation::Global(_) => match other {
+                MacroDefinitionLocation::Private(_) | MacroDefinitionLocation::Local(_) => {
+                    Ordering::Greater
+                }
+                MacroDefinitionLocation::Global(_) => Ordering::Equal,
+            },
+        }
+    }
+}
+
+impl PartialEq for MacroDefinitionLocation {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl PartialOrd for MacroDefinitionLocation {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl MacroDefinitionLocation {
+    pub fn from_macro_def(scope: MacroScope, definition: MacroDefinition) -> Self {
+        match scope {
+            MacroScope::Private => Self::Private(BRange::from(definition.r#macro)),
+            MacroScope::Local => Self::Local(BRange::from(definition.r#macro)),
+            MacroScope::Global => Self::Global(BRange::from(definition.r#macro)),
+        }
+    }
+
+    pub fn from_span(scope: Option<&MacroScope>, span: BRange) -> Self {
+        match scope {
+            Some(MacroScope::Private) => Self::Private(span),
+            // Assume block-global, if no other scope is provided.
+            Some(MacroScope::Local) | None => Self::Local(span),
+            Some(MacroScope::Global) => Self::Global(span),
         }
     }
 }
@@ -733,7 +648,7 @@ pub fn find_external_definitions_for_macro_ref(
                             "Retrieved macro definition must already have been registered."
                         );
                     };
-                    locs.push(MacroDefinitionLocation::new(scope, def));
+                    locs.push(MacroDefinitionLocation::from_macro_def(scope, def));
                 }
                 locs
             };
@@ -748,7 +663,7 @@ pub fn find_external_definitions_for_macro_ref(
                             "Retrieved macro definition must already have been registered."
                         );
                     };
-                    locs.push(MacroDefinitionLocation::new(scope, def));
+                    locs.push(MacroDefinitionLocation::from_macro_def(scope, def));
                 }
                 locs
             };
@@ -769,18 +684,13 @@ pub fn find_macro_references_from_origin(
     textdoc: TextDocData,
     t32: FindMacroRefsLangContext,
     name: String,
-    origins: Vec<MacroPropagationCompact>,
+    origins: Vec<MacroDefinitionLocation>,
 ) -> FindMacroReferencesResult {
     let mut locs: Vec<LRange> = Vec::new();
     let mut callees: Vec<Uri> = Vec::new();
 
     for origin in origins {
-        let (lifetime, loc, mut occurrences) = origin.split();
-        // Add all files containing macro references with the same name as the global macro to the search list.
-        // Any of these files might contain a reference the global macro.
-        if !occurrences.is_empty() {
-            callees.append(&mut occurrences);
-        }
+        let (lifetime, loc) = origin.split();
 
         let (spans, mut scripts) = find_macro_definition_references(
             &textdoc.doc.text,
@@ -2415,10 +2325,9 @@ mod tests {
                 },
                 FindMacroRefsLangContext::from(t32.clone()),
                 name.to_string(),
-                vec![MacroPropagationCompact::new(
-                    scope,
+                vec![MacroDefinitionLocation::from_span(
+                    Some(&scope),
                     BRange::from(range),
-                    None,
                 )],
             );
 
@@ -2432,47 +2341,6 @@ mod tests {
                 assert!(scripts.contains(&file));
             }
         }
-    }
-
-    #[test]
-    fn can_add_global_macro_definition_reference_lookups() {
-        let file_idx = create_file_idx();
-
-        let uri =
-            Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
-                .unwrap();
-        let (doc, tree, t32) = read_doc(uri, file_idx).unwrap();
-
-        let target = to_file_uri("tests/samples/test.cmm");
-
-        let result = find_macro_references_from_origin(
-            TextDocData {
-                doc: doc,
-                tree: tree,
-            },
-            FindMacroRefsLangContext::from(t32),
-            "&global_macro".to_string(),
-            vec![MacroPropagationCompact::new(
-                MacroScope::Global,
-                BRange::from(Range {
-                    start: 489usize,
-                    end: 502usize,
-                }),
-                Some(vec![target.clone()]),
-            )],
-        );
-
-        assert!(result.references.contains(&LRange {
-            start: Position {
-                line: 41,
-                character: 7,
-            },
-            end: Position {
-                line: 41,
-                character: 20,
-            },
-        }));
-        assert!(result.subscripts.contains(&target));
     }
 
     #[test]

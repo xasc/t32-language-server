@@ -21,8 +21,7 @@ use crate::{
         State, Tasks,
         doc::{TextDoc, TextDocData, TextDocStatus, TextDocs},
         language::{
-            FindDefintionsForMacroRefResult, MacroDefinitionLocation, MacroPropagation,
-            MacroReferenceOrigin,
+            FindDefintionsForMacroRefResult, MacroDefinitionLocation, MacroReferenceOrigin,
         },
         log_notif,
         lsp::Message,
@@ -56,8 +55,31 @@ use crate::{
 };
 
 #[derive(Debug, PartialEq)]
+pub enum FindMacroReferencesPhase {
+    ReferencesInSubscripts {
+        visited: Vec<Uri>,
+        results: FileLocationMap,
+        undone: Vec<Uri>,
+    },
+    ReferencesFromDefinitions {
+        subscripts: Vec<Uri>,
+        results: FileLocationMap,
+        undone: MacroDefinitionLocationMap,
+        // definitions: Vec<MacroPropagation>,
+        // undone: Vec<Uri>,
+    },
+    // TODO: Do not convert file location to `MacroPropagation`. Wait until all locations have
+    // been determined.
+    ExternalDefinitions {
+        visited: FileCallMap,
+        results: MacroDefinitionLocationMap,
+        undone: ExtMacroDefLookups,
+    },
+}
+
+#[derive(Debug, PartialEq)]
 pub enum OngoingTask {
-    DidRenameFiles(Instant),
+    DidRenameFiles(NumberOrString, Instant),
     FindMacroReferences {
         id: NumberOrString,
         onset: Instant,
@@ -82,36 +104,20 @@ pub enum OngoingTask {
     },
 }
 
-#[derive(Debug, PartialEq)]
-pub enum FindMacroReferencesPhase {
-    ReferencesInSubscripts {
-        visited: Vec<Uri>,
-        results: FileLocationMap,
-        undone: Vec<Uri>,
-    },
-    ReferencesFromDefinitions {
-        definitions: Vec<MacroPropagation>,
-        results: FileLocationMap,
-        undone: Vec<Uri>,
-    },
-    // TODO: Do not convert file location to `MacroPropagation`. Wait until all locations have
-    // been determined.
-    ExternalDefinitions {
-        definitions: Vec<MacroPropagation>,
-        visited: FileCallMap,
-        results: MacroDefinitionLocationMap,
-        undone: ExtMacroDefLookups,
-    },
-}
-
 pub enum OngoingTaskHandle {
     Identifier(NumberOrString),
     Uri(Uri),
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub enum ProgressCounter {
+    Ready,
+    Counting(u32),
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct TaskProgress {
-    completed: u32,
+    completed: ProgressCounter,
     pub total: u32,
     cycles: u32,
     max_cycles: u32,
@@ -138,10 +144,19 @@ pub struct FileLocationMap {
     locations: Vec<Vec<Range>>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct MacroDefinitionLocationMap {
     files: Vec<(Uri, u32)>,
     macros: Vec<Vec<MacroDefinitionLocation>>,
+}
+
+pub struct MacroDefinitionLocationMapIntoIterator {
+    map: MacroDefinitionLocationMap,
+}
+
+pub struct MacroDefinitionLocationMapIterator<'a> {
+    map: &'a MacroDefinitionLocationMap,
+    idx: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -204,10 +219,12 @@ impl MacroDefinitionLocationMap {
     pub fn insert(&mut self, file: &Uri, def: MacroDefinitionLocation) {
         debug_assert_eq!(self.files.len(), self.macros.len());
         match self.files.binary_search_by(|(f, _)| f.cmp(file)) {
-            Ok(ii) => match self.macros[ii].binary_search_by(|m| m.cmp(&def)) {
-                Ok(_) => return,
-                Err(idx) => self.macros[ii].insert(idx, def),
-            },
+            Ok(ii) => {
+                match self.macros[self.files[ii].1 as usize].binary_search_by(|m| m.cmp(&def)) {
+                    Ok(_) => return,
+                    Err(idx) => self.macros[self.files[ii].1 as usize].insert(idx, def),
+                }
+            }
             Err(ii) => {
                 self.files
                     .insert(ii, (file.clone(), self.macros.len() as u32));
@@ -216,21 +233,57 @@ impl MacroDefinitionLocationMap {
         }
         debug_assert_eq!(self.files.len(), self.macros.len());
     }
+
+    pub fn clear(&mut self) {
+        debug_assert_eq!(self.files.len(), self.macros.len());
+
+        self.files.clear();
+        self.macros.clear();
+
+        debug_assert_eq!(self.files.len(), self.macros.len());
+    }
+
+    #[expect(unused)]
+    pub fn get(&self, file: &Uri) -> Option<&[MacroDefinitionLocation]> {
+        debug_assert_eq!(self.files.len(), self.macros.len());
+
+        if let Ok(ii) = self.files.binary_search_by(|(f, _)| f.cmp(file)) {
+            Some(&self.macros[self.files[ii].1 as usize])
+        } else {
+            None
+        }
+    }
+
+    pub fn iter<'a>(&'a self) -> MacroDefinitionLocationMapIterator<'a> {
+        debug_assert_eq!(self.files.len(), self.macros.len());
+
+        MacroDefinitionLocationMapIterator { map: self, idx: 0 }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.files.is_empty()
+    }
+
+    pub fn num_files(&self) -> usize {
+        self.files.len()
+    }
 }
 
 impl OngoingTask {
     fn get_id(&self) -> &NumberOrString {
         match self {
-            OngoingTask::FindReferences(id, ..)
+            OngoingTask::DidRenameFiles(id, ..)
+            | OngoingTask::FindMacroReferences { id, .. }
+            | OngoingTask::FindReferences(id, ..)
             | OngoingTask::GoToExternalMacroDef { id, .. }
             | OngoingTask::GoToDefinition(id, ..) => id,
-            _ => unreachable!("Other types have not ID field."),
+            OngoingTask::TextDocUpdate { .. } => unreachable!("Other types have not ID field."),
         }
     }
 
     fn get_onset(&self) -> &Instant {
         match self {
-            OngoingTask::DidRenameFiles(onset)
+            OngoingTask::DidRenameFiles(_, onset)
             | OngoingTask::FindMacroReferences { onset, .. }
             | OngoingTask::FindReferences(_, onset)
             | OngoingTask::GoToExternalMacroDef { onset, .. }
@@ -241,8 +294,22 @@ impl OngoingTask {
 
     fn aborted(&self) -> bool {
         match self {
-            OngoingTask::GoToExternalMacroDef { progress, .. } => progress.aborted(),
-            _ => false,
+            OngoingTask::FindMacroReferences { progress, .. }
+            | OngoingTask::GoToExternalMacroDef { progress, .. } => progress.aborted(),
+            OngoingTask::DidRenameFiles(..)
+            | OngoingTask::GoToDefinition(..)
+            | OngoingTask::FindReferences(..)
+            | OngoingTask::TextDocUpdate { .. } => false,
+        }
+    }
+}
+
+impl ProgressCounter {
+    #[expect(unused)]
+    pub fn value(&self) -> u32 {
+        match self {
+            Self::Ready => 0u32,
+            Self::Counting(val) => *val,
         }
     }
 }
@@ -250,7 +317,7 @@ impl OngoingTask {
 impl TaskProgress {
     pub fn new(total: u32) -> Self {
         TaskProgress {
-            completed: 0,
+            completed: ProgressCounter::Ready,
             cycles: 0,
             total,
             max_cycles: u32::MAX,
@@ -274,24 +341,51 @@ impl TaskProgress {
         self.total <= 0
     }
 
+    pub fn ack_ready(&mut self) {
+        self.completed = ProgressCounter::Counting(0);
+    }
+
     /// Next task step ready for execution.
     pub fn ready(&self) -> bool {
-        self.total > 0 && self.completed <= 0
+        if self.total <= 0 {
+            false
+        } else if let ProgressCounter::Ready = self.completed {
+            true
+        } else {
+            false
+        }
+    }
+
+    #[expect(unused)]
+    pub fn counting(&self) -> bool {
+        !(self.completed == ProgressCounter::Ready)
     }
 
     pub fn aborted(&self) -> bool {
-        self.total <= 0 && self.completed <= 0
+        if self.total > 0 {
+            false
+        } else if let ProgressCounter::Counting(0) = self.completed {
+            true
+        } else {
+            false
+        }
     }
 
     pub fn advance(&mut self) {
-        self.completed += 1;
-        if self.completed >= self.total {
+        let counter: u32 = match self.completed {
+            ProgressCounter::Ready => 1,
+            ProgressCounter::Counting(val) => val + 1,
+        };
+
+        if counter >= self.total {
             self.cycles += 1;
-            self.completed = 0;
+            self.completed = ProgressCounter::Ready;
 
             if self.cycles >= self.max_cycles {
                 self.total = 0;
             }
+        } else {
+            self.completed = ProgressCounter::Counting(counter);
         }
     }
 
@@ -331,6 +425,10 @@ impl ExtMacroDefLookups {
 
         debug_assert_eq!(self.files.len(), self.callees.len());
     }
+
+    pub fn num_files(&self) -> usize {
+        self.files.len()
+    }
 }
 
 impl FileCallMap {
@@ -344,8 +442,8 @@ impl FileCallMap {
     pub fn get(&self, file: &Uri) -> Option<&Vec<Uri>> {
         debug_assert_eq!(self.files.len(), self.calls.len());
 
-        if let Some((_, idx)) = self.files.iter().find(|(uri, _)| *uri == *file) {
-            Some(&self.calls[*idx as usize])
+        if let Ok(ii) = self.files.binary_search_by(|(f, _)| f.cmp(file)) {
+            Some(&self.calls[self.files[ii].1 as usize])
         } else {
             None
         }
@@ -383,6 +481,48 @@ impl From<Vec<FileRename>> for RenameFileOperations {
     }
 }
 
+impl IntoIterator for MacroDefinitionLocationMap {
+    type Item = (Uri, Vec<MacroDefinitionLocation>);
+    type IntoIter = MacroDefinitionLocationMapIntoIterator;
+
+    fn into_iter(self) -> Self::IntoIter {
+        MacroDefinitionLocationMapIntoIterator { map: self }
+    }
+}
+
+impl Iterator for MacroDefinitionLocationMapIntoIterator {
+    type Item = (Uri, Vec<MacroDefinitionLocation>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.map.files.is_empty() {
+            None
+        } else {
+            let (file, offset) = self.map.files.swap_remove(0);
+            let macros: Vec<MacroDefinitionLocation> = self.map.macros[offset as usize].clone();
+
+            Some((file, macros))
+        }
+    }
+}
+
+impl<'a> Iterator for MacroDefinitionLocationMapIterator<'a> {
+    type Item = (&'a Uri, &'a Vec<MacroDefinitionLocation>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.idx < self.map.files.len() {
+            let offset = self.idx;
+            self.idx += 1;
+
+            let file: &Uri = &self.map.files[offset].0;
+            let offset: u32 = self.map.files[offset].1;
+
+            Some((file, &self.map.macros[offset as usize]))
+        } else {
+            None
+        }
+    }
+}
+
 pub fn recv_completed_tasks(
     cfg: &Config,
     ts: &mut Tasks,
@@ -402,9 +542,9 @@ pub fn recv_completed_tasks(
 
     for done in completed {
         let handle = done.get_task_handle();
-        process_completed_task(done, cfg, ts, docs, files, outgoing)?;
+        let finished = process_completed_task(done, cfg, ts, docs, files, outgoing)?;
 
-        if let Some(handle) = handle {
+        if finished && let Some(handle) = handle {
             mark_ongoing_task_completed(handle, &mut ts.ongoing);
         }
     }
@@ -446,9 +586,10 @@ fn process_completed_task(
     docs: &mut TextDocs,
     files: &mut FileIndex,
     outgoing: &mut Vec<Option<Message>>,
-) -> Result<(), ReturnCode> {
+) -> Result<bool, ReturnCode> {
     match done {
         TaskDone::DidRenameFiles(
+            id,
             ResolvedRenameFileOperations {
                 renamed,
                 missing_dirs,
@@ -460,7 +601,11 @@ fn process_completed_task(
 
             if cfg.trace_level != TraceValue::Off {
                 let onset = get_rename_task_onset(&ts.ongoing);
-                outgoing.push(Some(trace_doc_rename(&renamed, Instant::now() - *onset)));
+                outgoing.push(Some(trace_doc_rename(
+                    id,
+                    &renamed,
+                    Instant::now() - *onset,
+                )));
 
                 for dir in missing_dirs {
                     outgoing.push(Some(trace_dir_unknown(&dir)));
@@ -470,6 +615,7 @@ fn process_completed_task(
                     outgoing.push(Some(trace_doc_unknown(&file)));
                 }
             }
+            Ok(true)
         }
         TaskDone::FindExternalDefinitionsForMacroRefSync(id, result) => {
             let mut uri: Option<Uri> = None;
@@ -490,12 +636,13 @@ fn process_completed_task(
                 };
                 let Some(uri) = uri else { unreachable!() };
 
-                outgoing.push(Some(trace_find_ext_definitions_for_macro_ref(
+                outgoing.push(Some(trace_find_ext_definitions_for_macro_ref_sync(
                     Instant::now() - *onset,
                     id,
                     uri,
                 )));
             }
+            Ok(false)
         }
         TaskDone::FindMacroReferences(id, locations) => {
             if cfg.trace_level != TraceValue::Off {
@@ -518,6 +665,7 @@ fn process_completed_task(
                     result: locations,
                 },
             ))));
+            Ok(true)
         }
         TaskDone::FindMacroReferencesFromDefinitionsSync(id, result) => {
             let mut uri: Option<Uri> = None;
@@ -529,16 +677,17 @@ fn process_completed_task(
             if cfg.trace_level != TraceValue::Off {
                 let idx = find_ongoing_task_by_id(&id, &ts.ongoing);
                 let Some(OngoingTask::FindMacroReferences { onset, .. }) = &ts.ongoing[idx] else {
-                    unreachable!("No other type possible.");
+                    unreachable!("Must not retrieve any other variant.");
                 };
                 let Some(uri) = uri else { unreachable!() };
 
-                outgoing.push(Some(trace_find_subscript_macro_refs_sync(
+                outgoing.push(Some(trace_find_macro_definition_refs_sync(
                     Instant::now() - *onset,
                     id,
                     uri,
                 )));
             }
+            Ok(false)
         }
         TaskDone::FindMacroReferencesInSubscriptsSync(id, result) => {
             let mut uri: Option<Uri> = None;
@@ -554,19 +703,22 @@ fn process_completed_task(
                 };
                 let Some(uri) = uri else { unreachable!() };
 
-                outgoing.push(Some(trace_find_macro_definition_refs_sync(
+                outgoing.push(Some(trace_find_subscript_macro_refs_sync(
                     Instant::now() - *onset,
                     id,
                     uri,
                 )));
             }
+            Ok(false)
         }
         TaskDone::FindReferences(id, result) => {
-            if let Some(resp) = process_find_references_result(docs, &id, result, ts) {
+            if let Some(resp) =
+                process_find_references_result(docs, &id, result, cfg.trace_level, ts, outgoing)
+            {
                 if cfg.trace_level != TraceValue::Off {
                     let idx = find_ongoing_task_by_id(&id, &ts.ongoing);
                     let Some(OngoingTask::FindReferences(_, onset)) = &ts.ongoing[idx] else {
-                        unreachable!("No other type possible.");
+                        unreachable!("Must not retrieve any other variant.");
                     };
                     outgoing.push(Some(trace_find_refs(
                         Instant::now() - *onset,
@@ -576,14 +728,19 @@ fn process_completed_task(
                 outgoing.push(Some(Message::Response(Response::FindReferencesResponse(
                     resp,
                 ))));
+                Ok(true)
+            } else {
+                Ok(false)
             }
         }
         TaskDone::GoToDefinition(id, goto_def) => {
-            if let Some(resp) = process_goto_definition_result(docs, &id, goto_def, ts) {
+            if let Some(resp) =
+                process_goto_definition_result(docs, &id, goto_def, cfg.trace_level, ts, outgoing)
+            {
                 if cfg.trace_level != TraceValue::Off {
                     let idx = find_ongoing_task_by_id(&id, &ts.ongoing);
                     let Some(OngoingTask::GoToDefinition(_, onset)) = &ts.ongoing[idx] else {
-                        unreachable!("No other type possible.");
+                        unreachable!("Must not retrieve any other variant.");
                     };
                     outgoing.push(Some(trace_goto_def(
                         Instant::now() - *onset,
@@ -593,6 +750,9 @@ fn process_completed_task(
                 outgoing.push(Some(Message::Response(Response::GoToDefinitionResponse(
                     resp,
                 ))));
+                Ok(true)
+            } else {
+                Ok(false)
             }
         }
         TaskDone::GoToExternalMacroDef(id, links) => {
@@ -616,6 +776,7 @@ fn process_completed_task(
             outgoing.push(Some(Message::Response(Response::GoToDefinitionResponse(
                 GoToDefinitionResponse { id, result },
             ))));
+            Ok(true)
         }
         TaskDone::GoToExternalMacroDefSync(id, defs, script, callers) => {
             recv_goto_external_macro_def_sync(&id, &script, defs, callers, &mut ts.ongoing);
@@ -630,6 +791,7 @@ fn process_completed_task(
                     script,
                 )));
             }
+            Ok(false)
         }
         TaskDone::TextDocNew(doc, tree, globals) => {
             if cfg.trace_level != TraceValue::Off {
@@ -637,6 +799,7 @@ fn process_completed_task(
                 outgoing.push(Some(trace_doc_change(&doc, &tree, Instant::now() - *onset)));
             }
             docs.add(doc, tree, globals, TextDocStatus::Open);
+            Ok(true)
         }
         TaskDone::TextDocEdit(doc, tree, globals) => {
             if cfg.trace_level != TraceValue::Off {
@@ -644,26 +807,29 @@ fn process_completed_task(
                 outgoing.push(Some(trace_doc_change(&doc, &tree, Instant::now() - *onset)));
             }
             docs.update(doc, tree, globals);
+            Ok(true)
         }
-        TaskDone::WorkspaceFileScan(res) => match res {
-            Ok((doc, tree, globals)) => {
-                if cfg.trace_level != TraceValue::Off {
-                    let onset = get_task_onset_by_doc(&doc.uri, &ts.ongoing);
-                    outgoing.push(Some(trace_doc_change(&doc, &tree, Instant::now() - *onset)));
+        TaskDone::WorkspaceFileScan(res) => {
+            match res {
+                Ok((doc, tree, globals)) => {
+                    if cfg.trace_level != TraceValue::Off {
+                        let onset = get_task_onset_by_doc(&doc.uri, &ts.ongoing);
+                        outgoing.push(Some(trace_doc_change(&doc, &tree, Instant::now() - *onset)));
+                    }
+                    docs.add(doc, tree, globals, TextDocStatus::Closed);
                 }
-                docs.add(doc, tree, globals, TextDocStatus::Closed);
-            }
-            Err(uri) => {
-                if cfg.trace_level != TraceValue::Off {
-                    outgoing.push(Some(trace_doc_cannot_read(&uri)));
+                Err(uri) => {
+                    if cfg.trace_level != TraceValue::Off {
+                        outgoing.push(Some(trace_doc_cannot_read(&uri)));
+                    }
                 }
             }
-        },
+            Ok(true)
+        }
         TaskDone::WorkspaceFileDiscovery(_) | TaskDone::WorkspaceFileIndexNew(_) => {
-            unreachable!()
+            unreachable!("Workspace file scan tasks are only executed once after server start.")
         }
     }
-    Ok(())
 }
 
 fn mark_ongoing_task_completed(handle: OngoingTaskHandle, ongoing: &mut Vec<Option<OngoingTask>>) {
@@ -717,7 +883,7 @@ fn try_schedule_blocked(
 /// which is in the process of being renamed.
 fn task_blocked(job: &Task, ongoing: &[Option<OngoingTask>]) -> bool {
     match job {
-        Task::DidRenameFiles(RenameFileOperations { old, .. }, ..) => {
+        Task::DidRenameFiles(_, RenameFileOperations { old, .. }, ..) => {
             // Continue with rename operations even though other requests that
             // query file data are ongoing.
             ongoing.iter().any(|o| match o {
@@ -822,7 +988,7 @@ fn task_blocked(job: &Task, ongoing: &[Option<OngoingTask>]) -> bool {
 /// processing an update.
 fn add_task_status_tracking(job: &Task, ongoing: &mut Vec<Option<OngoingTask>>) {
     let t = match job {
-        Task::DidRenameFiles { .. } => OngoingTask::DidRenameFiles(Instant::now()),
+        Task::DidRenameFiles(id, ..) => OngoingTask::DidRenameFiles(id.clone(), Instant::now()),
         Task::FindReferences { id, .. } => OngoingTask::FindReferences(id.clone(), Instant::now()),
         Task::GoToDefinition(id, ..) => OngoingTask::GoToDefinition(id.clone(), Instant::now()),
         Task::TextDocNew(TextDocumentItem { uri, .. }, ..)
@@ -991,13 +1157,12 @@ fn find_ongoing_task_by_id(identifier: &NumberOrString, ongoing: &[Option<Ongoin
     ongoing
         .iter()
         .position(|t| match t {
-            Some(OngoingTask::FindReferences(id, ..))
+            Some(OngoingTask::DidRenameFiles(id, ..))
+            | Some(OngoingTask::FindReferences(id, ..))
             | Some(OngoingTask::FindMacroReferences { id, .. })
             | Some(OngoingTask::GoToDefinition(id, ..))
             | Some(OngoingTask::GoToExternalMacroDef { id, .. }) => id == identifier,
-            None
-            | Some(OngoingTask::DidRenameFiles(..))
-            | Some(OngoingTask::TextDocUpdate { .. }) => {
+            None | Some(OngoingTask::TextDocUpdate { .. }) => {
                 unreachable!("No other tasks can by selected by id.")
             }
         })
@@ -1061,7 +1226,11 @@ fn trace_dir_unknown(uri: &str) -> Message {
     })
 }
 
-fn trace_doc_rename(renamed: &RenameFileOperations, duration: Duration) -> Message {
+fn trace_doc_rename(
+    id: NumberOrString,
+    renamed: &RenameFileOperations,
+    duration: Duration,
+) -> Message {
     let mut changes: Vec<FileRename> = Vec::with_capacity(renamed.old.len());
     for (old, new) in renamed.old.iter().zip(renamed.new.iter()) {
         changes.push(FileRename {
@@ -1073,7 +1242,8 @@ fn trace_doc_rename(renamed: &RenameFileOperations, duration: Duration) -> Messa
     Message::Notification(Notification::LogTraceNotification {
         params: LogTraceParams {
             message: format!(
-                "INFO: Files were renamed in {:.4} seconds.",
+                "INFO: File rename request with ID \"{}\" completed in {:.4} seconds.",
+                id,
                 duration.as_secs_f32()
             ),
             verbose: Some(json!(changes).to_string()),
@@ -1114,12 +1284,11 @@ fn trace_find_macro_definition_refs_sync(
     Message::Notification(Notification::LogTraceNotification {
         params: LogTraceParams {
             message: format!(
-                "INFO: Find macro definition sync with ID {} and file \"{}\" completed in {:.4} seconds.",
+                "INFO: Find macro definition references sync with ID {} completed in {:.4} seconds.",
                 id,
-                file,
                 duration.as_secs_f32()
             ),
-            verbose: None,
+            verbose: Some(json!(file).to_string()),
         },
     })
 }
@@ -1132,17 +1301,16 @@ fn trace_find_subscript_macro_refs_sync(
     Message::Notification(Notification::LogTraceNotification {
         params: LogTraceParams {
             message: format!(
-                "INFO: Find subscript macro sync with ID {} and file \"{}\" completed in {:.4} seconds.",
+                "INFO: Find subscript macro references sync with ID {} completed in {:.4} seconds.",
                 id,
-                file,
                 duration.as_secs_f32()
             ),
-            verbose: None,
+            verbose: Some(json!(file).to_string()),
         },
     })
 }
 
-fn trace_find_ext_definitions_for_macro_ref(
+fn trace_find_ext_definitions_for_macro_ref_sync(
     duration: Duration,
     id: NumberOrString,
     file: Uri,
@@ -1150,12 +1318,11 @@ fn trace_find_ext_definitions_for_macro_ref(
     Message::Notification(Notification::LogTraceNotification {
         params: LogTraceParams {
             message: format!(
-                "INFO: Find external definitions for macro reference with ID {} and file \"{}\" in {:.4} seconds.",
+                "INFO: Find external definitions for macro reference sync with ID {} completed in {:.4} seconds.",
                 id,
-                file,
                 duration.as_secs_f32()
             ),
-            verbose: None,
+            verbose: Some(json!(file).to_string()),
         },
     })
 }

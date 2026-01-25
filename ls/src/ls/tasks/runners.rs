@@ -25,9 +25,9 @@ use crate::{
         doc::{TextDoc, TextDocData},
         language::{
             FindDefintionsForMacroRefResult, FindMacroReferencesResult, FindReferencesResult,
-            GotoDefinitionResult, MacroPropagationCompact, MacroReferenceOrigin,
+            GotoDefinitionResult, MacroReferenceOrigin,
         },
-        tasks::{OngoingTaskHandle, RenameFileOperations},
+        tasks::{MacroDefinitionLocation, OngoingTaskHandle, RenameFileOperations},
         workspace::{FileIndex, ResolvedRenameFileOperations, WorkspaceMembers},
     },
     protocol::{
@@ -40,6 +40,7 @@ use crate::{
 #[derive(Debug, Clone)]
 pub enum Task {
     DidRenameFiles(
+        NumberOrString,
         RenameFileOperations,
         FileIndex,
         fn(RenameFileOperations, &mut FileIndex) -> ResolvedRenameFileOperations,
@@ -64,12 +65,12 @@ pub enum Task {
         textdoc: TextDocData,
         t32: FindMacroRefsLangContext,
         r#macro: String,
-        definitions: Vec<MacroPropagationCompact>,
+        definitions: Vec<MacroDefinitionLocation>,
         find: fn(
             TextDocData,
             FindMacroRefsLangContext,
             String,
-            Vec<MacroPropagationCompact>,
+            Vec<MacroDefinitionLocation>,
         ) -> FindMacroReferencesResult,
     },
     FindMacroReferencesInSubscripts {
@@ -142,7 +143,7 @@ pub enum Task {
 
 #[derive(Debug)]
 pub enum TaskDone {
-    DidRenameFiles(ResolvedRenameFileOperations, FileIndex),
+    DidRenameFiles(NumberOrString, ResolvedRenameFileOperations, FileIndex),
     FindExternalDefinitionsForMacroRefSync(NumberOrString, FindDefintionsForMacroRefResult),
     FindMacroReferences(NumberOrString, Option<Vec<Location>>),
     FindMacroReferencesFromDefinitionsSync(NumberOrString, FindMacroReferencesResult),
@@ -174,7 +175,15 @@ pub struct JobQueue {
 impl TaskDone {
     pub fn get_task_handle(&self) -> Option<OngoingTaskHandle> {
         match self {
-            TaskDone::GoToDefinition(id, ..) | TaskDone::GoToExternalMacroDef(id, ..) => {
+            TaskDone::DidRenameFiles(id, ..)
+            | TaskDone::FindExternalDefinitionsForMacroRefSync(id, ..)
+            | TaskDone::FindMacroReferences(id, ..)
+            | TaskDone::FindMacroReferencesFromDefinitionsSync(id, ..)
+            | TaskDone::FindMacroReferencesInSubscriptsSync(id, ..)
+            | TaskDone::FindReferences(id, ..)
+            | TaskDone::GoToDefinition(id, ..)
+            | TaskDone::GoToExternalMacroDef(id, ..)
+            | TaskDone::GoToExternalMacroDefSync(id, ..) => {
                 Some(OngoingTaskHandle::Identifier(id.clone()))
             }
             TaskDone::TextDocEdit(doc, ..)
@@ -183,7 +192,11 @@ impl TaskDone {
                 Some(OngoingTaskHandle::Uri(doc.uri.clone()))
             }
             TaskDone::WorkspaceFileScan(Err(uri)) => Some(OngoingTaskHandle::Uri(uri.clone())),
-            _ => None,
+            TaskDone::WorkspaceFileDiscovery(..) | TaskDone::WorkspaceFileIndexNew(..) => {
+                unreachable!(
+                    "Workspace scan tasks are only triggered once after server start. They are cleared manually."
+                )
+            }
         }
     }
 }
@@ -296,9 +309,9 @@ impl TaskSystem {
 
     fn execute(job: Task) -> TaskDone {
         match job {
-            Task::DidRenameFiles(renamed, mut file_idx, rename_files) => {
+            Task::DidRenameFiles(id, renamed, mut file_idx, rename_files) => {
                 let operations = rename_files(renamed, &mut file_idx);
-                TaskDone::DidRenameFiles(operations, file_idx)
+                TaskDone::DidRenameFiles(id, operations, file_idx)
             }
             Task::FindExternalDefinitionsForMacroRef {
                 id,

@@ -1465,7 +1465,14 @@ pub fn find_macro_references_and_call_transitions<'a>(
 
     let labels: Vec<Range<usize>> = t32.labels.iter().map(|l| l.name.clone()).collect();
     let defs: Vec<Range<usize>> = filter_macro_defs_by_name(text, name, &t32.macros);
-    let params: Vec<Range<usize>> = filter_param_declarations_by_name(text, name, &t32.parameters);
+
+    let params: Vec<Range<usize>> = {
+        if t32.parameters.is_empty() {
+            Vec::new()
+        } else {
+            filter_param_declarations_by_name(text, name, &t32.parameters)
+        }
+    };
 
     let subroutine_call_ranges: Vec<Range<usize>> = t32
         .calls

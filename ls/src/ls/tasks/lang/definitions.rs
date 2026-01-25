@@ -2,6 +2,8 @@
 //
 // SPDX-License-Identifier: EUPL-1.2
 
+use serde_json::json;
+
 use crate::{
     ls::{
         ReturnCode,
@@ -11,13 +13,14 @@ use crate::{
             find_external_macro_definition, find_global_macro_definitions,
         },
         lsp::Message,
+        request::Notification,
         response::{GoToDefinitionResponse, LocationResult, NullResponse, Response},
         tasks::{
             ExtMacroDefLookups, FileCallMap, OngoingTask, Task, TaskDone, TaskProgress, Tasks,
             find_ongoing_task_by_id, trace_doc_unknown, try_schedule,
         },
     },
-    protocol::{DefinitionParams, LocationLink, NumberOrString, TraceValue, Uri},
+    protocol::{DefinitionParams, LocationLink, LogTraceParams, NumberOrString, TraceValue, Uri},
     t32::GotoDefLangContext,
 };
 
@@ -29,6 +32,10 @@ pub fn process_goto_definition_req(
     ts: &mut Tasks,
     outgoing: &mut Vec<Option<Message>>,
 ) -> Result<(), ReturnCode> {
+    if trace_level != TraceValue::Off {
+        outgoing.push(Some(log_find_defs_req(id.clone())));
+    }
+
     let (doc, tree, t32) = match docs.get_doc_data(&params.text_document.uri) {
         Some((doc, tree, t32)) => (doc, tree, t32),
         None => {
@@ -64,14 +71,22 @@ pub fn process_goto_definition_result(
     docs: &TextDocs,
     id: &NumberOrString,
     goto_def: Option<GotoDefinitionResult>,
+    trace_level: TraceValue,
     ts: &mut Tasks,
+    outgoing: &mut Vec<Option<Message>>,
 ) -> Option<GoToDefinitionResponse> {
     let result = match goto_def {
         Some(GotoDefinitionResult::Final(links)) => Some(LocationResult::ExtMeta(links)),
         Some(GotoDefinitionResult::PartialMacro(uri, r#macro, origin, links)) => {
             if let Some(callers) = docs.get_callers(&uri) {
+                if trace_level != TraceValue::Off {
+                    outgoing.push(Some(log_conv_goto_macro_ref_req(
+                        id.clone(),
+                        r#macro.clone(),
+                    )));
+                }
                 // Queues the follow-up task for definitions in external files
-                goto_external_macro_def(
+                prepare_goto_external_macro_def_req(
                     id.clone(),
                     MacroReferenceOrigin {
                         name: r#macro,
@@ -85,10 +100,10 @@ pub fn process_goto_definition_result(
                 return None;
             }
 
-            if !links.is_empty() {
-                Some(LocationResult::ExtMeta(links))
-            } else {
+            if links.is_empty() {
                 None
+            } else {
+                Some(LocationResult::ExtMeta(links))
             }
         }
         None => None,
@@ -160,7 +175,6 @@ pub fn progress_goto_external_macro_def(
         progress,
         origin,
         results,
-        undone,
         ..
     }) = task
     else {
@@ -181,7 +195,7 @@ pub fn progress_goto_external_macro_def(
         links.append(results);
 
         done.push(Some(TaskDone::GoToExternalMacroDef(id.clone(), links)));
-    } else if progress.ready() && !undone.is_empty() {
+    } else if progress.ready() {
         next_lookups_goto_external_macro_def(docs, task.as_mut().unwrap(), outgoing);
     }
     Ok(())
@@ -216,9 +230,10 @@ fn next_lookups_goto_external_macro_def(
     };
     progress.total =
         queue_goto_external_macro_definitions(id, docs, origin, undone, visited, outgoing);
+    progress.ack_ready();
 }
 
-fn goto_external_macro_def(
+fn prepare_goto_external_macro_def_req(
     id: NumberOrString,
     origin: MacroReferenceOrigin,
     defs: Vec<LocationLink>,
@@ -237,13 +252,13 @@ fn goto_external_macro_def(
     }
 
     let idx = find_ongoing_task_by_id(&id, &ongoing);
-    let Some(OngoingTask::GoToDefinition(_, onset)) = &ongoing[idx] else {
-        unreachable!("No other type possible.");
+    let Some(OngoingTask::GoToDefinition(_, onset)) = ongoing[idx].take() else {
+        unreachable!("Must not retrieve any other variant.");
     };
 
-    let task = OngoingTask::GoToExternalMacroDef {
+    ongoing[idx] = Some(OngoingTask::GoToExternalMacroDef {
         id,
-        onset: onset.clone(),
+        onset,
         progress: TaskProgress::new(num as u32),
         origin,
         visited: FileCallMap::new(),
@@ -252,8 +267,7 @@ fn goto_external_macro_def(
             files: scripts,
             callees,
         },
-    };
-    ongoing.push(Some(task));
+    });
 }
 
 fn queue_goto_external_macro_definitions(
@@ -298,11 +312,35 @@ fn queue_goto_external_macro_definitions(
     total
 }
 
+fn log_find_defs_req(id: NumberOrString) -> Message {
+    Message::Notification(Notification::LogTraceNotification {
+        params: LogTraceParams {
+            message: format!(
+                "INFO: Received find definitions request with ID \"{:}\".",
+                id
+            ),
+            verbose: None,
+        },
+    })
+}
+
+fn log_conv_goto_macro_ref_req(id: NumberOrString, r#macro: String) -> Message {
+    Message::Notification(Notification::LogTraceNotification {
+        params: LogTraceParams {
+            message: format!(
+                "INFO: Request with ID \"{:}\" converted to goto macro definition request.",
+                id
+            ),
+            verbose: Some(json!(r#macro).to_string()),
+        },
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    use std::{time::Instant, u32};
+    use std::time::Instant;
 
     use crate::protocol::{Position, Range};
 
@@ -319,12 +357,7 @@ mod tests {
         let mut task = Some(OngoingTask::GoToExternalMacroDef {
             id: NumberOrString::Number(1),
             onset: Instant::now(),
-            progress: TaskProgress {
-                completed: 0,
-                total: 3,
-                cycles: 0,
-                max_cycles: u32::MAX,
-            },
+            progress: TaskProgress::new(3),
             origin: MacroReferenceOrigin {
                 name: "test".to_string(),
                 span: Range {

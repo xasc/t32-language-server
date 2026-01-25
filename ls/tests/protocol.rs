@@ -352,7 +352,7 @@ fn supports_did_rename_files_notification() {
     assert!(
         std::str::from_utf8(&output.stdout)
             .unwrap()
-            .contains("Files were renamed")
+            .contains("File rename request with ID")
     );
     assert_eq!(output.status.code(), Some(0));
 }
@@ -427,7 +427,7 @@ fn supports_lang_goto_definition_request() {
 }
 
 #[test]
-fn supports_lang_find_references_request() {
+fn supports_lang_find_references_request_for_subroutines() {
     for ((dir, line, character), (start, end)) in [
         (
             env::current_dir()
@@ -491,6 +491,79 @@ fn supports_lang_find_references_request() {
             std::str::from_utf8(&output.stdout)
                 .unwrap()
                 .contains(&format!("\"character\":{}", end.1))
+        );
+    }
+}
+
+#[test]
+fn supports_lang_find_references_request_for_macros() {
+    for ((dir, line, character), (start, end, file)) in [(
+        env::current_dir()
+            .unwrap()
+            .join("tests")
+            .join("samples")
+            .join("a")
+            .join("a.cmm"),
+        38,
+        10,
+    )]
+    .into_iter()
+    .zip([
+        (
+            (38, 4),
+            (38, 16),
+            utils::to_file_uri("tests/samples/a/a.cmm"),
+        ),
+        (
+            (42, 6),
+            (42, 18),
+            utils::to_file_uri("tests/samples/a/a.cmm"),
+        ),
+        ((17, 6), (17, 18), utils::to_file_uri("tests/samples/c.cmm")),
+    ]) {
+        let mut ls = utils::start_ls_with_workspace(&[
+            &format!("--clientProcessId={}", process::id().to_string()),
+            &format!("--trace={}", "messages"),
+        ]);
+        let mut stdin = ls.stdin.take().unwrap();
+
+        let notif = utils::make_set_trace_notification(utils::TraceValue::Messages);
+        utils::to_stdin(&mut stdin, &notif);
+
+        let uri = Url::from_file_path(dir).expect("Must not fail.");
+
+        let notif = utils::make_find_references_request(2, uri, line, character);
+        utils::to_stdin(&mut stdin, &notif);
+        thread::sleep(time::Duration::from_secs(2));
+
+        utils::stop_ls(&mut ls, Some(&mut stdin), Some(3));
+        let output = ls.wait_with_output().expect("Cannot capture output");
+
+        assert_eq!(output.status.code(), Some(0));
+        assert!(
+            std::str::from_utf8(&output.stdout)
+                .unwrap()
+                .contains(&format!("\"line\":{}", start.0))
+        );
+        assert!(
+            std::str::from_utf8(&output.stdout)
+                .unwrap()
+                .contains(&format!("\"character\":{}", start.1))
+        );
+        assert!(
+            std::str::from_utf8(&output.stdout)
+                .unwrap()
+                .contains(&format!("\"line\":{}", end.0))
+        );
+        assert!(
+            std::str::from_utf8(&output.stdout)
+                .unwrap()
+                .contains(&format!("\"character\":{}", end.1))
+        );
+        assert!(
+            std::str::from_utf8(&output.stdout)
+                .unwrap()
+                .contains(&format!("\"uri\":\"{}", file))
         );
     }
 }

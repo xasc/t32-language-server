@@ -58,13 +58,6 @@ struct ProcHeartbeat {
     last_beat: Instant,
 }
 
-struct Tasks {
-    runner: TaskSystem,
-    blocked: Vec<Task>,
-    ongoing: Vec<Option<OngoingTask>>,
-    completed: Vec<Option<TaskDone>>,
-}
-
 struct State {
     shutdown_request_recv: bool,
     exit_requested: bool,
@@ -72,6 +65,18 @@ struct State {
     tasks: Tasks,
     docs: TextDocs,
     files: FileIndex,
+}
+
+struct TaskCounterInternal {
+    counter: usize,
+}
+
+struct Tasks {
+    runner: TaskSystem,
+    blocked: Vec<Task>,
+    ongoing: Vec<Option<OngoingTask>>,
+    completed: Vec<Option<TaskDone>>,
+    counter: TaskCounterInternal,
 }
 
 impl ProcHeartbeat {
@@ -90,6 +95,20 @@ impl ProcHeartbeat {
     fn check(&mut self, now: &Instant) -> bool {
         self.last_beat = *now;
         ProcState::Alive == proc_alive(self.pid.expect("PID must be specified."))
+    }
+}
+
+impl TaskCounterInternal {
+    const PREFIX: &str = "it#";
+
+    pub fn new() -> Self {
+        Self { counter: 0 }
+    }
+
+    pub fn next_id(&mut self) -> String {
+        let id = format!("{}{}", Self::PREFIX, self.counter);
+        self.counter += 1;
+        id
     }
 }
 

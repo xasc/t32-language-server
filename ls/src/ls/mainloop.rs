@@ -13,7 +13,7 @@ use crate::{
     ls::lsp::Message,
     ls::transport::StdioChannel,
     ls::{
-        ProcHeartbeat, State, Tasks,
+        ProcHeartbeat, State, TaskCounterInternal, Tasks,
         doc::{TextDoc, TextDocs, read_doc},
         read_msg,
         request::Notification,
@@ -35,6 +35,7 @@ pub fn handle_requests(channel: &mut StdioChannel, mut cfg: Config) -> Result<()
         blocked: Vec::new(),
         ongoing: Vec::new(),
         completed: Vec::new(),
+        counter: TaskCounterInternal::new(),
     };
 
     let mut outgoing: Vec<Option<Message>> = Vec::new();
