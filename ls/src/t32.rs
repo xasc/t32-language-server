@@ -34,13 +34,15 @@ pub use macros::{
     find_macro_definition,
 };
 
+pub use path::locate_script as resolve_script;
+
 use std::ops::Range;
 
 use crate::{ls::FileIndex, protocol::Uri, utils::BRange};
 
 use expressions::{
     find_all_references_for_label, find_all_references_for_subroutine, find_call_target_definition,
-    find_file_target, find_label, find_subroutine, locate_subscript,
+    find_file_target, find_label, find_subroutine, locate_subscript, locate_subscript_call_target,
 };
 
 use macros::find_macro_references_at_offset;
@@ -352,4 +354,14 @@ pub fn find_stack_macro_references(
         (span.start, span.end)
     });
     (refs, callees)
+}
+
+pub fn find_command_file_target(text: &str, command: TreeCursor) -> Option<String> {
+    debug_assert_eq!(
+        command.node().kind_id(),
+        NodeKind::CommandExpression.into_id(&command.node().language())
+    );
+
+    let target = locate_subscript_call_target(text, command)?;
+    Some(target.to_string())
 }

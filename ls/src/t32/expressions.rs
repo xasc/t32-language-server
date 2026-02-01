@@ -466,30 +466,39 @@ pub fn locate_subscript(
     }
     debug_assert_eq!(cursor.node().kind_id(), cmd);
 
-    let args = NodeKind::ArgumentList.into_id(&lang);
+    if cursor.goto_first_child_for_byte(target).is_none() {
+        return None;
+    }
+    let path = extract_script_call_command_arguments(text, &mut cursor)?;
+    locate_script(path, &files)
+}
 
-    if cursor.goto_first_child_for_byte(target).is_none()
-        || cursor.node().kind_id() != args
-        || !cursor.goto_first_child()
-    {
+pub fn locate_subscript_call_target<'a>(text: &'a str, mut cursor: TreeCursor) -> Option<&'a str> {
+    debug_assert_eq!(
+        cursor.node().kind_id(),
+        NodeKind::CommandExpression.into_id(&cursor.node().language())
+    );
+
+    if !cursor.goto_first_child() {
         return None;
     }
 
-    let path: String = loop {
-        let node = cursor.node();
-        let id = node.kind_id();
+    debug_assert_eq!(
+        cursor.node().kind_id(),
+        NodeKind::Identifier.into_id(&cursor.node().language())
+    );
 
-        if id == NodeKind::Path.into_id(&lang) {
-            break text[node.byte_range()].to_string();
-        } else if id == NodeKind::String.into_id(&lang) {
-            break get_string_body(&node, &text).to_string();
-        }
+    let node = cursor.node();
+    let command = text[node.byte_range()].split(".").last()?;
 
-        if !cursor.goto_next_sibling() {
-            return None;
-        }
-    };
-    locate_script(&path, &files)
+    if !(KEYWORDS_SCRIPT_CALL
+        .iter()
+        .any(|k| k.eq_ignore_ascii_case(command))
+        && cursor.goto_next_sibling())
+    {
+        return None;
+    }
+    extract_script_call_command_arguments(text, &mut cursor)
 }
 
 pub fn resides_in_subroutine(subroutines: &Vec<Subroutine>, offset: usize) -> Option<&Subroutine> {
@@ -737,6 +746,59 @@ fn extract_subroutine_def(cursor: &mut TreeCursor) -> Option<Subroutine> {
     })
 }
 
+fn extract_script_call_command_arguments<'a>(
+    text: &'a str,
+    cursor: &mut TreeCursor,
+) -> Option<&'a str> {
+    let node = cursor.node();
+    let lang = node.language();
+
+    let args = NodeKind::ArgumentList.into_id(&lang);
+    if cursor.node().kind_id() != args {
+        return None;
+    }
+
+    debug_assert_eq!(
+        cursor.node().kind_id(),
+        NodeKind::ArgumentList.into_id(&cursor.node().language())
+    );
+
+    let entry = cursor.clone();
+
+    let (path, string): (u16, u16) = {
+        let id_path = NodeKind::Path.into_id(&lang);
+        let id_string = NodeKind::String.into_id(&lang);
+
+        (id_path, id_string)
+    };
+
+    if !cursor.goto_first_child() {
+        return None;
+    }
+
+    let path: &str = loop {
+        let node = cursor.node();
+        let id = node.kind_id();
+
+        if id == path {
+            break &text[node.byte_range()];
+        } else if id == string {
+            break &get_string_body(&node, &text);
+        }
+
+        if !cursor.goto_next_sibling() {
+            return None;
+        }
+    };
+    cursor.reset_to(&entry);
+
+    debug_assert_eq!(
+        cursor.node().kind_id(),
+        NodeKind::ArgumentList.into_id(&cursor.node().language())
+    );
+    Some(path)
+}
+
 /// Differentiate labels starting a subroutine from plain labels.
 /// See [Note: Subroutines Definitions from `(labeled_expression)`]
 /// for the selection criteria.
@@ -982,7 +1044,7 @@ fn goto_subroutine_call_target<'a>(cursor: &'a mut TreeCursor) -> Option<Node<'a
     Some(target)
 }
 
-fn extract_script_call(text: &str, cursor: &mut TreeCursor) -> Option<CallExpression> {
+pub fn extract_script_call(text: &str, cursor: &mut TreeCursor) -> Option<CallExpression> {
     let call = cursor.node();
 
     debug_assert_eq!(

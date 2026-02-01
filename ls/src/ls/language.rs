@@ -13,8 +13,8 @@ use crate::{
     protocol::{Location, LocationLink, Position, Range as LRange, Uri},
     t32::{
         FindMacroRefsLangContext, FindRefsLangContext, GotoDefLangContext, MacroDefinition,
-        MacroDefinitionResult, MacroScope, NodeKind, Subroutine, find_label_references,
-        find_macro_definition_references, find_stack_macro_references,
+        MacroDefinitionResult, MacroScope, NodeKind, Subroutine, find_command_file_target,
+        find_label_references, find_macro_definition_references, find_stack_macro_references,
         find_subroutine_call_references, find_subroutine_references, get_find_ref_ids,
         get_goto_def_ids, get_macro_scope, goto_external_macro_definition, goto_file,
         goto_infile_macro_definition, goto_subroutine_definition, id_into_node,
@@ -29,13 +29,13 @@ pub enum FindDefintionsForMacroRefResult {
     Partial(Vec<MacroDefinitionLocation>, Uri, Vec<Uri>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum FindReferencesResult {
     Final(Vec<Location>),
     Partial(FindReferencesPartialResult),
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum FindReferencesPartialResult {
     MacroDefsComplete {
         origin: MacroReferenceOrigin,
@@ -45,9 +45,7 @@ pub enum FindReferencesPartialResult {
         origin: MacroReferenceOrigin,
         definitions: Vec<(FileLocation, Option<MacroScope>)>,
     },
-
-    #[expect(unused)]
-    FileTarget,
+    FileTarget(String),
 }
 
 #[derive(Debug, PartialEq)]
@@ -476,7 +474,21 @@ pub fn find_references(
     let node = origin.node();
 
     match id_into_node(&lang, node.kind_id()) {
-        NodeKind::CommandExpression => todo!(),
+        NodeKind::CommandExpression => {
+            // Selecting one of the command arguments in a `DO` or `RUN`
+            // command is sufficient to trigger retrieval of all references
+            // to the same file. However, if the command is selected, then
+            // all references with the same command will be returned.
+            if command_argument_selected(origin.clone(), offset)
+                && let Some(target) = find_command_file_target(&textdoc.doc.text, origin)
+            {
+                Some(FindReferencesResult::Partial(
+                    FindReferencesPartialResult::FileTarget(target),
+                ))
+            } else {
+                todo!()
+            }
+        }
         NodeKind::LabeledExpression => {
             if !position_aligned_with_node_start(&position, &textdoc.doc, &node) {
                 return None;
@@ -730,6 +742,35 @@ pub fn find_infile_macro_references(
         locs.push(textdoc.doc.to_range(inner.start, inner.end));
     }
     FindMacroReferencesResult::build(textdoc.doc.uri, locs, scripts)
+}
+
+pub fn command_argument_selected(mut cursor: TreeCursor, offset: usize) -> bool {
+    debug_assert_eq!(
+        cursor.node().kind_id(),
+        NodeKind::CommandExpression.into_id(&cursor.node().language())
+    );
+
+    if cursor.goto_first_child_for_byte(offset).is_none() {
+        return false;
+    }
+
+    let node = cursor.node();
+    let lang = node.language();
+
+    // Selection is on command
+    if node.kind_id() != NodeKind::ArgumentList.into_id(&lang) {
+        return false;
+    }
+
+    if cursor.goto_first_child_for_byte(offset).is_none() {
+        return false;
+    }
+
+    if cursor.node().byte_range().contains(&offset) {
+        true
+    } else {
+        false
+    }
 }
 
 fn find_deepest_node<'a>(tree: &'a Tree, offset: usize, stop_at: &[u16]) -> Option<TreeCursor<'a>> {
@@ -2483,5 +2524,20 @@ mod tests {
             );
             assert_eq!(defs, result);
         }
+    }
+
+    #[test]
+    fn can_return_subscript_call_file_target_for_find_reference_req() {
+        let refs = find_refs(
+            "tests/samples/a/a.cmm",
+            Position {
+                line: 49,
+                character: 6,
+            },
+        );
+        assert!(refs.is_some_and(|r| r
+            == FindReferencesResult::Partial(FindReferencesPartialResult::FileTarget(
+                "../b/b.cmm".to_string()
+            ))));
     }
 }

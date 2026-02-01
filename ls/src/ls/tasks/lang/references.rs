@@ -46,9 +46,13 @@ use crate::{
             MacroDefinitionLocationMap, OngoingTask, Task, TaskDone, TaskProgress, Tasks,
             find_ongoing_task_by_id, trace_doc_unknown, try_schedule,
         },
+        workspace::FileIndex,
     },
     protocol::{Location, LogTraceParams, NumberOrString, ReferenceParams, TraceValue, Uri},
-    t32::{FindMacroRefsLangContext, FindRefsLangContext, GotoDefLangContext, MacroScope},
+    t32::{
+        FindMacroRefsLangContext, FindRefsLangContext, GotoDefLangContext, MacroScope,
+        resolve_script,
+    },
 };
 
 pub fn process_find_references_req(
@@ -97,6 +101,7 @@ pub fn process_find_references_req(
 
 pub fn process_find_references_result(
     docs: &TextDocs,
+    files: &FileIndex,
     id: &NumberOrString,
     references: Option<FindReferencesResult>,
     trace_level: TraceValue,
@@ -179,7 +184,32 @@ pub fn process_find_references_result(
                     range: origin.span,
                 }])
             }
-            FindReferencesPartialResult::FileTarget => todo!(),
+            // TODO: Include the script itself, if request asked to include declarations?
+            FindReferencesPartialResult::FileTarget(target) => {
+                if let Some(scripts) = resolve_script(&target, files) {
+                    let mut locations: Vec<Location> = Vec::new();
+                    for script in scripts {
+                        if let Some((files, refs)) = docs.get_all_target_file_refs(&script) {
+                            for (file, spans) in files.iter().zip(refs) {
+                                for span in spans {
+                                    locations.push(Location {
+                                        uri: file.clone(),
+                                        range: span.clone(),
+                                    });
+                                }
+                            }
+                        }
+                    }
+
+                    if locations.is_empty() {
+                        None
+                    } else {
+                        Some(locations)
+                    }
+                } else {
+                    None
+                }
+            }
         },
         None => None,
     };
@@ -1031,6 +1061,7 @@ mod tests {
 
         let result = process_find_references_result(
             &docs,
+            &file_idx,
             &id,
             find_refs_res,
             TraceValue::Off,
@@ -1118,6 +1149,7 @@ mod tests {
 
         let result = process_find_references_result(
             &docs,
+            &file_idx,
             &id,
             find_refs_res,
             TraceValue::Off,
@@ -1191,6 +1223,7 @@ mod tests {
 
         let result = process_find_references_result(
             &docs,
+            &file_idx,
             &id,
             find_refs_res,
             TraceValue::Off,
@@ -1880,5 +1913,57 @@ mod tests {
             };
             progress.ready()
         }));
+    }
+
+    #[test]
+    fn can_process_find_refs_result_for_file_target() {
+        let files = files();
+        let file_idx = create_file_idx();
+        let docs = create_doc_store(&files, &file_idx);
+
+        let id = NumberOrString::Number(1);
+        let onset = Instant::now();
+
+        let mut ts = Tasks {
+            runner: TaskSystem::build(),
+            blocked: Vec::new(),
+            ongoing: vec![Some(OngoingTask::FindReferences(id.clone(), onset.clone()))],
+            completed: Vec::new(),
+            counter: TaskCounterInternal::new(),
+        };
+
+        let find_refs_res = Some(FindReferencesResult::Partial(
+            FindReferencesPartialResult::FileTarget(to_file_uri("tests/samples/b/b.cmm")),
+        ));
+
+        let mut outgoing: Vec<Option<Message>> = Vec::new();
+
+        let result = process_find_references_result(
+            &docs,
+            &file_idx,
+            &id,
+            find_refs_res,
+            TraceValue::Off,
+            &mut ts,
+            &mut outgoing,
+        );
+
+        assert!(result.is_some_and(|r| r
+            == FindReferencesResponse {
+                id,
+                result: Some(vec![Location {
+                    uri: to_file_uri("tests/samples/a/a.cmm"),
+                    range: Range {
+                        start: Position {
+                            line: 49,
+                            character: 3,
+                        },
+                        end: Position {
+                            line: 49,
+                            character: 13,
+                        },
+                    },
+                },]),
+            }));
     }
 }

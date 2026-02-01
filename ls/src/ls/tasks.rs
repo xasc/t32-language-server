@@ -65,11 +65,7 @@ pub enum FindMacroReferencesPhase {
         subscripts: Vec<Uri>,
         results: FileLocationMap,
         undone: MacroDefinitionLocationMap,
-        // definitions: Vec<MacroPropagation>,
-        // undone: Vec<Uri>,
     },
-    // TODO: Do not convert file location to `MacroPropagation`. Wait until all locations have
-    // been determined.
     ExternalDefinitions {
         visited: FileCallMap,
         results: MacroDefinitionLocationMap,
@@ -654,6 +650,7 @@ fn process_completed_task(
                 };
 
                 outgoing.push(Some(trace_find_refs(
+                    id.clone(),
                     Instant::now() - *onset,
                     locations.clone(),
                 )));
@@ -712,15 +709,22 @@ fn process_completed_task(
             Ok(false)
         }
         TaskDone::FindReferences(id, result) => {
-            if let Some(resp) =
-                process_find_references_result(docs, &id, result, cfg.trace_level, ts, outgoing)
-            {
+            if let Some(resp) = process_find_references_result(
+                docs,
+                files,
+                &id,
+                result,
+                cfg.trace_level,
+                ts,
+                outgoing,
+            ) {
                 if cfg.trace_level != TraceValue::Off {
                     let idx = find_ongoing_task_by_id(&id, &ts.ongoing);
                     let Some(OngoingTask::FindReferences(_, onset)) = &ts.ongoing[idx] else {
                         unreachable!("Must not retrieve any other variant.");
                     };
                     outgoing.push(Some(trace_find_refs(
+                        id,
                         Instant::now() - *onset,
                         resp.result.clone(),
                     )));
@@ -1260,11 +1264,12 @@ fn trace_doc_unknown(uri: &str) -> Message {
     })
 }
 
-fn trace_find_refs(duration: Duration, refs: Option<Vec<Location>>) -> Message {
+fn trace_find_refs(id: NumberOrString, duration: Duration, refs: Option<Vec<Location>>) -> Message {
     Message::Notification(Notification::LogTraceNotification {
         params: LogTraceParams {
             message: format!(
-                "INFO: Find references request completed in {:.4} seconds.",
+                "INFO: Find references request with ID \"{}\" completed in {:.4} seconds.",
+                id,
                 duration.as_secs_f32()
             ),
             verbose: if let Some(loc) = refs {

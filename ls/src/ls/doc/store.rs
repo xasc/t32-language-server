@@ -11,8 +11,8 @@ use crate::{
         doc::textdoc::{TextDoc, TextDocStatus},
         tasks::RenameFileOperations,
     },
-    protocol::Uri,
-    t32::{LangExpressions, MacroDefinition},
+    protocol::{Range, Uri},
+    t32::{CallExpressions, LangExpressions, MacroDefinition, SubscriptCalls},
     utils::BRange,
 };
 
@@ -26,7 +26,9 @@ pub struct TextDocs {
 
     callers: CallerStore,
     t32: LangExpressionStore,
+
     macro_index: BTreeMap<String, Vec<Uri>>,
+    file_target_index: FileTargetIndex,
 
     registry: BTreeMap<Uri, DocIndex>,
     free_list: FreeLists,
@@ -100,6 +102,7 @@ impl<'a> TextDocs {
                 closed: Vec::new(),
             },
             macro_index: BTreeMap::new(),
+            file_target_index: FileTargetIndex::new(),
             registry: BTreeMap::new(),
             free_list: FreeLists {
                 open: Vec::new(),
@@ -127,6 +130,7 @@ impl<'a> TextDocs {
                 closed: Vec::with_capacity(num),
             },
             macro_index: BTreeMap::new(),
+            file_target_index: FileTargetIndex::new(),
             registry: BTreeMap::new(),
             free_list: FreeLists {
                 open: Vec::new(),
@@ -143,8 +147,11 @@ impl<'a> TextDocs {
         let mut store = TextDocs::with_capacity(members.len());
 
         debug_assert_eq!(store.docs.closed.len(), 0);
+        debug_assert!(store.file_target_index.is_empty());
         for file in members {
             store.update_macro_index(&file.0, &file.2.macro_refs);
+            store.update_file_target_index(&file.0, file.2.calls.scripts.as_ref());
+
             let _ = store.insert_or_update(file.0, file.1, file.2, TextDocStatus::Closed);
         }
 
@@ -158,6 +165,7 @@ impl<'a> TextDocs {
             self.remove_caller(&doc.uri, &targets.clone());
         }
         self.update_macro_index(&doc, &expr.macro_refs);
+        self.update_file_target_index(&doc, expr.calls.scripts.as_ref());
 
         let uri = doc.uri.clone();
         self.insert_or_update(doc, tree, expr, status);
@@ -167,6 +175,7 @@ impl<'a> TextDocs {
 
     pub fn update(&mut self, doc: TextDoc, tree: Tree, expr: LangExpressions) {
         self.update_macro_index(&doc, &expr.macro_refs);
+        self.update_file_target_index(&doc, expr.calls.scripts.as_ref());
 
         if let Some(val) = self.registry.get(&doc.uri) {
             debug_assert_eq!(val.0, TextDocStatus::Open);
@@ -266,6 +275,7 @@ impl<'a> TextDocs {
         self.rename_lang_expr(&old, &new);
         self.rename_callers(&old, &new);
         self.rename_macro_index_refs(&old, &new);
+        self.rename_file_target_index_refs(&old, &new);
     }
 
     pub fn get_doc(&self, uri: &str) -> Option<&TextDoc> {
@@ -361,9 +371,15 @@ impl<'a> TextDocs {
     }
 
     /// Macro name must start with `&`.
-    #[allow(dead_code)]
     pub fn get_all_scripts_with_macro(&'a self, name: &str) -> Option<&'a Vec<Uri>> {
         self.macro_index.get(name)
+    }
+
+    pub fn get_all_target_file_refs(
+        &'a self,
+        uri: &str,
+    ) -> Option<&'a (Vec<Uri>, Vec<Vec<Range>>)> {
+        self.file_target_index.get(uri)
     }
 
     pub fn is_open(&self, uri: &str) -> bool {
@@ -866,6 +882,133 @@ impl<'a> TextDocs {
             insert_into_macro_idx(&doc.uri, &old_macros, &new_macros, &mut self.macro_index);
         }
     }
+
+    fn update_file_target_index(&mut self, doc: &TextDoc, new: Option<&SubscriptCalls>) {
+        let old: Vec<Uri> = {
+            let mut targets: Vec<Uri> = Vec::new();
+
+            if let Some(t32) = self.get_lang_expressions(&doc.uri)
+                && let LangExpressions {
+                    calls: CallExpressions { scripts, .. },
+                    ..
+                } = t32
+                && let Some(calls) = scripts
+            {
+                for target in calls.targets.iter() {
+                    let Some(uri) = target else {
+                        continue;
+                    };
+                    targets.push(uri.clone());
+                }
+            }
+            targets
+        };
+
+        if !old.is_empty() {
+            self.file_target_index.remove(&doc.uri, &old);
+        }
+        if let Some(calls) = new {
+            self.file_target_index.add(doc, calls);
+        }
+    }
+
+    fn rename_file_target_index_refs(&mut self, old: &[Uri], new: &[Uri]) {
+        debug_assert!(old.len() > 0);
+        debug_assert!(old.len() == new.len());
+
+        for (old_uri, new_uri) in old.iter().zip(new) {
+            self.file_target_index.rename(old_uri, new_uri);
+        }
+    }
+}
+
+struct FileTargetIndex {
+    data: BTreeMap<Uri, (Vec<Uri>, Vec<Vec<Range>>)>,
+}
+
+impl<'a> FileTargetIndex {
+    pub fn new() -> Self {
+        Self {
+            data: BTreeMap::new(),
+        }
+    }
+
+    pub fn add(&mut self, doc: &TextDoc, calls: &SubscriptCalls) {
+        for (call, target) in calls.locations.iter().zip(calls.targets.iter()) {
+            let Some(uri) = target else {
+                continue;
+            };
+            let (start, end) = (call.target.start, call.target.end);
+
+            let span = doc.to_range(start, end);
+            self.insert(&doc.uri, uri, span);
+        }
+    }
+
+    pub fn remove(&mut self, src: &str, targets: &[Uri]) {
+        for dest in targets {
+            self.clear_source_ranges(src, dest);
+        }
+    }
+
+    pub fn rename(&mut self, old: &Uri, new: &Uri) {
+        if let Some(values) = self.data.remove(old) {
+            debug_assert!(!self.data.contains_key(new));
+            self.data.insert(new.to_string(), values);
+        }
+
+        for files in self.data.values_mut() {
+            if let Ok(ii) = files.0.binary_search_by(|f| f.cmp(old)) {
+                files.0.remove(ii);
+                let locations = files.1.remove(ii);
+
+                debug_assert!(files.0.binary_search_by(|f| f.cmp(new)).is_err());
+
+                let Err(ii) = files.0.binary_search_by(|f| f.cmp(new)) else {
+                    unreachable!("There must be no data bound to the new file name.");
+                };
+                files.0.insert(ii, new.clone());
+                files.1.insert(ii, locations);
+            }
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
+    }
+
+    pub fn get(&'a self, uri: &str) -> Option<&'a (Vec<Uri>, Vec<Vec<Range>>)> {
+        self.data.get(uri)
+    }
+
+    fn insert(&mut self, src: &str, dest: &str, span: Range) {
+        let Some(locations) = self.data.get_mut(dest) else {
+            self.data
+                .insert(dest.to_string(), (vec![src.to_string()], vec![vec![span]]));
+            return;
+        };
+        debug_assert_eq!(locations.0.len(), locations.1.len());
+
+        match locations.0.binary_search_by(|f| f.as_str().cmp(src)) {
+            Ok(ii) => {
+                debug_assert!(!locations.1[ii].contains(&span));
+                locations.1[ii].push(span);
+            }
+            Err(ii) => {
+                locations.0.insert(ii, src.to_string());
+                locations.1.insert(ii, vec![span]);
+            }
+        }
+        debug_assert_eq!(locations.0.len(), locations.1.len());
+    }
+
+    fn clear_source_ranges(&mut self, src: &str, dest: &str) {
+        if let Some(locations) = self.data.get_mut(dest) {
+            if let Ok(ii) = locations.0.binary_search_by(|f| f.as_str().cmp(src)) {
+                locations.1[ii].clear();
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -880,10 +1023,11 @@ mod test {
         ls::{
             doc::{
                 find_parameter_declarations, find_subroutines_and_labels, read_doc,
-                textdoc::create_line_map_for_text,
+                resolve_call_expressions, textdoc::create_line_map_for_text,
             },
             workspace::{FileIndex, index_files, rename_files},
         },
+        protocol::Position,
         t32::{
             self, CallExpressions, LANGUAGE_ID, find_any_macro_references, find_macro_definitions,
         },
@@ -904,7 +1048,11 @@ mod test {
         TextDocs::from_workspace(members)
     }
 
-    fn create_doc(uri: &str, text: &str) -> (TextDoc, Tree, LangExpressions) {
+    fn create_doc(
+        uri: &str,
+        text: &str,
+        files: Option<FileIndex>,
+    ) -> (TextDoc, Tree, LangExpressions) {
         let lines = create_line_map_for_text(&text, None, None);
         let doc = TextDoc {
             uri: uri.to_string(),
@@ -917,10 +1065,16 @@ mod test {
 
         let (subroutines, labels) = find_subroutines_and_labels(&doc.text, &tree);
         let parameters = find_parameter_declarations(&doc.text, &tree);
-        let calls = CallExpressions {
-            subroutines: Vec::new(),
-            scripts: None,
+
+        let calls = if let Some(file_idx) = files {
+            resolve_call_expressions(text, &tree, &file_idx)
+        } else {
+            CallExpressions {
+                subroutines: Vec::new(),
+                scripts: None,
+            }
         };
+
         let macro_refs = find_any_macro_references(&tree);
         let macros = find_macro_definitions(&doc.text, &subroutines, &calls.subroutines, &tree);
 
@@ -946,7 +1100,7 @@ mod test {
 
         let files = ["file:///a.cmm", "file:///b.cmm"];
         for uri in files.iter() {
-            let (doc, tree, expr) = create_doc(*uri, &text);
+            let (doc, tree, expr) = create_doc(*uri, &text, None);
             docs.add(doc, tree, expr, TextDocStatus::Open);
 
             assert!(docs.is_open(*uri));
@@ -960,13 +1114,13 @@ mod test {
         assert!(!docs.free_list.open.is_empty());
         assert!(docs.free_list.closed.is_empty());
 
-        let (doc, tree, expr) = create_doc(files[0], &text);
+        let (doc, tree, expr) = create_doc(files[0], &text, None);
         docs.add(doc, tree, expr, TextDocStatus::Open);
 
         assert!(!docs.free_list.open.is_empty());
         assert!(!docs.free_list.closed.is_empty());
 
-        let (doc, tree, expr) = create_doc(files[1], &text);
+        let (doc, tree, expr) = create_doc(files[1], &text, None);
         docs.add(doc, tree, expr, TextDocStatus::Open);
 
         assert!(docs.free_list.open.is_empty());
@@ -979,7 +1133,7 @@ mod test {
 
         let text = "PRINT \"Hello, World!\"\n";
         let uri = "file:///test.cmm";
-        let (doc, tree, expr) = create_doc(uri, &text);
+        let (doc, tree, expr) = create_doc(uri, &text, None);
 
         docs.add(doc, tree, expr, TextDocStatus::Open);
 
@@ -1195,7 +1349,7 @@ mod test {
         assert_eq!(&hits[..], [uri_a.clone(), uri_d.clone()]);
 
         let text = "LOCAL &a\n&a=3\n";
-        let (doc, tree, expr) = create_doc(&uri_a1, &text);
+        let (doc, tree, expr) = create_doc(&uri_a1, &text, None);
         docs.add(doc, tree, expr, TextDocStatus::Open);
 
         let hits = docs
@@ -1211,7 +1365,7 @@ mod test {
         assert_eq!(&hits[..], uris);
 
         let text = "PRINT \"Hello, World!\"\n";
-        let (doc, tree, expr) = create_doc(&uri_a, &text);
+        let (doc, tree, expr) = create_doc(&uri_a, &text, None);
         docs.add(doc, tree, expr, TextDocStatus::Open);
 
         assert!(docs.get_all_scripts_with_macro("&b").is_none());
@@ -1221,5 +1375,190 @@ mod test {
             .expect("Must find references for macro.");
         let uris = [uri_d, uri_a1];
         assert_eq!(&hits[..], uris);
+    }
+
+    #[test]
+    fn can_update_file_target_index() {
+        let files = files();
+        let file_idx = create_file_idx();
+        let mut docs = create_doc_store(&files, &file_idx);
+
+        let uri_a = to_file_uri("tests/samples/a/a.cmm");
+
+        assert!(
+            docs.get_all_target_file_refs(&uri_a)
+                .is_some_and(|r| r.0.contains(&to_file_uri("tests/samples/a/d/d.cmm")))
+        );
+        assert!(
+            docs.get_all_target_file_refs(&uri_a)
+                .is_some_and(|r| r.1.contains(&vec![Range {
+                    start: Position {
+                        line: 4,
+                        character: 3,
+                    },
+                    end: Position {
+                        line: 4,
+                        character: 13,
+                    }
+                }],))
+        );
+
+        assert!(
+            docs.get_all_target_file_refs(&uri_a)
+                .is_some_and(|r| r.0.contains(&to_file_uri("tests/samples/c.cmm")))
+        );
+        assert!(
+            docs.get_all_target_file_refs(&uri_a)
+                .is_some_and(|r| r.1.contains(&vec![
+                    Range {
+                        start: Position {
+                            line: 6,
+                            character: 3,
+                        },
+                        end: Position {
+                            line: 6,
+                            character: 12,
+                        }
+                    },
+                    Range {
+                        start: Position {
+                            line: 18,
+                            character: 3,
+                        },
+                        end: Position {
+                            line: 18,
+                            character: 12,
+                        }
+                    },
+                    Range {
+                        start: Position {
+                            line: 24,
+                            character: 7,
+                        },
+                        end: Position {
+                            line: 24,
+                            character: 16,
+                        }
+                    },
+                ]))
+        );
+
+        let uri_c1 = to_file_uri("tests/samples/a/c1.cmm");
+        let text = "DO a.cmm\n&a=3\n";
+        let (doc, tree, expr) = create_doc(&uri_c1, &text, Some(file_idx));
+        docs.add(doc, tree, expr, TextDocStatus::Open);
+
+        assert!(
+            docs.get_all_target_file_refs(&uri_a)
+                .is_some_and(|r| r.0.contains(&uri_c1,))
+        );
+        assert!(
+            docs.get_all_target_file_refs(&uri_a)
+                .is_some_and(|r| r.1.contains(&vec![Range {
+                    start: Position {
+                        line: 0,
+                        character: 3,
+                    },
+                    end: Position {
+                        line: 0,
+                        character: 8,
+                    }
+                }],))
+        );
+
+        assert!(
+            docs.get_all_target_file_refs(&uri_a)
+                .is_some_and(|r| r.0.contains(&to_file_uri("tests/samples/a/d/d.cmm")))
+        );
+        assert!(
+            docs.get_all_target_file_refs(&uri_a)
+                .is_some_and(|r| r.1.contains(&vec![Range {
+                    start: Position {
+                        line: 4,
+                        character: 3,
+                    },
+                    end: Position {
+                        line: 4,
+                        character: 13,
+                    }
+                }],))
+        );
+
+        assert!(
+            docs.get_all_target_file_refs(&uri_a)
+                .is_some_and(|r| r.0.contains(&to_file_uri("tests/samples/c.cmm")))
+        );
+        assert!(
+            docs.get_all_target_file_refs(&uri_a)
+                .is_some_and(|r| r.1.contains(&vec![
+                    Range {
+                        start: Position {
+                            line: 6,
+                            character: 3,
+                        },
+                        end: Position {
+                            line: 6,
+                            character: 12,
+                        }
+                    },
+                    Range {
+                        start: Position {
+                            line: 18,
+                            character: 3,
+                        },
+                        end: Position {
+                            line: 18,
+                            character: 12,
+                        }
+                    },
+                    Range {
+                        start: Position {
+                            line: 24,
+                            character: 7,
+                        },
+                        end: Position {
+                            line: 24,
+                            character: 16,
+                        }
+                    },
+                ]))
+        );
+
+        let uri_c2 = to_file_uri("tests/samples/a/c2.cmm");
+        docs.rename_files(&RenameFileOperations {
+            old: vec![uri_c1.clone()],
+            new: vec![uri_c2.clone()],
+        });
+
+        assert!(
+            docs.get_all_target_file_refs(&uri_a)
+                .is_some_and(|r| !r.0.contains(&uri_c1,))
+        );
+        assert!(
+            docs.get_all_target_file_refs(&uri_a)
+                .is_some_and(|r| r.0.contains(&uri_c2,))
+        );
+        assert!(
+            docs.get_all_target_file_refs(&uri_a)
+                .is_some_and(|r| r.1.contains(&vec![Range {
+                    start: Position {
+                        line: 0,
+                        character: 3,
+                    },
+                    end: Position {
+                        line: 0,
+                        character: 8,
+                    }
+                }],))
+        );
+
+        let uri_a1 = to_file_uri("tests/samples/a/a1.cmm");
+        docs.rename_files(&RenameFileOperations {
+            old: vec![uri_a.clone()],
+            new: vec![uri_a1.clone()],
+        });
+
+        assert!(docs.get_all_target_file_refs(&uri_a).is_none());
+        assert!(docs.get_all_target_file_refs(&uri_a1).is_some());
     }
 }
