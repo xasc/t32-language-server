@@ -42,9 +42,9 @@ use crate::{
         request::Notification,
         response::{FindReferencesResponse, NullResponse, Response},
         tasks::{
-            ExtMacroDefLookups, FileCallMap, FileLocationMap, FindMacroReferencesPhase,
-            MacroDefinitionLocationMap, OngoingTask, Task, TaskDone, TaskProgress, Tasks,
-            find_ongoing_task_by_id, trace_doc_unknown, try_schedule,
+            ExtMacroDefLookups, FileCallMap, FindMacroReferencesPhase, MacroDefinitionLocationMap,
+            OngoingTask, Task, TaskDone, TaskProgress, Tasks, find_ongoing_task_by_id,
+            trace_doc_unknown, try_schedule,
         },
         workspace::FileIndex,
     },
@@ -53,6 +53,7 @@ use crate::{
         FindMacroRefsLangContext, FindRefsLangContext, GotoDefLangContext, MacroScope,
         resolve_script,
     },
+    utils::FileLocationMap,
 };
 
 pub fn process_find_references_req(
@@ -189,8 +190,8 @@ pub fn process_find_references_result(
                 if let Some(scripts) = resolve_script(&target, files) {
                     let mut locations: Vec<Location> = Vec::new();
                     for script in scripts {
-                        if let Some((files, refs)) = docs.get_all_target_file_refs(&script) {
-                            for (file, spans) in files.iter().zip(refs) {
+                        if let Some(locs) = docs.get_all_target_file_refs(&script) {
+                            for (file, spans) in locs.iter() {
                                 for span in spans {
                                     locations.push(Location {
                                         uri: file.clone(),

@@ -13,7 +13,7 @@ use crate::{
     },
     protocol::{Range, Uri},
     t32::{CallExpressions, LangExpressions, MacroDefinition, SubscriptCalls},
-    utils::BRange,
+    utils::{BRange, FileLocationMap},
 };
 
 /// TODO: Reduce size to 64 bit or less.
@@ -375,10 +375,7 @@ impl<'a> TextDocs {
         self.macro_index.get(name)
     }
 
-    pub fn get_all_target_file_refs(
-        &'a self,
-        uri: &str,
-    ) -> Option<&'a (Vec<Uri>, Vec<Vec<Range>>)> {
+    pub fn get_all_target_file_refs(&'a self, uri: &str) -> Option<&'a FileLocationMap> {
         self.file_target_index.get(uri)
     }
 
@@ -923,7 +920,7 @@ impl<'a> TextDocs {
 }
 
 struct FileTargetIndex {
-    data: BTreeMap<Uri, (Vec<Uri>, Vec<Vec<Range>>)>,
+    data: BTreeMap<Uri, FileLocationMap>,
 }
 
 impl<'a> FileTargetIndex {
@@ -947,7 +944,9 @@ impl<'a> FileTargetIndex {
 
     pub fn remove(&mut self, src: &str, targets: &[Uri]) {
         for dest in targets {
-            self.clear_source_ranges(src, dest);
+            if let Some(locations) = self.data.get_mut(dest) {
+                locations.remove(src);
+            }
         }
     }
 
@@ -958,18 +957,8 @@ impl<'a> FileTargetIndex {
         }
 
         for files in self.data.values_mut() {
-            if let Ok(ii) = files.0.binary_search_by(|f| f.cmp(old)) {
-                files.0.remove(ii);
-                let locations = files.1.remove(ii);
-
-                debug_assert!(files.0.binary_search_by(|f| f.cmp(new)).is_err());
-
-                let Err(ii) = files.0.binary_search_by(|f| f.cmp(new)) else {
-                    unreachable!("There must be no data bound to the new file name.");
-                };
-                files.0.insert(ii, new.clone());
-                files.1.insert(ii, locations);
-            }
+            debug_assert!(files.get(new).is_none());
+            files.rename(old, new);
         }
     }
 
@@ -977,37 +966,19 @@ impl<'a> FileTargetIndex {
         self.data.is_empty()
     }
 
-    pub fn get(&'a self, uri: &str) -> Option<&'a (Vec<Uri>, Vec<Vec<Range>>)> {
+    pub fn get(&'a self, uri: &str) -> Option<&'a FileLocationMap> {
         self.data.get(uri)
     }
 
     fn insert(&mut self, src: &str, dest: &str, span: Range) {
         let Some(locations) = self.data.get_mut(dest) else {
-            self.data
-                .insert(dest.to_string(), (vec![src.to_string()], vec![vec![span]]));
+            let mut locations = FileLocationMap::new();
+            locations.insert(src, span);
+
+            self.data.insert(dest.to_string(), locations);
             return;
         };
-        debug_assert_eq!(locations.0.len(), locations.1.len());
-
-        match locations.0.binary_search_by(|f| f.as_str().cmp(src)) {
-            Ok(ii) => {
-                debug_assert!(!locations.1[ii].contains(&span));
-                locations.1[ii].push(span);
-            }
-            Err(ii) => {
-                locations.0.insert(ii, src.to_string());
-                locations.1.insert(ii, vec![span]);
-            }
-        }
-        debug_assert_eq!(locations.0.len(), locations.1.len());
-    }
-
-    fn clear_source_ranges(&mut self, src: &str, dest: &str) {
-        if let Some(locations) = self.data.get_mut(dest) {
-            if let Ok(ii) = locations.0.binary_search_by(|f| f.as_str().cmp(src)) {
-                locations.1[ii].clear();
-            }
-        }
+        locations.insert(src, span);
     }
 }
 
@@ -1384,63 +1355,67 @@ mod test {
         let mut docs = create_doc_store(&files, &file_idx);
 
         let uri_a = to_file_uri("tests/samples/a/a.cmm");
+        let uri_c = to_file_uri("tests/samples/c.cmm");
+        let uri_d = to_file_uri("tests/samples/a/d/d.cmm");
 
         assert!(
             docs.get_all_target_file_refs(&uri_a)
-                .is_some_and(|r| r.0.contains(&to_file_uri("tests/samples/a/d/d.cmm")))
+                .is_some_and(|r| r.contains(&uri_d))
         );
         assert!(
             docs.get_all_target_file_refs(&uri_a)
-                .is_some_and(|r| r.1.contains(&vec![Range {
-                    start: Position {
-                        line: 4,
-                        character: 3,
-                    },
-                    end: Position {
-                        line: 4,
-                        character: 13,
-                    }
-                }],))
+                .is_some_and(|r| r.get(&uri_d).is_some_and(|r| r
+                    == &vec![Range {
+                        start: Position {
+                            line: 4,
+                            character: 3,
+                        },
+                        end: Position {
+                            line: 4,
+                            character: 13,
+                        }
+                    }],))
         );
 
         assert!(
             docs.get_all_target_file_refs(&uri_a)
-                .is_some_and(|r| r.0.contains(&to_file_uri("tests/samples/c.cmm")))
+                .is_some_and(|r| r.contains(&uri_c))
         );
         assert!(
             docs.get_all_target_file_refs(&uri_a)
-                .is_some_and(|r| r.1.contains(&vec![
-                    Range {
-                        start: Position {
-                            line: 6,
-                            character: 3,
+                .is_some_and(|r| r.get(&uri_c).is_some_and(|r| r
+                    == &vec![
+                        Range {
+                            start: Position {
+                                line: 6,
+                                character: 3,
+                            },
+                            end: Position {
+                                line: 6,
+                                character: 12,
+                            }
                         },
-                        end: Position {
-                            line: 6,
-                            character: 12,
-                        }
-                    },
-                    Range {
-                        start: Position {
-                            line: 18,
-                            character: 3,
+                        Range {
+                            start: Position {
+                                line: 18,
+                                character: 3,
+                            },
+                            end: Position {
+                                line: 18,
+                                character: 12,
+                            }
                         },
-                        end: Position {
-                            line: 18,
-                            character: 12,
-                        }
-                    },
-                    Range {
-                        start: Position {
-                            line: 24,
-                            character: 7,
+                        Range {
+                            start: Position {
+                                line: 24,
+                                character: 7,
+                            },
+                            end: Position {
+                                line: 24,
+                                character: 16,
+                            }
                         },
-                        end: Position {
-                            line: 24,
-                            character: 16,
-                        }
-                    },
-                ]))
+                    ]))
         );
 
         let uri_c1 = to_file_uri("tests/samples/a/c1.cmm");
@@ -1450,78 +1425,81 @@ mod test {
 
         assert!(
             docs.get_all_target_file_refs(&uri_a)
-                .is_some_and(|r| r.0.contains(&uri_c1,))
+                .is_some_and(|r| r.contains(&uri_c1))
         );
         assert!(
             docs.get_all_target_file_refs(&uri_a)
-                .is_some_and(|r| r.1.contains(&vec![Range {
-                    start: Position {
-                        line: 0,
-                        character: 3,
-                    },
-                    end: Position {
-                        line: 0,
-                        character: 8,
-                    }
-                }],))
+                .is_some_and(|r| r.get(&uri_c1).is_some_and(|r| r
+                    == &vec![Range {
+                        start: Position {
+                            line: 0,
+                            character: 3,
+                        },
+                        end: Position {
+                            line: 0,
+                            character: 8,
+                        }
+                    }],))
         );
 
         assert!(
             docs.get_all_target_file_refs(&uri_a)
-                .is_some_and(|r| r.0.contains(&to_file_uri("tests/samples/a/d/d.cmm")))
+                .is_some_and(|r| r.contains(&uri_d))
         );
         assert!(
             docs.get_all_target_file_refs(&uri_a)
-                .is_some_and(|r| r.1.contains(&vec![Range {
-                    start: Position {
-                        line: 4,
-                        character: 3,
-                    },
-                    end: Position {
-                        line: 4,
-                        character: 13,
-                    }
-                }],))
+                .is_some_and(|r| r.get(&uri_d).is_some_and(|r| r
+                    == &vec![Range {
+                        start: Position {
+                            line: 4,
+                            character: 3,
+                        },
+                        end: Position {
+                            line: 4,
+                            character: 13,
+                        }
+                    }],))
         );
 
         assert!(
             docs.get_all_target_file_refs(&uri_a)
-                .is_some_and(|r| r.0.contains(&to_file_uri("tests/samples/c.cmm")))
+                .is_some_and(|r| r.contains(&uri_c))
         );
         assert!(
             docs.get_all_target_file_refs(&uri_a)
-                .is_some_and(|r| r.1.contains(&vec![
-                    Range {
-                        start: Position {
-                            line: 6,
-                            character: 3,
+                .is_some_and(|r| r.get(&uri_c).is_some_and(|r| r
+                    == &vec![
+                        Range {
+                            start: Position {
+                                line: 6,
+                                character: 3,
+                            },
+                            end: Position {
+                                line: 6,
+                                character: 12,
+                            }
                         },
-                        end: Position {
-                            line: 6,
-                            character: 12,
-                        }
-                    },
-                    Range {
-                        start: Position {
-                            line: 18,
-                            character: 3,
+                        Range {
+                            start: Position {
+                                line: 18,
+                                character: 3,
+                            },
+                            end: Position {
+                                line: 18,
+                                character: 12,
+                            }
                         },
-                        end: Position {
-                            line: 18,
-                            character: 12,
-                        }
-                    },
-                    Range {
-                        start: Position {
-                            line: 24,
-                            character: 7,
+                        Range {
+                            start: Position {
+                                line: 24,
+                                character: 7,
+                            },
+                            end: Position {
+                                line: 24,
+                                character: 16,
+                            }
                         },
-                        end: Position {
-                            line: 24,
-                            character: 16,
-                        }
-                    },
-                ]))
+                    ]))
         );
 
         let uri_c2 = to_file_uri("tests/samples/a/c2.cmm");
@@ -1532,24 +1510,25 @@ mod test {
 
         assert!(
             docs.get_all_target_file_refs(&uri_a)
-                .is_some_and(|r| !r.0.contains(&uri_c1,))
+                .is_some_and(|r| !r.contains(&uri_c1,))
         );
         assert!(
             docs.get_all_target_file_refs(&uri_a)
-                .is_some_and(|r| r.0.contains(&uri_c2,))
+                .is_some_and(|r| r.contains(&uri_c2,))
         );
         assert!(
             docs.get_all_target_file_refs(&uri_a)
-                .is_some_and(|r| r.1.contains(&vec![Range {
-                    start: Position {
-                        line: 0,
-                        character: 3,
-                    },
-                    end: Position {
-                        line: 0,
-                        character: 8,
-                    }
-                }],))
+                .is_some_and(|r| r.get(&uri_c2).is_some_and(|r| r
+                    == &vec![Range {
+                        start: Position {
+                            line: 0,
+                            character: 3,
+                        },
+                        end: Position {
+                            line: 0,
+                            character: 8,
+                        }
+                    }],))
         );
 
         let uri_a1 = to_file_uri("tests/samples/a/a1.cmm");

@@ -15,15 +15,29 @@ use url::Url;
 #[cfg(test)]
 use tree_sitter::Tree;
 
+use crate::protocol::{Location, Range as LRange, Uri};
+
 #[cfg(test)]
 use crate::{
     ls::{FileIndex, TextDoc, TextDocs, index_files, read_doc},
-    protocol::Uri,
     t32::LangExpressions,
 };
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BRange(Range<usize>);
+
+#[derive(Clone, Debug)]
+pub struct FileLocationMap {
+    files: Vec<Uri>,
+    locations: Vec<Vec<LRange>>,
+    mapping: Vec<u32>,
+    free_list: Vec<u32>,
+}
+
+pub struct FileLocationMapIterator<'a> {
+    map: &'a FileLocationMap,
+    idx: usize,
+}
 
 impl BRange {
     pub fn to_inner(self) -> Range<usize> {
@@ -36,6 +50,143 @@ impl BRange {
 
     pub fn contains(&self, offset: &usize) -> bool {
         self.0.contains(offset)
+    }
+}
+
+impl FileLocationMap {
+    pub fn new() -> Self {
+        FileLocationMap {
+            files: Vec::new(),
+            locations: Vec::new(),
+            mapping: Vec::new(),
+            free_list: Vec::new(),
+        }
+    }
+
+    #[allow(unused)]
+    pub fn get<'a>(&'a self, uri: &str) -> Option<&'a Vec<LRange>> {
+        debug_assert!(self.files.len() <= self.locations.len());
+        debug_assert_eq!(self.files.len(), self.mapping.len());
+
+        match self.files.binary_search_by(|f| f.as_str().cmp(uri)) {
+            Ok(ii) => {
+                let slot = self.mapping[ii] as usize;
+                Some(&self.locations[slot])
+            }
+            Err(_) => None,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn contains(&self, uri: &str) -> bool {
+        debug_assert!(self.files.len() <= self.locations.len());
+        debug_assert_eq!(self.files.len(), self.mapping.len());
+
+        match self.files.binary_search_by(|f| f.as_str().cmp(uri)) {
+            Ok(_) => true,
+            Err(_) => false,
+        }
+    }
+
+    pub fn iter<'a>(&'a self) -> FileLocationMapIterator<'a> {
+        debug_assert!(self.files.len() <= self.locations.len());
+        debug_assert_eq!(self.files.len(), self.mapping.len());
+
+        FileLocationMapIterator { map: self, idx: 0 }
+    }
+
+    pub fn insert(&mut self, uri: &str, loc: LRange) {
+        debug_assert!(self.files.len() <= self.locations.len());
+        debug_assert_eq!(self.files.len(), self.mapping.len());
+
+        match self.files.binary_search_by(|f| f.as_str().cmp(uri)) {
+            Ok(ii) => {
+                let slot = self.mapping[ii] as usize;
+
+                match self.locations[slot].binary_search_by(|r| r.cmp(&loc)) {
+                    Ok(_) => return,
+                    Err(idx) => self.locations[slot].insert(idx, loc),
+                };
+            }
+            Err(ii) => {
+                let slot: usize = if self.free_list.is_empty() {
+                    let pos = self.locations.len();
+
+                    self.locations.push(vec![loc]);
+                    pos
+                } else {
+                    let pos: usize = self.free_list.pop().expect("List must no be empty.") as usize;
+
+                    debug_assert!(self.locations[pos].is_empty());
+                    self.locations[pos].push(loc);
+                    pos
+                };
+                self.files.insert(ii, uri.to_string());
+                self.mapping.insert(ii, slot as u32);
+            }
+        }
+        debug_assert!(self.files.len() <= self.locations.len());
+        debug_assert_eq!(self.files.len(), self.mapping.len());
+    }
+
+    #[allow(unused)]
+    pub fn remove(&mut self, uri: &str) {
+        debug_assert!(self.files.len() <= self.locations.len());
+        debug_assert_eq!(self.files.len(), self.mapping.len());
+
+        match self.files.binary_search_by(|f| f.as_str().cmp(uri)) {
+            Ok(ii) => {
+                let slot = self.mapping[ii];
+
+                self.locations[slot as usize].clear();
+                self.free_list.push(slot);
+
+                self.files.remove(ii);
+                self.mapping.remove(ii);
+            }
+            Err(_) => (),
+        }
+        debug_assert!(self.files.len() <= self.locations.len());
+        debug_assert_eq!(self.files.len(), self.mapping.len());
+    }
+
+    pub fn rename(&mut self, old: &str, new: &str) {
+        debug_assert!(self.files.len() <= self.locations.len());
+        debug_assert_eq!(self.files.len(), self.mapping.len());
+
+        if let Ok(ii) = self.files.binary_search_by(|f| f.as_str().cmp(old)) {
+            self.files[ii] = new.to_string();
+        }
+
+        debug_assert!(self.files.len() <= self.locations.len());
+        debug_assert_eq!(self.files.len(), self.mapping.len());
+    }
+
+    pub fn to_locations(self) -> Vec<Location> {
+        debug_assert!(self.files.len() <= self.locations.len());
+        debug_assert_eq!(self.files.len(), self.mapping.len());
+
+        let Self {
+            files,
+            mut locations,
+            mapping,
+            ..
+        } = self;
+
+        let mut locs: Vec<Location> = Vec::with_capacity(files.len());
+        for (file, slot) in files.into_iter().zip(mapping.into_iter()) {
+            let mut spans: Vec<LRange> = Vec::new();
+
+            spans.append(&mut locations[slot as usize]);
+
+            for span in spans {
+                locs.push(Location {
+                    uri: file.clone(),
+                    range: span,
+                });
+            }
+        }
+        locs
     }
 }
 
@@ -62,6 +213,24 @@ impl From<BRange> for Range<usize> {
 
 impl Eq for BRange {}
 
+impl<'a> Iterator for FileLocationMapIterator<'a> {
+    type Item = (&'a Uri, &'a Vec<LRange>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.idx < self.map.files.len() {
+            let offset = self.idx;
+            self.idx += 1;
+
+            let file: &Uri = &self.map.files[offset];
+            let pos: usize = self.map.mapping[offset] as usize;
+
+            Some((file, &self.map.locations[pos]))
+        } else {
+            None
+        }
+    }
+}
+
 impl Ord for BRange {
     fn cmp(&self, other: &Self) -> Ordering {
         let Self(inner) = self;
@@ -81,6 +250,39 @@ impl PartialEq<Range<usize>> for BRange {
     fn eq(&self, other: &Range<usize>) -> bool {
         let Self(range) = self;
         *range == *other
+    }
+}
+
+impl PartialEq<FileLocationMap> for FileLocationMap {
+    fn eq(&self, other: &FileLocationMap) -> bool {
+        let FileLocationMap {
+            files,
+            locations,
+            mapping,
+            free_list: _,
+        } = self;
+        let FileLocationMap {
+            files: other_files,
+            locations: other_locations,
+            mapping: other_mapping,
+            free_list: _,
+        } = other;
+
+        if files.len() != other_files.len() {
+            return false;
+        }
+
+        for (file, slot) in files.iter().zip(mapping.iter()) {
+            if let Ok(ii) = other_files.binary_search_by(|f| f.as_str().cmp(file)) {
+                let other_slot = other_mapping[ii] as usize;
+                if other_locations[other_slot] != locations[*slot as usize] {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
+        return true;
     }
 }
 

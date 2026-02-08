@@ -48,10 +48,11 @@ use crate::{
     },
     protocol::{
         DidCloseTextDocumentParams, DidOpenTextDocumentParams, ErrorCodes, FileRename, Location,
-        LocationLink, LogTraceParams, NumberOrString, Range, ResponseError, SetTraceParams,
+        LocationLink, LogTraceParams, NumberOrString, ResponseError, SetTraceParams,
         TextDocumentItem, TraceValue, Uri,
     },
     t32::{LANGUAGE_ID, lang_id_supported},
+    utils::FileLocationMap,
 };
 
 #[derive(Debug, PartialEq)]
@@ -134,12 +135,7 @@ pub struct FileCallMap {
     calls: Vec<Vec<Uri>>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct FileLocationMap {
-    files: Vec<(Uri, u32)>,
-    locations: Vec<Vec<Range>>,
-}
-
+// TODO: Split of key.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MacroDefinitionLocationMap {
     files: Vec<(Uri, u32)>,
@@ -159,49 +155,6 @@ pub struct MacroDefinitionLocationMapIterator<'a> {
 pub struct RenameFileOperations {
     pub old: Vec<Uri>,
     pub new: Vec<Uri>,
-}
-
-impl FileLocationMap {
-    pub fn new() -> Self {
-        FileLocationMap {
-            files: Vec::new(),
-            locations: Vec::new(),
-        }
-    }
-
-    pub fn insert(&mut self, file: &Uri, loc: Range) {
-        debug_assert_eq!(self.files.len(), self.locations.len());
-        match self.files.binary_search_by(|(f, _)| f.cmp(file)) {
-            Ok(ii) => match self.locations[ii].binary_search_by(|r| r.cmp(&loc)) {
-                Ok(_) => return,
-                Err(idx) => self.locations[ii].insert(idx, loc),
-            },
-            Err(ii) => {
-                self.files
-                    .insert(ii, (file.clone(), self.locations.len() as u32));
-                self.locations.push(vec![loc]);
-            }
-        }
-        debug_assert_eq!(self.files.len(), self.locations.len());
-    }
-
-    pub fn to_locations(mut self) -> Vec<Location> {
-        debug_assert_eq!(self.files.len(), self.locations.len());
-
-        let mut locs: Vec<Location> = Vec::with_capacity(self.files.len());
-        for (file, ii) in self.files {
-            let mut slot: Vec<Range> = Vec::new();
-            slot.append(&mut self.locations[ii as usize]);
-
-            for span in slot {
-                locs.push(Location {
-                    uri: file.clone(),
-                    range: span,
-                });
-            }
-        }
-        locs
-    }
 }
 
 impl MacroDefinitionLocationMap {
