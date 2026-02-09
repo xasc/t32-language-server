@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: EUPL-1.2
 
-PRINT "This is B"
+SILENT.PRINT "This is B"
 
 // This subscript call has only one valid candidate:
 //   samples/a → samples/same.cmm

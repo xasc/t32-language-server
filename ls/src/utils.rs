@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: EUPL-1.2
 
-use std::{cmp::Ordering, convert::From, ops::Range};
+use std::{cmp::Ordering, collections::BTreeMap, convert::From, ops::Range};
 
 #[cfg(test)]
 use std::path;
@@ -26,6 +26,8 @@ use crate::{
 #[derive(Clone, Debug, PartialEq)]
 pub struct BRange(Range<usize>);
 
+// TODO: All URIs are starting with "file://". If we know that we are passing
+// in a valid URI, we can skip the comparison of the string start.
 #[derive(Clone, Debug)]
 pub struct FileLocationMap {
     files: Vec<Uri>,
@@ -38,6 +40,8 @@ pub struct FileLocationMapIterator<'a> {
     map: &'a FileLocationMap,
     idx: usize,
 }
+
+pub struct FileLocationIndex(BTreeMap<Uri, FileLocationMap>);
 
 impl BRange {
     pub fn to_inner(self) -> Range<usize> {
@@ -63,7 +67,6 @@ impl FileLocationMap {
         }
     }
 
-    #[allow(unused)]
     pub fn get<'a>(&'a self, uri: &str) -> Option<&'a Vec<LRange>> {
         debug_assert!(self.files.len() <= self.locations.len());
         debug_assert_eq!(self.files.len(), self.mapping.len());
@@ -187,6 +190,54 @@ impl FileLocationMap {
             }
         }
         locs
+    }
+}
+
+impl<'a> FileLocationIndex {
+    pub fn new() -> Self {
+        Self(BTreeMap::new())
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn get(&'a self, uri: &str) -> Option<&'a FileLocationMap> {
+        self.0.get(uri)
+    }
+
+    pub fn insert(&mut self, key: &str, uri: &str, span: LRange) {
+        let Some(locations) = self.0.get_mut(key) else {
+            let mut locations = FileLocationMap::new();
+
+            locations.insert(uri, span);
+            self.0.insert(key.to_string(), locations);
+
+            return;
+        };
+        locations.insert(uri, span);
+    }
+
+    pub fn remove_key_locs(&mut self, keys: &[String], uri: &str) {
+        for key in keys {
+            if let Some(locations) = self.0.get_mut(key) {
+                locations.remove(uri);
+            }
+        }
+    }
+
+    pub fn rename_key(&mut self, old: &str, new: &str) {
+        if let Some(values) = self.0.remove(old) {
+            debug_assert!(!self.0.contains_key(new));
+            self.0.insert(new.to_string(), values);
+        }
+    }
+
+    pub fn rename_locs(&mut self, old_file: &str, new_file: &str) {
+        for locations in self.0.values_mut() {
+            debug_assert!(locations.get(new_file).is_none());
+            locations.rename(old_file, new_file);
+        }
     }
 }
 

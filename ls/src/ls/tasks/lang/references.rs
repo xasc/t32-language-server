@@ -211,6 +211,27 @@ pub fn process_find_references_result(
                     None
                 }
             }
+            FindReferencesPartialResult::Command(cmd) => {
+                if let Some(commands) = docs.get_all_command_refs(&cmd) {
+                    let mut locations: Vec<Location> = Vec::new();
+                    for (file, spans) in commands.iter() {
+                        for span in spans {
+                            locations.push(Location {
+                                uri: file.clone(),
+                                range: span.clone(),
+                            });
+                        }
+                    }
+
+                    if locations.is_empty() {
+                        None
+                    } else {
+                        Some(locations)
+                    }
+                } else {
+                    None
+                }
+            }
         },
         None => None,
     };

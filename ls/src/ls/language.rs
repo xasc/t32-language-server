@@ -14,10 +14,10 @@ use crate::{
     t32::{
         FindMacroRefsLangContext, FindRefsLangContext, GotoDefLangContext, MacroDefinition,
         MacroDefinitionResult, MacroScope, NodeKind, Subroutine, find_command_file_target,
-        find_label_references, find_macro_definition_references, find_stack_macro_references,
-        find_subroutine_call_references, find_subroutine_references, get_find_ref_ids,
-        get_goto_def_ids, get_macro_scope, goto_external_macro_definition, goto_file,
-        goto_infile_macro_definition, goto_subroutine_definition, id_into_node,
+        find_command_identifier, find_label_references, find_macro_definition_references,
+        find_stack_macro_references, find_subroutine_call_references, find_subroutine_references,
+        get_find_ref_ids, get_goto_def_ids, get_macro_scope, goto_external_macro_definition,
+        goto_file, goto_infile_macro_definition, goto_subroutine_definition, id_into_node,
         locate_calls_to_file_target,
     },
     utils::BRange,
@@ -37,6 +37,7 @@ pub enum FindReferencesResult {
 
 #[derive(Debug, PartialEq)]
 pub enum FindReferencesPartialResult {
+    Command(String),
     MacroDefsComplete {
         origin: MacroReferenceOrigin,
         definitions: Vec<(FileLocation, Option<MacroScope>)>,
@@ -480,13 +481,22 @@ pub fn find_references(
             // to the same file. However, if the command is selected, then
             // all references with the same command will be returned.
             if command_argument_selected(origin.clone(), offset)
-                && let Some(target) = find_command_file_target(&textdoc.doc.text, origin)
+                && let Some(target) = find_command_file_target(&textdoc.doc.text, origin.clone())
             {
+                debug_assert_eq!(
+                    origin.node().kind_id(),
+                    NodeKind::CommandExpression.into_id(&lang)
+                );
                 Some(FindReferencesResult::Partial(
                     FindReferencesPartialResult::FileTarget(target),
                 ))
             } else {
-                todo!()
+                Some(FindReferencesResult::Partial(
+                    FindReferencesPartialResult::Command(find_command_identifier(
+                        &textdoc.doc.text,
+                        origin,
+                    )?),
+                ))
             }
         }
         NodeKind::LabeledExpression => {
@@ -2538,6 +2548,30 @@ mod tests {
         assert!(refs.is_some_and(|r| r
             == FindReferencesResult::Partial(FindReferencesPartialResult::FileTarget(
                 "../b/b.cmm".to_string()
+            ))));
+    }
+
+    #[test]
+    fn can_return_command_identifier_for_find_references_req() {
+        let command = find_refs(
+            "tests/samples/b/b.cmm",
+            Position {
+                line: 4,
+                character: 2,
+            },
+        );
+        let arguments = find_refs(
+            "tests/samples/b/b.cmm",
+            Position {
+                line: 4,
+                character: 17,
+            },
+        );
+
+        assert_eq!(command, arguments);
+        assert!(command.is_some_and(|c| c
+            == FindReferencesResult::Partial(FindReferencesPartialResult::Command(
+                "SILENT.PRINT".to_string()
             ))));
     }
 }

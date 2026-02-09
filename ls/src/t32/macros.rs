@@ -105,8 +105,9 @@ use super::{
     cache::find_subroutine_for_call,
     expressions::{
         CallExpression, MacroDefResolution, MacroDefinition, MacroScope, ParameterDeclaration,
-        RECURSION_BREAKER_SUBROUTINE_SCAN, Subroutine, SubscriptCalls, assign_lhs_matches_macro,
-        extract_assign_lhs_macro, find_docstring, goto_subroutine, resides_in_subroutine,
+        ParameterDeclarationKind, RECURSION_BREAKER_SUBROUTINE_SCAN, Subroutine, SubscriptCalls,
+        assign_lhs_matches_macro, extract_assign_lhs_macro, find_docstring, goto_subroutine,
+        resides_in_subroutine,
     },
 };
 
@@ -1415,10 +1416,14 @@ pub fn extract_params(
         return;
     }
 
+    let command = cursor.node();
     debug_assert_eq!(
-        cursor.node().kind_id(),
+        command.kind_id(),
         NodeKind::Identifier.into_id(&decl.language())
     );
+
+    let kind = extract_param_decl_kind(&text[command.byte_range()]);
+    let kind = kind.expect("No other command identifiers are possible.");
 
     while cursor.goto_next_sibling() {
         let r#macro = cursor.node();
@@ -1435,6 +1440,7 @@ pub fn extract_params(
         declarations.push(ParameterDeclaration {
             cmd: decl.byte_range(),
             r#macro: r#macro.byte_range(),
+            kind,
             docstring: None,
         });
     }
@@ -1482,7 +1488,9 @@ pub fn find_macro_references_and_call_transitions<'a>(
         .collect();
 
     let script_call_ranges: (Vec<Range<usize>>, Vec<&Uri>) = match &t32.calls.scripts {
-        Some(SubscriptCalls { locations, targets }) => {
+        Some(SubscriptCalls {
+            locations, targets, ..
+        }) => {
             let (mut spans, mut files): (Vec<Range<usize>>, Vec<&Uri>) = (Vec::new(), Vec::new());
             for (span, target) in locations.iter().zip(targets) {
                 if target.is_some() {
@@ -1970,6 +1978,16 @@ fn extract_macro_scope(text: &str, cursor: &mut TreeCursor) -> Option<MacroScope
 
     cursor.goto_parent();
     scope
+}
+
+fn extract_param_decl_kind(command: &str) -> Option<ParameterDeclarationKind> {
+    if command == KEYWORD_SUBROUTINE_ENTRY {
+        Some(ParameterDeclarationKind::Entry)
+    } else if command == KEYWORD_SUBROUTINE_PARAMETERS {
+        Some(ParameterDeclarationKind::Parameters)
+    } else {
+        None
+    }
 }
 
 fn filter_macro_defs_by_name(

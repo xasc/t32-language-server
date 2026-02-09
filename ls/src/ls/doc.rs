@@ -13,9 +13,10 @@ use crate::{
     ls::workspace::FileIndex,
     protocol::{TextDocumentContentChangeEvent, TextDocumentItem, Uri},
     t32::{
-        self, CallExpression, CallExpressions, CallLocations, LangExpressions, SubscriptCalls,
-        find_any_macro_references, find_call_expressions, find_macro_definitions,
-        find_parameter_declarations, find_subroutines_and_labels, resolve_subscript_call_targets,
+        self, CallExpression, CallExpressions, CallLocations, LangExpressions, SubscriptCallKind,
+        SubscriptCalls, find_any_macro_references, find_call_expressions,
+        find_commands_and_parameter_declarations, find_macro_definitions,
+        find_subroutines_and_labels, resolve_subscript_call_targets,
     },
 };
 
@@ -27,7 +28,7 @@ pub fn import_doc(r#in: TextDocumentItem, files: FileIndex) -> (TextDoc, Tree, L
     let tree = t32::parse(doc.text.as_bytes(), None);
 
     let (subroutines, labels) = find_subroutines_and_labels(&doc.text, &tree);
-    let parameters = find_parameter_declarations(&doc.text, &tree);
+    let (commands, parameters) = find_commands_and_parameter_declarations(&doc.text, &tree);
     let calls = resolve_call_expressions(&doc.text, &tree, &files);
     let macro_refs = find_any_macro_references(&tree);
     let macros = find_macro_definitions(&doc.text, &subroutines, &calls.subroutines, &tree);
@@ -42,6 +43,7 @@ pub fn import_doc(r#in: TextDocumentItem, files: FileIndex) -> (TextDoc, Tree, L
             calls,
             parameters,
             labels,
+            commands,
         },
     )
 }
@@ -60,7 +62,7 @@ pub fn update_doc(
     let (doc, tree) = (&textdoc.doc, &textdoc.tree);
 
     let (subroutines, labels) = find_subroutines_and_labels(&doc.text, tree);
-    let parameters = find_parameter_declarations(&doc.text, tree);
+    let (commands, parameters) = find_commands_and_parameter_declarations(&doc.text, tree);
     let calls = resolve_call_expressions(&doc.text, tree, &files);
     let macro_refs = find_any_macro_references(&tree);
     let macros = find_macro_definitions(&doc.text, &subroutines, &calls.subroutines, tree);
@@ -75,6 +77,7 @@ pub fn update_doc(
             calls,
             parameters,
             labels,
+            commands,
         },
     )
 }
@@ -88,7 +91,7 @@ pub fn read_doc(r#in: Url, files: FileIndex) -> Result<(TextDoc, Tree, LangExpre
     let tree = t32::parse(doc.text.as_bytes(), None);
 
     let (subroutines, labels) = find_subroutines_and_labels(&doc.text, &tree);
-    let parameters = find_parameter_declarations(&doc.text, &tree);
+    let (commands, parameters) = find_commands_and_parameter_declarations(&doc.text, &tree);
     let calls = resolve_call_expressions(&doc.text, &tree, &files);
     let macro_refs = find_any_macro_references(&tree);
     let macros = find_macro_definitions(&doc.text, &subroutines, &calls.subroutines, &tree);
@@ -103,6 +106,7 @@ pub fn read_doc(r#in: Url, files: FileIndex) -> Result<(TextDoc, Tree, LangExpre
             calls,
             parameters,
             labels,
+            commands,
         },
     ))
 }
@@ -117,22 +121,31 @@ pub fn resolve_call_expressions(text: &str, tree: &Tree, files: &FileIndex) -> C
     if scripts.len() > 0 {
         let mut locations: Vec<CallExpression> = Vec::with_capacity(scripts.len());
         let mut targets: Vec<Option<Uri>> = Vec::with_capacity(scripts.len());
+        let mut kinds: Vec<SubscriptCallKind> = Vec::with_capacity(scripts.len());
 
-        for expr in scripts.into_iter() {
+        for (expr, kind) in scripts.into_iter() {
             if let Some(calls) =
                 resolve_subscript_call_targets(text, &tree, expr.target.start, files)
             {
                 for call in calls.into_iter() {
                     locations.push(expr.clone());
                     targets.push(Some(call));
+                    kinds.push(kind);
                 }
             } else {
                 locations.push(expr);
                 targets.push(None);
+                kinds.push(kind);
             }
         }
         debug_assert_eq!(targets.len(), locations.len());
-        subscripts = Some(SubscriptCalls { locations, targets });
+        debug_assert_eq!(targets.len(), kinds.len());
+
+        subscripts = Some(SubscriptCalls {
+            locations,
+            targets,
+            kinds,
+        });
     } else {
         subscripts = None;
     }
@@ -668,6 +681,37 @@ mod test {
             macro_refs
                 .iter()
                 .any(|r| &doc.text[r.clone().to_inner()] == "&a")
+        );
+    }
+
+    #[test]
+    fn can_find_commands() {
+        let file_idx = FileIndex::new();
+
+        let file =
+            Url::from_file_path(path::absolute("tests/samples/c.cmm").expect("File must exist."))
+                .unwrap();
+
+        let (doc, _, LangExpressions { commands, .. }) =
+            read_doc(file, file_idx).expect("Must not fail.");
+
+        assert!(!commands.is_empty());
+        assert!(
+            commands
+                .iter()
+                .find_map(
+                    |c| (doc.text[c.command.inner().clone()] == *"PRINT \"&global_macro\"\n")
+                        .then_some(())
+                )
+                .is_some()
+        );
+        assert!(
+            commands
+                .iter()
+                .find_map(|c| (doc.text[c.command.inner().clone()] == *"DO same.cmm\n"
+                    && c.docstring.is_some())
+                .then_some(()))
+                .is_some()
         );
     }
 }

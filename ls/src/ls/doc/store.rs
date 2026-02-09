@@ -11,10 +11,16 @@ use crate::{
         doc::textdoc::{TextDoc, TextDocStatus},
         tasks::RenameFileOperations,
     },
-    protocol::{Range, Uri},
-    t32::{CallExpressions, LangExpressions, MacroDefinition, SubscriptCalls},
-    utils::{BRange, FileLocationMap},
+    protocol::Uri,
+    t32::{
+        CallExpressions, LangExpressions, MacroDefinition, ParameterDeclaration,
+        ParameterDeclarationKind, SubscriptCallKind, SubscriptCalls,
+    },
+    utils::{BRange, FileLocationIndex, FileLocationMap},
 };
+
+#[allow(unused)]
+struct CommandIndex(FileLocationIndex);
 
 /// TODO: Reduce size to 64 bit or less.
 #[derive(Clone, Copy, Debug)]
@@ -29,6 +35,7 @@ pub struct TextDocs {
 
     macro_index: BTreeMap<String, Vec<Uri>>,
     file_target_index: FileTargetIndex,
+    command_index: CommandIndex,
 
     registry: BTreeMap<Uri, DocIndex>,
     free_list: FreeLists,
@@ -78,6 +85,108 @@ pub struct GlobalMacroDefIndex<'a>(
     pub Vec<&'a MacroDefinition>,
 );
 
+impl<'a> CommandIndex {
+    pub fn new() -> Self {
+        Self(FileLocationIndex::new())
+    }
+
+    #[expect(unused)]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn get(&'a self, cmd: &str) -> Option<&'a FileLocationMap> {
+        let identifier: &str = if cmd
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_digit(10) || c == '_' || c == '.')
+        {
+            cmd
+        } else {
+            &cmd.to_lowercase()
+        };
+        self.0.get(&identifier)
+    }
+
+    pub fn add(&mut self, doc: &TextDoc, t32: &LangExpressions) {
+        for r#macro in t32.macros.privates.iter() {
+            let (start, end) = (r#macro.cmd.start, r#macro.cmd.end);
+            let span = doc.to_range(start, end);
+
+            self.0.insert("private", &doc.uri, span);
+        }
+        for r#macro in t32.macros.locals.iter() {
+            let (start, end) = (r#macro.cmd.start, r#macro.cmd.end);
+            let span = doc.to_range(start, end);
+
+            self.0.insert("local", &doc.uri, span);
+        }
+        for r#macro in t32.macros.globals.iter() {
+            let (start, end) = (r#macro.cmd.start, r#macro.cmd.end);
+            let span = doc.to_range(start, end);
+
+            self.0.insert("global", &doc.uri, span);
+        }
+
+        for sub in t32.calls.subroutines.iter() {
+            let (start, end) = (sub.call.start, sub.call.end);
+            let span = doc.to_range(start, end);
+
+            self.0.insert("gosub", &doc.uri, span);
+        }
+        if let Some(scripts) = &t32.calls.scripts {
+            for (location, kind) in scripts.locations.iter().zip(scripts.kinds.iter()) {
+                let (start, end) = (location.call.start, location.call.end);
+                let span = doc.to_range(start, end);
+
+                if *kind == SubscriptCallKind::Do {
+                    self.0.insert("do", &doc.uri, span);
+                } else {
+                    self.0.insert("run", &doc.uri, span);
+                }
+            }
+        }
+
+        for ParameterDeclaration { cmd, kind, .. } in t32.parameters.iter() {
+            let (start, end) = (cmd.start, cmd.end);
+            let span = doc.to_range(start, end);
+
+            if *kind == ParameterDeclarationKind::Entry {
+                self.0.insert("entry", &doc.uri, span);
+            } else {
+                self.0.insert("parameters", &doc.uri, span);
+            }
+        }
+
+        for cmd in t32.commands.iter() {
+            let span = {
+                let (start, end) = (cmd.command.inner().start, cmd.command.inner().end);
+                doc.to_range(start, end)
+            };
+
+            let (start, end) = (cmd.identifier.inner().start, cmd.identifier.inner().end);
+
+            self.0
+                .insert(&doc.text[start..end].to_lowercase(), &doc.uri, span);
+        }
+    }
+
+    pub fn remove(&mut self, src: &str, identifiers: &[String]) {
+        debug_assert!(identifiers.iter().all(|i| {
+            i.chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_digit(10) || c == '_' || c == '.')
+        }));
+
+        self.0.remove_key_locs(identifiers, src);
+    }
+
+    pub fn rename(&mut self, old: &Uri, new: &Uri) {
+        debug_assert!(self.0.get(new).is_none());
+
+        self.0.rename_key(old, new);
+        self.0.rename_locs(old, new);
+    }
+}
+
 impl TextDocData {
     #[expect(unused)]
     pub fn build(doc: TextDoc, tree: Tree) -> Self {
@@ -86,7 +195,7 @@ impl TextDocData {
 }
 
 impl<'a> TextDocs {
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn new() -> Self {
         TextDocs {
             docs: DocStore {
@@ -103,6 +212,7 @@ impl<'a> TextDocs {
             },
             macro_index: BTreeMap::new(),
             file_target_index: FileTargetIndex::new(),
+            command_index: CommandIndex::new(),
             registry: BTreeMap::new(),
             free_list: FreeLists {
                 open: Vec::new(),
@@ -131,6 +241,7 @@ impl<'a> TextDocs {
             },
             macro_index: BTreeMap::new(),
             file_target_index: FileTargetIndex::new(),
+            command_index: CommandIndex::new(),
             registry: BTreeMap::new(),
             free_list: FreeLists {
                 open: Vec::new(),
@@ -148,11 +259,12 @@ impl<'a> TextDocs {
 
         debug_assert_eq!(store.docs.closed.len(), 0);
         debug_assert!(store.file_target_index.is_empty());
-        for file in members {
-            store.update_macro_index(&file.0, &file.2.macro_refs);
-            store.update_file_target_index(&file.0, file.2.calls.scripts.as_ref());
+        for (doc, tree, t32) in members {
+            store.update_macro_index(&doc, &t32.macro_refs);
+            store.update_file_target_index(&doc, t32.calls.scripts.as_ref());
+            store.update_command_index(&doc, &t32);
 
-            let _ = store.insert_or_update(file.0, file.1, file.2, TextDocStatus::Closed);
+            let _ = store.insert_or_update(doc, tree, t32, TextDocStatus::Closed);
         }
 
         let calls = store.get_call_relations();
@@ -166,6 +278,7 @@ impl<'a> TextDocs {
         }
         self.update_macro_index(&doc, &expr.macro_refs);
         self.update_file_target_index(&doc, expr.calls.scripts.as_ref());
+        self.update_command_index(&doc, &expr);
 
         let uri = doc.uri.clone();
         self.insert_or_update(doc, tree, expr, status);
@@ -176,6 +289,7 @@ impl<'a> TextDocs {
     pub fn update(&mut self, doc: TextDoc, tree: Tree, expr: LangExpressions) {
         self.update_macro_index(&doc, &expr.macro_refs);
         self.update_file_target_index(&doc, expr.calls.scripts.as_ref());
+        self.update_command_index(&doc, &expr);
 
         if let Some(val) = self.registry.get(&doc.uri) {
             debug_assert_eq!(val.0, TextDocStatus::Open);
@@ -275,7 +389,8 @@ impl<'a> TextDocs {
         self.rename_lang_expr(&old, &new);
         self.rename_callers(&old, &new);
         self.rename_macro_index_refs(&old, &new);
-        self.rename_file_target_index_refs(&old, &new);
+        self.rename_files_in_file_target_index(&old, &new);
+        self.rename_files_in_command_index(&old, &new);
     }
 
     pub fn get_doc(&self, uri: &str) -> Option<&TextDoc> {
@@ -377,6 +492,10 @@ impl<'a> TextDocs {
 
     pub fn get_all_target_file_refs(&'a self, uri: &str) -> Option<&'a FileLocationMap> {
         self.file_target_index.get(uri)
+    }
+
+    pub fn get_all_command_refs(&'a self, cmd: &str) -> Option<&'a FileLocationMap> {
+        self.command_index.get(cmd)
     }
 
     pub fn is_open(&self, uri: &str) -> bool {
@@ -909,7 +1028,7 @@ impl<'a> TextDocs {
         }
     }
 
-    fn rename_file_target_index_refs(&mut self, old: &[Uri], new: &[Uri]) {
+    fn rename_files_in_file_target_index(&mut self, old: &[Uri], new: &[Uri]) {
         debug_assert!(old.len() > 0);
         debug_assert!(old.len() == new.len());
 
@@ -917,17 +1036,100 @@ impl<'a> TextDocs {
             self.file_target_index.rename(old_uri, new_uri);
         }
     }
+
+    fn update_command_index(&mut self, doc: &TextDoc, new: &LangExpressions) {
+        let old: Vec<String> = match self.get_doc(&doc.uri) {
+            Some(d) => {
+                let mut identifiers: Vec<String> = Vec::new();
+
+                if let Some(t32) = self.get_lang_expressions(&doc.uri) {
+                    if !t32.macros.privates.is_empty() {
+                        identifiers.push("private".to_string());
+                    }
+                    if !t32.macros.locals.is_empty() {
+                        identifiers.push("local".to_string());
+                    }
+                    if !t32.macros.globals.is_empty() {
+                        identifiers.push("global".to_string());
+                    }
+
+                    if !t32.calls.subroutines.is_empty() {
+                        identifiers.push("gosub".to_string());
+                    }
+                    if let Some(scripts) = &t32.calls.scripts {
+                        if let Some(_) = scripts
+                            .kinds
+                            .iter()
+                            .position(|k| *k == SubscriptCallKind::Do)
+                        {
+                            identifiers.push("do".to_string());
+
+                            if scripts.kinds.iter().any(|k| *k == SubscriptCallKind::Run) {
+                                identifiers.push("run".to_string());
+                            }
+                        } else {
+                            identifiers.push("run".to_string());
+                        }
+                    }
+
+                    if let Some(_) = t32
+                        .parameters
+                        .iter()
+                        .position(|p| p.kind == ParameterDeclarationKind::Entry)
+                    {
+                        identifiers.push("entry".to_string());
+
+                        if t32
+                            .parameters
+                            .iter()
+                            .any(|p| p.kind == ParameterDeclarationKind::Parameters)
+                        {
+                            identifiers.push("parameters".to_string());
+                        }
+                    } else if !t32.parameters.is_empty() {
+                        identifiers.push("parameters".to_string());
+                    }
+
+                    for cmd in t32.commands.iter() {
+                        let (start, end) =
+                            (cmd.identifier.inner().start, cmd.identifier.inner().end);
+                        identifiers.push(d.text[start..end].to_lowercase());
+                    }
+                }
+                identifiers
+            }
+            None => Vec::new(),
+        };
+
+        if !old.is_empty() {
+            self.command_index.remove(&doc.uri, &old);
+        }
+        self.command_index.add(doc, new);
+    }
+
+    fn rename_files_in_command_index(&mut self, old: &[Uri], new: &[Uri]) {
+        debug_assert!(old.len() > 0);
+        debug_assert!(old.len() == new.len());
+
+        for (old_uri, new_uri) in old.iter().zip(new) {
+            self.command_index.rename(old_uri, new_uri);
+        }
+    }
 }
 
-struct FileTargetIndex {
-    data: BTreeMap<Uri, FileLocationMap>,
-}
+struct FileTargetIndex(FileLocationIndex);
 
 impl<'a> FileTargetIndex {
     pub fn new() -> Self {
-        Self {
-            data: BTreeMap::new(),
-        }
+        Self(FileLocationIndex::new())
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn get(&'a self, uri: &str) -> Option<&'a FileLocationMap> {
+        self.0.get(uri)
     }
 
     pub fn add(&mut self, doc: &TextDoc, calls: &SubscriptCalls) {
@@ -938,47 +1140,19 @@ impl<'a> FileTargetIndex {
             let (start, end) = (call.target.start, call.target.end);
 
             let span = doc.to_range(start, end);
-            self.insert(&doc.uri, uri, span);
+            self.0.insert(uri, &doc.uri, span);
         }
     }
 
     pub fn remove(&mut self, src: &str, targets: &[Uri]) {
-        for dest in targets {
-            if let Some(locations) = self.data.get_mut(dest) {
-                locations.remove(src);
-            }
-        }
+        self.0.remove_key_locs(targets, src);
     }
 
     pub fn rename(&mut self, old: &Uri, new: &Uri) {
-        if let Some(values) = self.data.remove(old) {
-            debug_assert!(!self.data.contains_key(new));
-            self.data.insert(new.to_string(), values);
-        }
+        debug_assert!(self.0.get(new).is_none());
 
-        for files in self.data.values_mut() {
-            debug_assert!(files.get(new).is_none());
-            files.rename(old, new);
-        }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.data.is_empty()
-    }
-
-    pub fn get(&'a self, uri: &str) -> Option<&'a FileLocationMap> {
-        self.data.get(uri)
-    }
-
-    fn insert(&mut self, src: &str, dest: &str, span: Range) {
-        let Some(locations) = self.data.get_mut(dest) else {
-            let mut locations = FileLocationMap::new();
-            locations.insert(src, span);
-
-            self.data.insert(dest.to_string(), locations);
-            return;
-        };
-        locations.insert(src, span);
+        self.0.rename_key(old, new);
+        self.0.rename_locs(old, new);
     }
 }
 
@@ -993,12 +1167,12 @@ mod test {
     use crate::{
         ls::{
             doc::{
-                find_parameter_declarations, find_subroutines_and_labels, read_doc,
+                find_commands_and_parameter_declarations, find_subroutines_and_labels, read_doc,
                 resolve_call_expressions, textdoc::create_line_map_for_text,
             },
             workspace::{FileIndex, index_files, rename_files},
         },
-        protocol::Position,
+        protocol::{Position, Range},
         t32::{
             self, CallExpressions, LANGUAGE_ID, find_any_macro_references, find_macro_definitions,
         },
@@ -1034,8 +1208,8 @@ mod test {
         };
         let tree = t32::parse(text.as_bytes(), None);
 
-        let (subroutines, labels) = find_subroutines_and_labels(&doc.text, &tree);
-        let parameters = find_parameter_declarations(&doc.text, &tree);
+        let (subroutines, labels) = find_subroutines_and_labels(text, &tree);
+        let (commands, parameters) = find_commands_and_parameter_declarations(text, &tree);
 
         let calls = if let Some(file_idx) = files {
             resolve_call_expressions(text, &tree, &file_idx)
@@ -1047,7 +1221,7 @@ mod test {
         };
 
         let macro_refs = find_any_macro_references(&tree);
-        let macros = find_macro_definitions(&doc.text, &subroutines, &calls.subroutines, &tree);
+        let macros = find_macro_definitions(text, &subroutines, &calls.subroutines, &tree);
 
         (
             doc,
@@ -1059,6 +1233,7 @@ mod test {
                 calls,
                 parameters,
                 labels,
+                commands,
             },
         )
     }
@@ -1539,5 +1714,106 @@ mod test {
 
         assert!(docs.get_all_target_file_refs(&uri_a).is_none());
         assert!(docs.get_all_target_file_refs(&uri_a1).is_some());
+    }
+
+    #[test]
+    fn can_update_command_index() {
+        let files = files();
+        let file_idx = create_file_idx();
+        let mut docs = create_doc_store(&files, &file_idx);
+
+        let uri_c = to_file_uri("tests/samples/c.cmm");
+
+        let map = docs
+            .get_all_command_refs("print")
+            .expect("Must not be empty.");
+        for file in [
+            to_file_uri("tests/samples/a/a.cmm"),
+            to_file_uri("tests/samples/a/d/d.cmm"),
+            to_file_uri("tests/samples/a/d/d.cmmt"),
+            uri_c.clone(),
+        ] {
+            assert!(map.get(&file).is_some());
+        }
+        assert!(
+            map.get(&uri_c)
+                .expect("Must not be empty.")
+                .contains(&Range {
+                    start: Position {
+                        line: 4,
+                        character: 0
+                    },
+                    end: Position {
+                        line: 5,
+                        character: 0
+                    }
+                })
+        );
+        assert!(
+            map.get(&uri_c)
+                .expect("Must not be empty.")
+                .contains(&Range {
+                    start: Position {
+                        line: 31,
+                        character: 0
+                    },
+                    end: Position {
+                        line: 32,
+                        character: 0
+                    }
+                })
+        );
+
+        let uri_c1 = to_file_uri("tests/samples/a/c1.cmm");
+        let text = "PRINT \"TEST\"&a=1.\n";
+        let (doc, tree, expr) = create_doc(&uri_c1, &text, Some(file_idx.clone()));
+
+        docs.add(doc, tree, expr, TextDocStatus::Open);
+
+        let map = docs
+            .get_all_command_refs("print")
+            .expect("Must not be empty.");
+        assert!(
+            map.get(&uri_c1)
+                .expect("Must not be empty.")
+                .contains(&Range {
+                    start: Position {
+                        line: 0,
+                        character: 0
+                    },
+                    end: Position {
+                        line: 1,
+                        character: 0
+                    }
+                })
+        );
+
+        let text = "SYStem.CPU M68K\nSYStem.Up\n";
+        let (doc, tree, expr) = create_doc(&uri_c1, &text, Some(file_idx.clone()));
+
+        docs.update(doc, tree, expr);
+
+        let map = docs
+            .get_all_command_refs("print")
+            .expect("Must not be empty.");
+        assert!(map.get(&uri_c1).is_none());
+
+        let map = docs
+            .get_all_command_refs("system.cpu")
+            .expect("Must not be empty.");
+        assert!(map.get(&uri_c1).is_some());
+
+        let uri_c2 = to_file_uri("tests/samples/a/c2.cmm");
+
+        docs.rename_files(&RenameFileOperations {
+            old: vec![uri_c1.clone()],
+            new: vec![uri_c2.clone()],
+        });
+
+        let map = docs
+            .get_all_command_refs("system.cpu")
+            .expect("Must not be empty.");
+        assert!(map.get(&uri_c1).is_none());
+        assert!(map.get(&uri_c2).is_some());
     }
 }

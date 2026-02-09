@@ -83,7 +83,9 @@ pub const GOTO_DEF_SOURCES: [NodeKind; 3] = [
     NodeKind::SubroutineCallExpression,
 ];
 
+pub const KEYWORD_DO: &'static str = "DO";
 pub const KEYWORD_GOTO: &'static str = "GOTO";
+pub const KEYWORD_RUN: &'static str = "RUN";
 pub const KEYWORD_SUBROUTINE_ENTRY: &'static str = "ENTRY";
 pub const KEYWORD_SUBROUTINE_PARAMETERS: &'static str = "PARAMETERS";
 pub const KEYWORD_SUBROUTINE_RETURN: &'static str = "RETURN";

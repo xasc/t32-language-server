@@ -34,3 +34,5 @@ PRINT "&global_macro"
 LOCAL &from_c_cmm
 
 DO a/d/d.cmm
+
+Data.In P:0x80000000

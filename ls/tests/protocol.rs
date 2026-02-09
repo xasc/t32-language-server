@@ -630,6 +630,73 @@ fn supports_lang_find_references_request_for_file() {
 }
 
 #[test]
+fn supports_lang_find_references_request_for_command() {
+    for ((dir, line, character), (start, end, file)) in [(
+        env::current_dir()
+            .unwrap()
+            .join("tests")
+            .join("samples")
+            .join("c.cmm"),
+        37,
+        5,
+    )]
+    .into_iter()
+    .zip([
+        ((37, 0), (38, 0), utils::to_file_uri("tests/samples/c.cmm")),
+        (
+            (158, 4),
+            (159, 0),
+            utils::to_file_uri("tests/samples/a/a.cmm"),
+        ),
+    ]) {
+        let mut ls = utils::start_ls_with_workspace(&[
+            &format!("--clientProcessId={}", process::id().to_string()),
+            &format!("--trace={}", "messages"),
+        ]);
+        let mut stdin = ls.stdin.take().unwrap();
+
+        let notif = utils::make_set_trace_notification(utils::TraceValue::Messages);
+        utils::to_stdin(&mut stdin, &notif);
+
+        let uri = Url::from_file_path(dir).expect("Must not fail.");
+
+        let notif = utils::make_find_references_request(2, uri, line, character);
+        utils::to_stdin(&mut stdin, &notif);
+        thread::sleep(time::Duration::from_secs(2));
+
+        utils::stop_ls(&mut ls, Some(&mut stdin), Some(3));
+        let output = ls.wait_with_output().expect("Cannot capture output");
+
+        assert_eq!(output.status.code(), Some(0));
+        assert!(
+            std::str::from_utf8(&output.stdout)
+                .unwrap()
+                .contains(&format!("\"line\":{}", start.0))
+        );
+        assert!(
+            std::str::from_utf8(&output.stdout)
+                .unwrap()
+                .contains(&format!("\"character\":{}", start.1))
+        );
+        assert!(
+            std::str::from_utf8(&output.stdout)
+                .unwrap()
+                .contains(&format!("\"line\":{}", end.0))
+        );
+        assert!(
+            std::str::from_utf8(&output.stdout)
+                .unwrap()
+                .contains(&format!("\"character\":{}", end.1))
+        );
+        assert!(
+            std::str::from_utf8(&output.stdout)
+                .unwrap()
+                .contains(&format!("\"uri\":\"{}", file))
+        );
+    }
+}
+
+#[test]
 fn can_enable_logging() {
     let pid = process::id();
 

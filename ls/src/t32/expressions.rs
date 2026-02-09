@@ -52,8 +52,9 @@ use crate::{
     t32::{
         FileIndex, NodeKind,
         ast::{
-            KEYWORD_GOTO, KEYWORD_SUBROUTINE_RETURN, KEYWORDS_SCRIPT_CALL, KEYWORDS_SCRIPT_END,
-            get_block_opener_ids, get_string_body, get_subroutine_ids, start_on_adjacent_lines,
+            KEYWORD_DO, KEYWORD_GOTO, KEYWORD_RUN, KEYWORD_SUBROUTINE_RETURN, KEYWORDS_SCRIPT_CALL,
+            KEYWORDS_SCRIPT_END, get_block_opener_ids, get_string_body, get_subroutine_ids,
+            start_on_adjacent_lines,
         },
         macros::extract_params,
         path::locate_script,
@@ -90,6 +91,18 @@ pub enum MacroScope {
     Private,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ParameterDeclarationKind {
+    Parameters,
+    Entry,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum SubscriptCallKind {
+    Do,
+    Run,
+}
+
 #[derive(Clone, Debug)]
 pub struct Label {
     pub name: Range<usize>,
@@ -119,15 +132,6 @@ pub struct CallExpression {
 }
 
 #[derive(Clone, Debug)]
-pub struct ParameterDeclaration {
-    #[expect(unused)]
-    pub cmd: Range<usize>,
-
-    pub r#macro: Range<usize>,
-    pub docstring: Option<Range<usize>>, // TODO: Detect inline docstring after expression.
-}
-
-#[derive(Clone, Debug)]
 pub struct CallExpressions {
     pub subroutines: Vec<CallExpression>,
     pub scripts: Option<SubscriptCalls>,
@@ -136,13 +140,29 @@ pub struct CallExpressions {
 #[derive(Clone, Debug)]
 pub struct CallLocations {
     pub subroutines: Vec<CallExpression>,
-    pub scripts: Vec<CallExpression>,
+    pub scripts: Vec<(CallExpression, SubscriptCallKind)>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Command {
+    pub command: BRange,
+    pub identifier: BRange,
+    pub docstring: Option<BRange>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ParameterDeclaration {
+    pub cmd: Range<usize>,
+    pub r#macro: Range<usize>,
+    pub kind: ParameterDeclarationKind,
+    pub docstring: Option<Range<usize>>, // TODO: Detect inline docstring after expression.
 }
 
 #[derive(Clone, Debug)]
 pub struct SubscriptCalls {
     pub locations: Vec<CallExpression>,
     pub targets: Vec<Option<Uri>>,
+    pub kinds: Vec<SubscriptCallKind>,
 }
 
 impl From<&str> for MacroScope {
@@ -314,7 +334,7 @@ pub fn find_all_call_expressions(text: &str, tree: &Tree) -> CallLocations {
     let mut cursor = tree.walk();
 
     let mut subroutines: Vec<CallExpression> = Vec::new();
-    let mut scripts: Vec<CallExpression> = Vec::new();
+    let mut scripts: Vec<(CallExpression, SubscriptCallKind)> = Vec::new();
 
     if !cursor.goto_first_child() {
         return CallLocations {
@@ -365,7 +385,7 @@ pub fn find_all_call_expressions(text: &str, tree: &Tree) -> CallLocations {
 
                 let docstring = find_docstring(&mut cursor);
                 if docstring.is_some() {
-                    call.docstring = docstring;
+                    call.0.docstring = docstring;
                 }
                 scripts.push(call);
             }
@@ -391,18 +411,23 @@ pub fn find_all_call_expressions(text: &str, tree: &Tree) -> CallLocations {
     }
 }
 
-pub fn find_all_parameter_declarations(text: &str, tree: &Tree) -> Vec<ParameterDeclaration> {
+pub fn find_all_commands_and_parameter_declarations(
+    text: &str,
+    tree: &Tree,
+) -> (Vec<Command>, Vec<ParameterDeclaration>) {
     let mut cursor = tree.walk();
 
     let mut parameters: Vec<ParameterDeclaration> = Vec::new();
+    let mut commands: Vec<Command> = Vec::new();
 
     if !cursor.goto_first_child() {
-        return parameters;
+        return (commands, parameters);
     }
 
     let lang = tree.language();
 
     let declaration = NodeKind::ParameterDeclaration.into_id(&lang);
+    let command = NodeKind::CommandExpression.into_id(&lang);
     let block_openers = get_block_opener_ids(&lang);
 
     'outer: loop {
@@ -424,6 +449,20 @@ pub fn find_all_parameter_declarations(text: &str, tree: &Tree) -> Vec<Parameter
                 cursor.node().kind_id(),
                 NodeKind::ParameterDeclaration.into_id(&lang)
             );
+        } else if id == command {
+            let num = commands.len();
+            extract_command(&mut cursor, &mut commands);
+            if commands.len() != num {
+                let docstring = find_docstring(&mut cursor);
+                if let Some(docstr) = docstring {
+                    let len = commands.len();
+                    commands[len - 1].docstring = Some(BRange::from(docstr));
+                }
+            }
+            debug_assert_eq!(
+                cursor.node().kind_id(),
+                NodeKind::CommandExpression.into_id(&lang)
+            );
         } else if block_openers.contains(&id) {
             if cursor.goto_first_child() {
                 continue;
@@ -436,7 +475,7 @@ pub fn find_all_parameter_declarations(text: &str, tree: &Tree) -> Vec<Parameter
             }
         }
     }
-    parameters
+    (commands, parameters)
 }
 
 pub fn locate_subscript(
@@ -473,7 +512,7 @@ pub fn locate_subscript(
     locate_script(path, &files)
 }
 
-pub fn locate_subscript_call_target<'a>(text: &'a str, mut cursor: TreeCursor) -> Option<&'a str> {
+pub fn locate_subscript_call_target<'a>(text: &'a str, cursor: &mut TreeCursor) -> Option<&'a str> {
     debug_assert_eq!(
         cursor.node().kind_id(),
         NodeKind::CommandExpression.into_id(&cursor.node().language())
@@ -498,7 +537,37 @@ pub fn locate_subscript_call_target<'a>(text: &'a str, mut cursor: TreeCursor) -
     {
         return None;
     }
-    extract_script_call_command_arguments(text, &mut cursor)
+    extract_script_call_command_arguments(text, cursor)
+}
+
+fn extract_command(cursor: &mut TreeCursor, commands: &mut Vec<Command>) {
+    let command = cursor.node();
+    debug_assert_eq!(
+        cursor.node().kind_id(),
+        NodeKind::CommandExpression.into_id(&cursor.node().language())
+    );
+
+    if !cursor.goto_first_child() {
+        return;
+    }
+
+    debug_assert_eq!(
+        cursor.node().kind_id(),
+        NodeKind::Identifier.into_id(&cursor.node().language())
+    );
+
+    commands.push(Command {
+        command: BRange::from(command.byte_range()),
+        identifier: BRange::from(cursor.node().byte_range()),
+        docstring: None,
+    });
+
+    cursor.goto_parent();
+
+    debug_assert_eq!(
+        cursor.node().kind_id(),
+        NodeKind::CommandExpression.into_id(&cursor.node().language())
+    );
 }
 
 pub fn resides_in_subroutine(subroutines: &Vec<Subroutine>, offset: usize) -> Option<&Subroutine> {
@@ -1044,7 +1113,10 @@ fn goto_subroutine_call_target<'a>(cursor: &'a mut TreeCursor) -> Option<Node<'a
     Some(target)
 }
 
-pub fn extract_script_call(text: &str, cursor: &mut TreeCursor) -> Option<CallExpression> {
+pub fn extract_script_call(
+    text: &str,
+    cursor: &mut TreeCursor,
+) -> Option<(CallExpression, SubscriptCallKind)> {
     let call = cursor.node();
 
     debug_assert_eq!(
@@ -1062,11 +1134,9 @@ pub fn extract_script_call(text: &str, cursor: &mut TreeCursor) -> Option<CallEx
     );
 
     let command = text[cursor.node().byte_range()].split(".").last()?;
-    if !(KEYWORDS_SCRIPT_CALL
-        .iter()
-        .any(|k| k.eq_ignore_ascii_case(command))
-        && cursor.goto_next_sibling())
-    {
+    let kind = extract_subscript_call_kind(command);
+
+    if !(kind.is_some() && cursor.goto_next_sibling()) {
         cursor.goto_parent();
         return None;
     }
@@ -1077,11 +1147,33 @@ pub fn extract_script_call(text: &str, cursor: &mut TreeCursor) -> Option<CallEx
     }
     cursor.goto_parent();
 
-    Some(CallExpression {
-        target,
-        call: call.byte_range(),
-        docstring: None,
-    })
+    Some((
+        CallExpression {
+            target,
+            call: call.byte_range(),
+            docstring: None,
+        },
+        kind.expect("Type must be retrieved."),
+    ))
+}
+
+pub fn find_command_identifier(text: &str, command: TreeCursor) -> Option<String> {
+    debug_assert_eq!(
+        command.node().kind_id(),
+        NodeKind::CommandExpression.into_id(&command.node().language())
+    );
+
+    let mut cursor = command;
+
+    if !cursor.goto_first_child() {
+        return None;
+    }
+
+    debug_assert_eq!(
+        cursor.node().kind_id(),
+        NodeKind::Identifier.into_id(&cursor.node().language())
+    );
+    Some(text[cursor.node().byte_range()].to_string())
 }
 
 fn extract_goto_target(text: &str, cursor: &mut TreeCursor) -> Option<Range<usize>> {
@@ -1114,6 +1206,16 @@ fn extract_goto_target(text: &str, cursor: &mut TreeCursor) -> Option<Range<usiz
     cursor.goto_parent();
 
     Some(target)
+}
+
+fn extract_subscript_call_kind(command: &str) -> Option<SubscriptCallKind> {
+    if command.eq_ignore_ascii_case(KEYWORD_DO) {
+        Some(SubscriptCallKind::Do)
+    } else if command.eq_ignore_ascii_case(KEYWORD_RUN) {
+        Some(SubscriptCallKind::Run)
+    } else {
+        None
+    }
 }
 
 #[expect(unused)]

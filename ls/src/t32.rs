@@ -14,8 +14,8 @@ use tree_sitter_t32;
 pub use ast::{NodeKind, id_into_node};
 pub use cache::{get_macro_scope, locate_calls_to_file_target};
 pub use expressions::{
-    CallExpression, CallExpressions, CallLocations, Label, MacroDefinition, MacroScope,
-    ParameterDeclaration, Subroutine, SubscriptCalls,
+    CallExpression, CallExpressions, CallLocations, Command, Label, MacroDefinition, MacroScope,
+    ParameterDeclaration, ParameterDeclarationKind, Subroutine, SubscriptCallKind, SubscriptCalls,
 };
 pub use macros::MacroDefinitions;
 
@@ -24,8 +24,8 @@ pub use macros::MacroDefinitionsImplicit;
 
 pub use expressions::{
     find_all_call_expressions as find_call_expressions,
-    find_all_parameter_declarations as find_parameter_declarations,
-    find_all_subroutines_and_labels as find_subroutines_and_labels,
+    find_all_commands_and_parameter_declarations as find_commands_and_parameter_declarations,
+    find_all_subroutines_and_labels as find_subroutines_and_labels, find_command_identifier,
 };
 
 pub use macros::{
@@ -61,6 +61,7 @@ pub struct LangExpressions {
     pub calls: CallExpressions,
     pub parameters: Vec<ParameterDeclaration>,
     pub labels: Vec<Label>,
+    pub commands: Vec<Command>,
 }
 
 #[derive(Clone, Debug)]
@@ -356,12 +357,12 @@ pub fn find_stack_macro_references(
     (refs, callees)
 }
 
-pub fn find_command_file_target(text: &str, command: TreeCursor) -> Option<String> {
+pub fn find_command_file_target(text: &str, mut command: TreeCursor) -> Option<String> {
     debug_assert_eq!(
         command.node().kind_id(),
         NodeKind::CommandExpression.into_id(&command.node().language())
     );
 
-    let target = locate_subscript_call_target(text, command)?;
+    let target = locate_subscript_call_target(text, &mut command)?;
     Some(target.to_string())
 }
