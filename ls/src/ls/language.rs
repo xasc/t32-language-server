@@ -49,6 +49,8 @@ pub enum FindReferencesPartialResult {
     FileTarget(String),
 }
 
+// TODO: Use dedicated types for GoToExternalMacroDef results. The first two
+// elements do not have to be repeated in this case.
 #[derive(Debug, PartialEq)]
 pub enum GotoDefinitionResult {
     Final(Vec<LocationLink>),

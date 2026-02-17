@@ -48,7 +48,7 @@ This language server implements version 3.18 of the language server protocol.
 | `textDocument/declaration`               | ➖             |
 | `textDocument/definition`                | ✅             |
 | `textDocument/implementation`            | ➖             |
-| `textDocument/references`                | ➖             |
+| `textDocument/references`                | ✅             |
 | `textDocument/prepareCallHierarchy`      | ➖             |
 | `callHierarchy/incomingCalls`            | ➖             |
 | `callHierarchy/outgoingCalls`            | ➖             |

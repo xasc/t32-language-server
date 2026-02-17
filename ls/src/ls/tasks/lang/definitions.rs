@@ -342,10 +342,270 @@ mod tests {
 
     use std::time::Instant;
 
-    use crate::protocol::{Position, Range};
+    use crate::{
+        ls::{Task, TaskCounterInternal, TaskSystem},
+        protocol::{Position, Range},
+        utils::{create_doc_store, create_file_idx, files, to_file_uri},
+    };
 
     #[test]
-    fn skips_redundant_external_macro_def_checks() {
+    fn can_process_goto_definition_result() {
+        let files = files();
+        let file_idx = create_file_idx();
+        let docs = create_doc_store(&files, &file_idx);
+
+        let id = NumberOrString::Number(2);
+        let onset = Instant::now();
+
+        let mut ts = Tasks {
+            runner: TaskSystem::build(),
+            blocked: Vec::new(),
+            ongoing: vec![Some(OngoingTask::GoToDefinition(id.clone(), onset.clone()))],
+            completed: Vec::new(),
+            counter: TaskCounterInternal::new(),
+        };
+
+        let uri_a = to_file_uri("tests/samples/a/a.cmm");
+        let uri_c = to_file_uri("tests/samples/c.cmm");
+        let uri_d = to_file_uri("tests/samples/a/d/d.cmm");
+
+        let goto_def_result = Some(GotoDefinitionResult::PartialMacro(
+            uri_a.clone(),
+            "&from_c_cmm".to_string(),
+            Range {
+                start: Position {
+                    line: 139,
+                    character: 7,
+                },
+                end: Position {
+                    line: 139,
+                    character: 18,
+                },
+            },
+            Vec::new(),
+        ));
+
+        let mut outgoing: Vec<Option<Message>> = Vec::new();
+
+        let origin = MacroReferenceOrigin {
+            name: "&from_c_cmm".to_string(),
+            span: Range {
+                start: Position {
+                    line: 139,
+                    character: 7,
+                },
+                end: Position {
+                    line: 139,
+                    character: 18,
+                },
+            },
+            uri: uri_a.clone(),
+        };
+
+        let result = process_goto_definition_result(
+            &docs,
+            &id,
+            goto_def_result,
+            TraceValue::Off,
+            &mut ts,
+            &mut outgoing,
+        );
+
+        assert!(result.is_none());
+        assert!(outgoing.is_empty());
+
+        assert!(ts.ongoing[0].as_ref().is_some_and(|t| {
+            let OngoingTask::GoToExternalMacroDef { progress, .. } = t else {
+                unreachable!()
+            };
+            progress.ready()
+        }));
+
+        assert!(ts.ongoing[0].take().is_some_and(|t| t
+            == OngoingTask::GoToExternalMacroDef {
+                id,
+                onset,
+                progress: TaskProgress::new(2),
+                origin,
+                visited: FileCallMap::new(),
+                undone: ExtMacroDefLookups {
+                    files: vec![uri_c.clone(), uri_d.clone()],
+                    callees: vec![uri_a.clone(), uri_a.clone()],
+                },
+                results: Vec::new(),
+            }));
+    }
+
+    #[test]
+    fn can_queue_lookups_for_external_macro_definitions() {
+        let files = files();
+        let file_idx = create_file_idx();
+        let docs = create_doc_store(&files, &file_idx);
+
+        let id = NumberOrString::Number(2);
+        let onset = Instant::now();
+
+        let uri_c = to_file_uri("tests/samples/c.cmm");
+        let uri_d = to_file_uri("tests/samples/a/d/d.cmm");
+
+        let origin = MacroReferenceOrigin {
+            name: "&from_c_cmm".to_string(),
+            span: Range {
+                start: Position {
+                    line: 139,
+                    character: 7,
+                },
+                end: Position {
+                    line: 139,
+                    character: 18,
+                },
+            },
+            uri: to_file_uri("tests/samples/a/a.cmm"),
+        };
+
+        let mut ongoing = OngoingTask::GoToExternalMacroDef {
+            id: id.clone(),
+            onset: onset.clone(),
+            progress: TaskProgress::new(10),
+            origin: origin.clone(),
+            visited: FileCallMap::new(),
+            undone: ExtMacroDefLookups {
+                files: vec![uri_c.clone(), uri_d.clone()],
+                callees: vec![
+                    to_file_uri("tests/samples/a/a.cmm"),
+                    to_file_uri("tests/samples/a/a.cmm"),
+                ],
+            },
+            results: Vec::new(),
+        };
+
+        let visited: FileCallMap = {
+            let mut map = FileCallMap::new();
+
+            for file in [uri_c.clone(), uri_d.clone()] {
+                map.insert(file, to_file_uri("tests/samples/a/a.cmm"));
+            }
+            map
+        };
+
+        let mut progress = TaskProgress::new(2);
+        progress.ack_ready();
+
+        let mut outgoing: Vec<Task> = Vec::new();
+
+        next_lookups_goto_external_macro_def(&docs, &mut ongoing, &mut outgoing);
+
+        assert!(
+            ongoing
+                == OngoingTask::GoToExternalMacroDef {
+                    id: id,
+                    onset,
+                    progress,
+                    origin,
+                    visited,
+                    undone: ExtMacroDefLookups::new(),
+                    results: Vec::new(),
+                }
+        );
+
+        assert!(outgoing.len() == 2);
+        assert!(outgoing.iter().any(|o| {
+            let Task::GoToExternalMacroDef { textdoc, .. } = o else {
+                return false;
+            };
+            textdoc.doc.uri == uri_c
+        }));
+        assert!(outgoing.iter().any(|o| {
+            let Task::GoToExternalMacroDef { textdoc, .. } = o else {
+                return false;
+            };
+            textdoc.doc.uri == uri_d
+        }));
+    }
+
+    #[test]
+    fn can_progress_goto_external_macro_definition_req() {
+        let id = NumberOrString::Number(2);
+        let onset = Instant::now();
+
+        let uri_c = to_file_uri("tests/samples/c.cmm");
+        let uri_d = to_file_uri("tests/samples/a/d/d.cmm");
+
+        let origin = MacroReferenceOrigin {
+            name: "&from_c_cmm".to_string(),
+            span: Range {
+                start: Position {
+                    line: 139,
+                    character: 7,
+                },
+                end: Position {
+                    line: 139,
+                    character: 18,
+                },
+            },
+            uri: to_file_uri("tests/samples/a/a.cmm"),
+        };
+
+        let sync_goto_ext_def = Some(GotoDefinitionResult::PartialMacro(
+            uri_d.clone(),
+            "&from_c_cmm".to_string(),
+            origin.span.clone(),
+            Vec::new(),
+        ));
+
+        let visited: FileCallMap = {
+            let mut map = FileCallMap::new();
+
+            map.insert(uri_d.clone(), uri_c.clone());
+            map
+        };
+
+        let mut ongoing = vec![Some(OngoingTask::GoToExternalMacroDef {
+            id: id.clone(),
+            onset: onset.clone(),
+            progress: TaskProgress::new(2),
+            origin: origin.clone(),
+            visited: visited.clone(),
+            undone: ExtMacroDefLookups::new(),
+            results: Vec::new(),
+        })];
+
+        let mut progress = TaskProgress::new(2);
+        progress.advance();
+
+        recv_goto_external_macro_def_sync(
+            &id,
+            &uri_d,
+            sync_goto_ext_def,
+            vec![uri_c.clone()],
+            &mut ongoing,
+        );
+
+        let ongoing = ongoing[0].take();
+        assert!(ongoing.as_ref().is_some_and(|t| *t
+            == OngoingTask::GoToExternalMacroDef {
+                id,
+                onset,
+                progress,
+                origin,
+                visited,
+                results: Vec::new(),
+                undone: ExtMacroDefLookups {
+                    files: vec![uri_c],
+                    callees: vec![uri_d],
+                },
+            }));
+
+        assert!(ongoing.is_some_and(|t| {
+            let OngoingTask::GoToExternalMacroDef { progress, .. } = t else {
+                panic!()
+            };
+            !progress.ready()
+        }));
+    }
+
+    #[test]
+    fn visits_scripts_for_external_macro_definition_lookup_only_once() {
         let docs = TextDocs::new();
 
         let mut visited = FileCallMap::new();
