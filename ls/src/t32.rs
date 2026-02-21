@@ -7,6 +7,7 @@ mod cache;
 mod expressions;
 mod macros;
 mod path;
+mod query;
 
 use tree_sitter::{Language, Parser, Tree, TreeCursor};
 use tree_sitter_t32;
@@ -18,6 +19,7 @@ pub use expressions::{
     ParameterDeclaration, ParameterDeclarationKind, Subroutine, SubscriptCallKind, SubscriptCalls,
 };
 pub use macros::MacroDefinitions;
+pub use query::{SemanticToken, do_syntax_highlighting, do_syntax_highlighting_in_range};
 
 #[cfg(test)]
 pub use macros::MacroDefinitionsImplicit;

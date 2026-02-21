@@ -55,6 +55,10 @@ impl BRange {
     pub fn contains(&self, offset: &usize) -> bool {
         self.0.contains(offset)
     }
+
+    pub fn contained(&self, other: &Self) -> bool {
+        other.contains(&self.0.start) && other.contains(&self.0.end)
+    }
 }
 
 impl FileLocationMap {

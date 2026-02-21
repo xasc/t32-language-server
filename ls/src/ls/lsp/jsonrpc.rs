@@ -16,12 +16,13 @@ use crate::{
     ls::request::{Notification, Request},
     ls::response::{
         ErrorResponse, FindReferencesResponse, GoToDefinitionResponse, InitializeResponse,
-        NullResponse, Response,
+        NullResponse, Response, SemanticTokensFullResponse, SemanticTokensRangeResponse,
     },
     protocol::{
         DefinitionParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
         DidOpenTextDocumentParams, ErrorCodes, InitializeParams, InitializedParams, NumberOrString,
-        ReferenceParams, RenameFilesParams, ResponseError, SetTraceParams,
+        ReferenceParams, RenameFilesParams, ResponseError, SemanticTokensParams,
+        SemanticTokensRangeParams, SetTraceParams,
     },
 };
 
@@ -295,6 +296,8 @@ fn deserialize_request(msg: RequestMessage) -> Result<Message, ErrorResponse> {
     const SHUTDOWN: &'static str = "shutdown";
     const TEXTDOC_DEFINITION: &'static str = "textDocument/definition";
     const TEXTDOC_REFERENCES: &'static str = "textDocument/references";
+    const TEXTDOC_SEMANTIC_TOKENS_FULL: &'static str = "textDocument/semanticTokens/full";
+    const TEXTDOC_SEMANTIC_TOKENS_RANGE: &'static str = "textDocument/semanticTokens/range";
 
     match msg.method.as_str() {
         INITIALIZE => match deserialize_msg_params::<InitializeParams>(msg.params) {
@@ -328,9 +331,33 @@ fn deserialize_request(msg: RequestMessage) -> Result<Message, ErrorResponse> {
                 error: err,
             }),
         },
+        TEXTDOC_SEMANTIC_TOKENS_FULL => {
+            match deserialize_msg_params::<SemanticTokensParams>(msg.params) {
+                Ok(params) => Ok(Message::Request(Request::SemanticTokensFull {
+                    id: msg.id,
+                    params,
+                })),
+                Err(err) => Err(ErrorResponse {
+                    id: Some(msg.id),
+                    error: err,
+                }),
+            }
+        }
+        TEXTDOC_SEMANTIC_TOKENS_RANGE => {
+            match deserialize_msg_params::<SemanticTokensRangeParams>(msg.params) {
+                Ok(params) => Ok(Message::Request(Request::SemanticTokensRange {
+                    id: msg.id,
+                    params,
+                })),
+                Err(err) => Err(ErrorResponse {
+                    id: Some(msg.id),
+                    error: err,
+                }),
+            }
+        }
         method => Err(ErrorResponse {
             id: Some(msg.id),
-            error: error_type(method),
+            error: error_type_req(method),
         }),
     }
 }
@@ -406,7 +433,7 @@ fn deserialize_notif(msg: NotificationMessage) -> Result<Message, ErrorResponse>
         },
         method => Err(ErrorResponse {
             id: None,
-            error: error_type(method),
+            error: error_type_notif(method),
         }),
     }
 }
@@ -457,6 +484,16 @@ fn serialize_response(msg: Response) -> LineMessage {
                 None,
             ),
             Response::NullResponse(NullResponse { id }) => (Some(id), None, None),
+            Response::SemanticTokensFullResponse(SemanticTokensFullResponse { id, result }) => (
+                Some(id),
+                Some(serde_json::to_value(result).expect("Serialization must not fail.")),
+                None,
+            ),
+            Response::SemanticTokensRangeResponse(SemanticTokensRangeResponse { id, result }) => (
+                Some(id),
+                Some(serde_json::to_value(result).expect("Serialization must not fail.")),
+                None,
+            ),
         };
 
     LineMessage::ResponseMessage(ResponseMessage {
@@ -545,11 +582,22 @@ fn error_incomplete(err: Error, len: usize) -> ResponseError {
     }
 }
 
-fn error_type(method: &str) -> ResponseError {
+fn error_type_req(method: &str) -> ResponseError {
     ResponseError {
         code: ErrorCodes::MethodNotFound as i64,
         message: format!(
-            "Data error: Message method \"{}\" is not supported.",
+            "Data error: Request message method \"{}\" is not supported.",
+            method
+        ),
+        data: None,
+    }
+}
+
+fn error_type_notif(method: &str) -> ResponseError {
+    ResponseError {
+        code: ErrorCodes::MethodNotFound as i64,
+        message: format!(
+            "Data error: Notification message method \"{}\" is not supported.",
             method
         ),
         data: None,
@@ -716,6 +764,58 @@ mod tests {
         assert!(matches!(
             req,
             Message::Request(Request::GoToDefinition { .. })
+        ));
+    }
+
+    #[test]
+    fn can_create_semantic_tokens_full_request() {
+        let msg = LineMessage::RequestMessage(RequestMessage {
+            jsonrpc: "2.0".to_string(),
+            id: protocol::NumberOrString::Number(1),
+            method: "textDocument/semanticTokens/full".to_string(),
+            params: Some(json!({
+                "textDocument": {
+                    "uri": "file:///C:/project/script.cmm"
+                },
+            })),
+        });
+
+        let req = deserialize_msg(msg).expect("Should not fail.");
+
+        assert!(matches!(
+            req,
+            Message::Request(Request::SemanticTokensFull { .. })
+        ));
+    }
+
+    #[test]
+    fn can_create_semantic_tokens_range_request() {
+        let msg = LineMessage::RequestMessage(RequestMessage {
+            jsonrpc: "2.0".to_string(),
+            id: protocol::NumberOrString::Number(1),
+            method: "textDocument/semanticTokens/range".to_string(),
+            params: Some(json!({
+                "textDocument": {
+                    "uri": "file:///C:/project/select.cmm",
+                },
+                "range": {
+                    "start": {
+                        "line": 2,
+                        "character": 13,
+                    },
+                    "end": {
+                        "line": 5,
+                        "character": 0,
+                    }
+                }
+            })),
+        });
+
+        let req = deserialize_msg(msg).expect("Should not fail.");
+
+        assert!(matches!(
+            req,
+            Message::Request(Request::SemanticTokensRange { .. })
         ));
     }
 
@@ -964,5 +1064,37 @@ mod tests {
         let response = serialize_msg(msg);
 
         assert_eq!(response, expected.to_string());
+    }
+
+    #[test]
+    fn can_create_semantic_tokens_full_response() {
+        let result = r#"{"data":[0,1,2,3,4,5]}"#;
+        let expected = format!(r#"{{"jsonrpc":"2.0","id":1,"result":{}}}"#, result);
+
+        let res: protocol::SemanticTokens = serde_json::from_str(result).expect("Should not fail.");
+        let msg = serialize_msg(Message::Response(Response::SemanticTokensFullResponse(
+            SemanticTokensFullResponse {
+                id: NumberOrString::Number(1),
+                result: Some(res),
+            },
+        )));
+
+        assert_eq!(msg, expected);
+    }
+
+    #[test]
+    fn can_create_semantic_tokens_range_response() {
+        let result = r#"{"data":[0,1,2,3,4,5,6,7,8,9]}"#;
+        let expected = format!(r#"{{"jsonrpc":"2.0","id":1,"result":{}}}"#, result);
+
+        let res: protocol::SemanticTokens = serde_json::from_str(result).expect("Should not fail.");
+        let msg = serialize_msg(Message::Response(Response::SemanticTokensRangeResponse(
+            SemanticTokensRangeResponse {
+                id: NumberOrString::Number(1),
+                result: Some(res),
+            },
+        )));
+
+        assert_eq!(msg, expected);
     }
 }

@@ -20,7 +20,7 @@ use url::Url;
 
 use crate::{
     ReturnCode,
-    config::Workspace,
+    config::{SemanticTokenEncoding, Workspace},
     ls::{
         doc::{TextDoc, TextDocData},
         language::{
@@ -31,8 +31,8 @@ use crate::{
         workspace::{FileIndex, ResolvedRenameFileOperations, WorkspaceMembers},
     },
     protocol::{
-        Location, LocationLink, NumberOrString, Position, TextDocumentContentChangeEvent,
-        TextDocumentItem, Uri,
+        Location, LocationLink, NumberOrString, Position, Range, SemanticTokens,
+        SemanticTokensLegend, TextDocumentContentChangeEvent, TextDocumentItem, Uri,
     },
     t32::{FindMacroRefsLangContext, FindRefsLangContext, GotoDefLangContext, LangExpressions},
 };
@@ -113,6 +113,21 @@ pub enum Task {
             Uri,
         ) -> (Option<GotoDefinitionResult>, Vec<Uri>),
     },
+    SemanticTokensFull(
+        NumberOrString,
+        SemanticTokensLegend,
+        SemanticTokenEncoding,
+        TextDocData,
+        fn(SemanticTokensLegend, SemanticTokenEncoding, TextDocData) -> SemanticTokens,
+    ),
+    SemanticTokensRange(
+        NumberOrString,
+        SemanticTokensLegend,
+        SemanticTokenEncoding,
+        TextDocData,
+        Range,
+        fn(SemanticTokensLegend, SemanticTokenEncoding, TextDocData, Range) -> SemanticTokens,
+    ),
     TextDocNew(
         TextDocumentItem,
         FileIndex,
@@ -152,6 +167,8 @@ pub enum TaskDone {
     GoToDefinition(NumberOrString, Option<GotoDefinitionResult>),
     GoToExternalMacroDef(NumberOrString, Vec<LocationLink>),
     GoToExternalMacroDefSync(NumberOrString, Option<GotoDefinitionResult>, Uri, Vec<Uri>),
+    SemanticTokensFull(NumberOrString, SemanticTokens),
+    SemanticTokensRange(NumberOrString, SemanticTokens),
     TextDocNew(TextDoc, Tree, LangExpressions),
     TextDocEdit(TextDoc, Tree, LangExpressions),
     WorkspaceFileDiscovery(WorkspaceMembers),
@@ -183,7 +200,9 @@ impl TaskDone {
             | TaskDone::FindReferences(id, ..)
             | TaskDone::GoToDefinition(id, ..)
             | TaskDone::GoToExternalMacroDef(id, ..)
-            | TaskDone::GoToExternalMacroDefSync(id, ..) => {
+            | TaskDone::GoToExternalMacroDefSync(id, ..)
+            | TaskDone::SemanticTokensFull(id, ..)
+            | TaskDone::SemanticTokensRange(id, ..) => {
                 Some(OngoingTaskHandle::Identifier(id.clone()))
             }
             TaskDone::TextDocEdit(doc, ..)
@@ -368,6 +387,12 @@ impl TaskSystem {
 
                 TaskDone::GoToExternalMacroDefSync(id, defs.0, uri, defs.1)
             }
+            Task::SemanticTokensFull(id, legend, encoding, textdoc, tokenize) => {
+                TaskDone::SemanticTokensFull(id, tokenize(legend, encoding, textdoc))
+            }
+            Task::SemanticTokensRange(id, legend, encoding, textdoc, range, tokenize) => {
+                TaskDone::SemanticTokensRange(id, tokenize(legend, encoding, textdoc, range))
+            }
             Task::TextDocNew(doc, files, transform) => {
                 let (doc, tree, t32) = transform(doc, files);
                 TaskDone::TextDocNew(doc, tree, t32)
@@ -406,7 +431,7 @@ impl Drop for TaskSystem {
 
             if let Err(rc) = status {
                 eprintln!(
-                    "Error: Task queue #{ii} exited with error code {}.",
+                    "ERROR: Task queue #{ii} exited with error code {}.",
                     rc as i32
                 );
             }

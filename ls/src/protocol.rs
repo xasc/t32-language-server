@@ -214,6 +214,50 @@ pub enum CodeActionKind {
     Notebook,
 }
 
+#[derive(Copy, Clone, Debug, Deserialize, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SemanticTokenModifiers {
+    Definition = 0,
+    Declaration = 1,
+    Readonly = 2,
+    Static = 3,
+    Deprecated = 4,
+    Abstract = 5,
+    Async = 6,
+    Modification = 7,
+    Documentation = 8,
+    DefaultLibrary = 9,
+}
+
+#[derive(Copy, Clone, Debug, Deserialize, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SemanticTokenTypes {
+    Type = 0,
+    Function = 1,
+    Macro = 2,
+    Variable = 3,
+    Keyword = 4,
+    Operator = 5,
+    Label = 6,
+    Comment = 7,
+    String = 8,
+    Number = 9,
+    Parameter = 10,
+    Modifier = 11,
+    Namespace = 12,
+    Class = 13,
+    Enum = 14,
+    Interface = 15,
+    Struct = 16,
+    TypeParameter = 17,
+    Property = 18,
+    EnumMember = 19,
+    Event = 20,
+    Method = 21,
+    Regexp = 22,
+    Decorator = 23,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum FoldingRangeKind {
@@ -222,18 +266,19 @@ pub enum FoldingRangeKind {
     Region,
 }
 
-#[expect(unused)]
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", untagged)]
+#[serde(untagged)]
 pub enum SemanticTokenFullRequestsCapabilities {
+    #[allow(dead_code)]
     Bool(bool),
     Delta {
+        #[allow(dead_code)]
         #[serde(skip_serializing_if = "Option::is_none")]
         delta: Option<bool>,
     },
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum TokenFormat {
     Relative,
@@ -945,9 +990,8 @@ pub struct TextDocumentClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     call_hierarchy: Option<CallHierarchyClientCapabilities>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
-    semantic_tokens: Option<SemanticTokensClientCapabilities>,
+    pub semantic_tokens: Option<SemanticTokensClientCapabilities>,
 
     #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1460,16 +1504,16 @@ pub struct CallHierarchyClientCapabilities {
 pub struct SemanticTokensClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
-    requests: Option<SemanticTokenRequestsCapabilities>,
-    token_types: Vec<String>,
-    token_modifiers: Vec<String>,
-    formats: Vec<TokenFormat>,
+    pub requests: Option<SemanticTokenRequestsCapabilities>,
+    pub token_types: Vec<String>,
+    pub token_modifiers: Vec<String>,
+    pub formats: Vec<TokenFormat>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    overlapping_token_support: Option<bool>,
+    pub overlapping_token_support: Option<bool>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    multiline_token_support: Option<bool>,
+    pub multiline_token_support: Option<bool>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     server_cancel_support: Option<bool>,
@@ -1478,12 +1522,13 @@ pub struct SemanticTokensClientCapabilities {
     augments_syntax_tokens: Option<bool>,
 }
 
-#[expect(unused)]
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct SemanticTokenRequestsCapabilities {
-    range: Option<bool>,
-    full: Option<SemanticTokenFullRequestsCapabilities>,
+    #[allow(dead_code)]
+    pub range: Option<bool>,
+
+    #[allow(dead_code)]
+    pub full: Option<SemanticTokenFullRequestsCapabilities>,
 }
 
 #[expect(unused)]
@@ -1826,13 +1871,13 @@ pub struct DeclarationRegistrationOptions {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct DocumentFilter {
     #[serde(skip_serializing_if = "Option::is_none")]
-    language: Option<String>,
+    pub language: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    scheme: Option<String>,
+    pub scheme: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pattern: Option<GlobPattern>,
+    pub pattern: Option<GlobPattern>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -2085,28 +2130,28 @@ pub struct SemanticTokensOptions {
     work_done_progress: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SemanticTokensLegend {
-    token_types: Vec<String>,
-    token_modifiers: Vec<String>,
+    pub token_types: Vec<SemanticTokenTypes>,
+    pub token_modifiers: Vec<SemanticTokenModifiers>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct SemanticTokensRegistrationOptions {
-    document_selector: Option<DocumentSelector>,
-    legend: SemanticTokensLegend,
+    pub document_selector: Option<DocumentSelector>,
+    pub legend: SemanticTokensLegend,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    range: Option<bool>,
+    pub range: Option<bool>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    full: Option<SemanticTokensFullDocumentCapabilities>,
+    pub full: Option<SemanticTokensFullDocumentCapabilities>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    work_done_progress: Option<bool>,
+    pub work_done_progress: Option<bool>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    id: Option<String>,
+    pub id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -2505,7 +2550,7 @@ pub struct Range {
     pub end: Position,
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct Position {
     pub line: u32,
     pub character: u32,
@@ -2573,6 +2618,67 @@ pub struct ReferenceParams {
 #[serde(rename_all = "camelCase")]
 pub struct ReferenceContext {
     pub include_declaration: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SemanticTokensParams {
+    pub text_document: TextDocumentIdentifier,
+
+    #[expect(unused)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub work_done_token: Option<ProgressToken>,
+
+    #[expect(unused)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub partial_result_token: Option<ProgressToken>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SemanticTokensRangeParams {
+    pub text_document: TextDocumentIdentifier,
+    pub range: Range,
+
+    #[expect(unused)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub work_done_token: Option<ProgressToken>,
+
+    #[expect(unused)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub partial_result_token: Option<ProgressToken>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SemanticTokens {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result_id: Option<String>,
+
+    pub data: Vec<u32>,
+}
+
+impl Range {
+    pub fn contains(&self, other: &Range) -> bool {
+        let Self {
+            start: self_start,
+            end: self_end,
+        } = self;
+        let Range {
+            start: other_start,
+            end: other_end,
+        } = other;
+
+        if other_start.line >= self_start.line
+            && other_start.character >= self_start.character
+            && other_end.line <= self_end.line
+            && other_end.character <= self_end.character
+        {
+            true
+        } else {
+            false
+        }
+    }
 }
 
 impl fmt::Display for NumberOrString {

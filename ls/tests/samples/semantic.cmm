@@ -1,0 +1,26 @@
+; SPDX-FileCopyrightText: 2024 Christoph Sax <c_sax@mailbox.org>
+;
+; SPDX-License-Identifier: EUPL-1.2
+
+&a=0x1+0x2
+
+PRINT &a
+
+Var.VALUE sizeof(int)
+
+&b=ASD:0x80000
+
+PRINT "STRING"
+
+GOTO label
+
+SUBROUTINE subA
+(
+    PARAMETERS &param1
+    RETURN 1.
+)
+
+label:
+    PRINT "LABEL"
+
+ENDDO

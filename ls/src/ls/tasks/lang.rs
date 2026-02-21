@@ -4,6 +4,7 @@
 
 mod definitions;
 mod references;
+mod semantic;
 
 pub use definitions::{
     process_goto_definition_req, process_goto_definition_result, progress_goto_external_macro_def,
@@ -15,3 +16,4 @@ pub use references::{
     progress_find_subscript_macro_refs, recv_find_external_definitions_for_macro_reference_sync,
     recv_find_macro_def_references_sync, recv_find_subscript_macro_references_sync,
 };
+pub use semantic::{process_semantic_tokens_full_req, process_semantic_tokens_range_req};

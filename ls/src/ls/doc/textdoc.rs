@@ -12,6 +12,7 @@ use crate::{
     ReturnCode,
     protocol::{Position, Range, TextDocumentItem, Uri},
     t32::LANGUAGE_ID,
+    utils::BRange,
 };
 
 #[derive(Clone, Debug)]
@@ -74,7 +75,7 @@ impl TryFrom<Url> for TextDoc {
 
 impl TextDoc {
     pub fn update(&mut self, change: Range, new: &str) -> InputEdit {
-        let range = make_range_well_formed_range(change, &self.lines, &self.text);
+        let range = make_range_well_formed(change, &self.lines, &self.text);
 
         let start_byte = self.get_byte_offset_at(&range.start);
         let end_byte = self.get_byte_offset_at(&range.end);
@@ -119,6 +120,12 @@ impl TextDoc {
         self.get_byte_offset_at(&spot)
     }
 
+    pub fn to_byte_range(&self, a: &Position, b: &Position) -> BRange {
+        let (start, end) = normalize_positions(a, b);
+
+        BRange::from(self.to_byte_offset(start)..self.to_byte_offset(end))
+    }
+
     pub fn to_position(&self, offset: usize) -> Position {
         if offset >= self.text.len() {
             let num_lines = self.lines.max_utf16_char_offset.len();
@@ -148,6 +155,41 @@ impl TextDoc {
         Range {
             start: self.to_position(span.0),
             end: self.to_position(span.1),
+        }
+    }
+
+    /// Calculates the distance between two file positions. Line breaks are not
+    /// included in the result.
+    pub fn calculate_distance(&self, a: &Position, b: &Position) -> u32 {
+        let (start, end) = normalize_positions(a, b);
+
+        if end.line == start.line {
+            (end.character - start.character + 1) as u32
+        } else {
+            let (mut offset, mut line) = (start.character, start.line);
+
+            let mut distance = 0u32;
+            loop {
+                if line >= end.line {
+                    break distance + end.character + 1;
+                }
+
+                // The maximum char offset captures the offset of the line
+                // break.
+                if let Some(max_offset) = self.lines.max_utf16_char_offset[line as usize] {
+                    distance += max_offset - offset;
+                }
+                offset = 0;
+                line += 1;
+            }
+        }
+    }
+
+    pub fn get_eol_character_offset(&self, line: usize) -> Option<u32> {
+        if line >= self.lines.max_utf16_char_offset.len() {
+            None
+        } else {
+            self.lines.max_utf16_char_offset[line]
         }
     }
 
@@ -401,7 +443,7 @@ fn update_line_map_from_text_segment(
     lines.num_bytes = text.len();
 }
 
-fn make_range_well_formed_range(range: Range, lines: &LineMap, text: &str) -> Range {
+fn make_range_well_formed(range: Range, lines: &LineMap, text: &str) -> Range {
     let range = normalize_range(&range, lines, text);
 
     if range.end.line < range.start.line
@@ -458,6 +500,16 @@ fn normalize_position(spot: &Position, lines: &LineMap, text: &str) -> Position 
         character = lines.align_with_character_border(&spot, text);
     }
     Position { line, character }
+}
+
+/// Returns the smaller position as first and the larger position as second
+/// value.
+fn normalize_positions<'a>(a: &'a Position, b: &'a Position) -> (&'a Position, &'a Position) {
+    if a.line < b.line || (a.line == b.line && a.character <= b.character) {
+        (a, b)
+    } else {
+        (b, a)
+    }
 }
 
 fn text_ends_with_eol(lines: &LineMap) -> bool {
@@ -929,6 +981,73 @@ mod test {
                 line: 3,
                 character: 0
             }
+        );
+    }
+
+    #[test]
+    fn can_calculate_distance() {
+        let text = "First Line Segment\nSecond Line Segment\nThird Line Segment";
+        let lines = create_line_map_for_text(&text, None, None);
+
+        let doc = TextDoc {
+            uri: "file:///C:/doc.rs".to_string(),
+            lang_id: LANGUAGE_ID.to_string(),
+            version: 1,
+            text: text.to_string(),
+            lines,
+        };
+
+        assert_eq!(
+            doc.calculate_distance(
+                &Position {
+                    line: 0,
+                    character: 6
+                },
+                &Position {
+                    line: 0,
+                    character: 9
+                }
+            ),
+            4
+        );
+        assert_eq!(
+            doc.calculate_distance(
+                &Position {
+                    line: 0,
+                    character: 11
+                },
+                &Position {
+                    line: 1,
+                    character: 5
+                }
+            ),
+            13
+        );
+        assert_eq!(
+            doc.calculate_distance(
+                &Position {
+                    line: 0,
+                    character: 11
+                },
+                &Position {
+                    line: 2,
+                    character: 9
+                }
+            ),
+            36
+        );
+        assert_eq!(
+            doc.calculate_distance(
+                &Position {
+                    line: 0,
+                    character: 17
+                },
+                &Position {
+                    line: 1,
+                    character: 0
+                }
+            ),
+            2
         );
     }
 }

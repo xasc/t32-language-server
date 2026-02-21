@@ -7,7 +7,8 @@ use std::fmt;
 use crate::protocol::{
     DefinitionParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, InitializeParams, InitializedParams, LogTraceParams, NumberOrString,
-    ReferenceParams, RenameFilesParams, SetTraceParams,
+    ReferenceParams, RenameFilesParams, SemanticTokensParams, SemanticTokensRangeParams,
+    SetTraceParams,
 };
 
 // Requests from client to server.
@@ -24,6 +25,14 @@ pub enum Request {
     InitializeRequest {
         id: NumberOrString,
         params: InitializeParams,
+    },
+    SemanticTokensFull {
+        id: NumberOrString,
+        params: SemanticTokensParams,
+    },
+    SemanticTokensRange {
+        id: NumberOrString,
+        params: SemanticTokensRangeParams,
     },
     ShutdownRequest {
         id: NumberOrString,
@@ -63,6 +72,8 @@ impl Request {
             Request::GoToDefinition { id, .. } => Some(id),
             Request::InitializeRequest { id, .. } => Some(id),
             Request::FindReferences { id, .. } => Some(id),
+            Request::SemanticTokensFull { id, .. } => Some(id),
+            Request::SemanticTokensRange { id, .. } => Some(id),
             Request::ShutdownRequest { id } => Some(id),
         }
     }

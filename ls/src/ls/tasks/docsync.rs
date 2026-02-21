@@ -79,7 +79,7 @@ fn error_textdoc_not_open(uri: &str) -> Message {
         error: ResponseError {
             code: ErrorCodes::InvalidRequest as i64,
             message: format!(
-                "Error: Text document \"{}\" has not been opened, so it cannot be changed.",
+                "ERROR: Text document \"{}\" has not been opened, so it cannot be changed.",
                 uri
             ),
             data: None,
@@ -93,7 +93,7 @@ fn error_textdoc_cannot_close(uri: &str) -> Message {
         error: ResponseError {
             code: ErrorCodes::InvalidRequest as i64,
             message: format!(
-                "Error: Text document \"{}\" has not been opened, so it cannot be closed.",
+                "ERROR: Text document \"{}\" has not been opened, so it cannot be closed.",
                 uri
             ),
             data: None,

@@ -94,7 +94,7 @@ fn exits_on_wrong_parent_pid() {
     assert!(
         std::str::from_utf8(&output.stdout)
             .unwrap()
-            .contains("Error: Process ID of the parent process 2 is different")
+            .contains("ERROR: Process ID of the parent process 2 is different")
     );
 
     let mut ls = utils::start_ls(&[&format!("--clientProcessId={}", pid)], false);
@@ -123,7 +123,7 @@ fn exits_on_wrong_parent_pid() {
     assert!(
         std::str::from_utf8(&output.stdout)
             .unwrap()
-            .contains("Error: Process ID of the parent process")
+            .contains("ERROR: Process ID of the parent process")
     );
     assert!(
         std::str::from_utf8(&output.stdout)
@@ -714,5 +714,62 @@ fn can_enable_logging() {
         std::str::from_utf8(&output.stdout)
             .unwrap()
             .contains("$/logTrace")
+    );
+}
+
+#[test]
+fn can_build_semantic_token_legend() {
+    let mut ls = utils::start_ls_with_semantic_tokens(&[
+        &format!("--clientProcessId={}", process::id().to_string()),
+        &format!("--trace={}", "messages"),
+    ]);
+    let mut stdin = ls.stdin.take().unwrap();
+
+    thread::sleep(time::Duration::from_millis(2000));
+
+    utils::stop_ls(&mut ls, Some(&mut stdin), Some(2));
+    let output = ls.wait_with_output().expect("Cannot capture output");
+
+    assert_eq!(output.status.code(), Some(0));
+    assert!(
+        std::str::from_utf8(&output.stdout)
+            .unwrap()
+            .contains("typeParameter")
+    );
+    assert!(
+        std::str::from_utf8(&output.stdout)
+            .unwrap()
+            .contains("macro")
+    );
+    assert!(
+        std::str::from_utf8(&output.stdout)
+            .unwrap()
+            .contains("number")
+    );
+    assert!(
+        !std::str::from_utf8(&output.stdout)
+            .unwrap()
+            .contains("property")
+    );
+
+    assert!(
+        std::str::from_utf8(&output.stdout)
+            .unwrap()
+            .contains("declaration")
+    );
+    assert!(
+        std::str::from_utf8(&output.stdout)
+            .unwrap()
+            .contains("abstract")
+    );
+    assert!(
+        std::str::from_utf8(&output.stdout)
+            .unwrap()
+            .contains("defaultLibrary")
+    );
+    assert!(
+        !std::str::from_utf8(&output.stdout)
+            .unwrap()
+            .contains("async")
     );
 }

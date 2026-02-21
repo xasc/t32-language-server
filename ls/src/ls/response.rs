@@ -6,14 +6,16 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     protocol::{
-        DefinitionOptions, DefinitionProvider, FileOperationFilter, FileOperationPattern,
-        FileOperationPatternKind, FileOperationPatternOptions, FileOperationRegistrationOptions,
-        InitializeResult, Location, LocationLink, NumberOrString, PositionEncodingKind,
-        ReferenceOptions, ReferencesProvider, ResponseError, ServerCapabilities, ServerInfo,
-        TextDocumentSyncKind, TextDocumentSyncOptions, TextDocumentSyncServerCapabilities,
-        WorkspaceFileOperations, WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
+        DefinitionOptions, DefinitionProvider, DocumentFilter, FileOperationFilter,
+        FileOperationPattern, FileOperationPatternKind, FileOperationPatternOptions,
+        FileOperationRegistrationOptions, InitializeResult, Location, LocationLink, NumberOrString,
+        PositionEncodingKind, ReferenceOptions, ReferencesProvider, ResponseError, SemanticTokens,
+        SemanticTokensFullDocumentCapabilities, SemanticTokensLegend, SemanticTokensProvider,
+        SemanticTokensRegistrationOptions, ServerCapabilities, ServerInfo, TextDocumentSyncKind,
+        TextDocumentSyncOptions, TextDocumentSyncServerCapabilities, WorkspaceFileOperations,
+        WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
     },
-    t32::SUFFIXES,
+    t32::{LANGUAGE_ID, SUFFIXES},
 };
 
 // Responses sent from server to client
@@ -24,6 +26,8 @@ pub enum Response {
     GoToDefinitionResponse(GoToDefinitionResponse),
     InitializeResponse(InitializeResponse),
     NullResponse(NullResponse),
+    SemanticTokensFullResponse(SemanticTokensFullResponse),
+    SemanticTokensRangeResponse(SemanticTokensRangeResponse),
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -42,6 +46,18 @@ pub struct FindReferencesResponse {
 pub struct GoToDefinitionResponse {
     pub id: NumberOrString,
     pub result: Option<LocationResult>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct SemanticTokensFullResponse {
+    pub id: NumberOrString,
+    pub result: Option<SemanticTokens>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct SemanticTokensRangeResponse {
+    pub id: NumberOrString,
+    pub result: Option<SemanticTokens>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -64,7 +80,7 @@ pub enum LocationResult {
 }
 
 impl ServerCapabilities {
-    pub fn build() -> Self {
+    pub fn build(semantic_tok_legend: SemanticTokensLegend) -> Self {
         ServerCapabilities {
             position_encoding: Some(PositionEncodingKind::Utf16),
             text_document_sync: Some(TextDocumentSyncServerCapabilities::TextDocumentSyncOptions(
@@ -104,7 +120,24 @@ impl ServerCapabilities {
             selection_range_provider: None,
             linked_editing_range_provider: None,
             call_hierarchy_provider: None,
-            semantic_tokens_provider: None,
+            semantic_tokens_provider: if semantic_tok_legend.is_empty() {
+                None
+            } else {
+                Some(SemanticTokensProvider::SemanticTokensRegistrationOptions(
+                    SemanticTokensRegistrationOptions {
+                        document_selector: Some(vec![DocumentFilter {
+                            language: Some(LANGUAGE_ID.to_string()),
+                            scheme: Some("file".to_string()),
+                            pattern: None,
+                        }]),
+                        legend: semantic_tok_legend,
+                        range: Some(true),
+                        full: Some(SemanticTokensFullDocumentCapabilities::Bool(true)),
+                        work_done_progress: None,
+                        id: None,
+                    },
+                ))
+            },
             moniker_provider: None,
             type_hierarchy_provider: None,
             inline_value_provider: None,

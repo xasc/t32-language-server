@@ -9,19 +9,15 @@ mod mainloop;
 mod proc;
 mod request;
 mod response;
+mod semantic;
 mod tasks;
 mod transport;
 mod workspace;
 
-pub use crate::ls::workspace::FileIndex;
+pub use {doc::TextDoc, workspace::FileIndex};
 
 #[cfg(test)]
-pub use crate::ls::{
-    doc::read_doc,
-    doc::{TextDoc, TextDocs},
-    tasks::TaskSystem,
-    workspace::index_files,
-};
+pub use crate::ls::{doc::TextDocs, doc::read_doc, tasks::TaskSystem, workspace::index_files};
 
 use std::time::{Duration, Instant};
 
@@ -40,7 +36,8 @@ use crate::{
     },
     protocol::{
         ErrorCodes, InitializeError, InitializeParams, InitializeResult, LogTraceParams,
-        ResponseError, ServerCapabilities, TraceValue,
+        ResponseError, SemanticTokenModifiers, SemanticTokenTypes, SemanticTokensLegend,
+        ServerCapabilities, TokenFormat, TraceValue,
     },
 };
 
@@ -122,17 +119,26 @@ pub fn serve(mut cfg: Config) -> ReturnCode {
     let InitializationStatus { msg, rc } = wait_for_initialize_req(&mut channel, heartbeat);
     match msg {
         Message::Request(Request::InitializeRequest { id, params }) => {
-            if let Err(error) = process_initialize_params(params, &mut cfg) {
-                channel.send_msg(Message::Response(Response::ErrorResponse(ErrorResponse {
-                    id: Some(id),
-                    error,
-                })));
-                return ReturnCode::ProtocolErr;
-            } else {
-                let result = InitializeResult::build(ServerCapabilities::build());
-                channel.send_msg(Message::Response(Response::InitializeResponse(
-                    InitializeResponse { id: id, result },
-                )));
+            match process_initialize_params(params, &mut cfg) {
+                Ok(notifs) => {
+                    for msg in notifs {
+                        channel.send_msg(Message::Notification(msg));
+                    }
+
+                    let result = InitializeResult::build(ServerCapabilities::build(
+                        cfg.semantic_tokens.legend.clone(),
+                    ));
+                    channel.send_msg(Message::Response(Response::InitializeResponse(
+                        InitializeResponse { id: id, result },
+                    )));
+                }
+                Err(error) => {
+                    channel.send_msg(Message::Response(Response::ErrorResponse(ErrorResponse {
+                        id: Some(id),
+                        error,
+                    })));
+                    return ReturnCode::ProtocolErr;
+                }
             }
         }
         // No shutdown request was received before
@@ -170,6 +176,7 @@ fn wait_for_initialize_req(
     channel: &mut StdioChannel,
     mut heartbeat: ProcHeartbeat,
 ) -> InitializationStatus {
+    // TODO: Add backoff to avoid idle loop if no messages are received.
     let mut shutdown_request_recv = false;
     loop {
         let msg = match read_msg(channel, &mut heartbeat) {
@@ -217,7 +224,7 @@ fn wait_for_initialize_req(
 fn process_initialize_params(
     params: InitializeParams,
     cfg: &mut Config,
-) -> Result<(), ResponseError> {
+) -> Result<Vec<Notification>, ResponseError> {
     if let Some(pid) = params.process_id {
         let parent_pid = match u32::try_from(pid) {
             Ok(num) => num,
@@ -268,9 +275,13 @@ fn process_initialize_params(
         .is_some_and(|ws| ws.workspace_folders.unwrap_or(false));
 
     // Check whether the client support `LocationLink` in the response results.
-    cfg.location_links.definitions_supported =
-        params.capabilities.text_document.is_some_and(|td| {
+    cfg.location_links.definitions_supported = params
+        .capabilities
+        .text_document
+        .as_ref()
+        .is_some_and(|td| {
             td.definition
+                .as_ref()
                 .is_some_and(|def| def.link_support.unwrap_or(false))
         });
 
@@ -279,7 +290,67 @@ fn process_initialize_params(
             .is_some_and(|fop| fop.did_rename.unwrap_or(false))
     });
 
-    Ok(())
+    // We ignore the `textDocument/semanticTokens/range`,
+    // `textDocument/semanticTokens/full`, and
+    // `textDocument/semanticTokens/full/delta` capabilitiy indicators of
+    // the client. Semantic token requests are sent from client to server, so
+    // we try to signal what we support and then handle the requests that we
+    // receive.
+    let mut notif: Vec<Notification> = Vec::new();
+    if let Some(td) = params.capabilities.text_document
+        && let Some(st) = td.semantic_tokens
+    {
+        // Client does not specify a supported token format. See
+        // [Note: Semantic Token Format] for more information.
+        if !st.formats.iter().any(|f| *f == TokenFormat::Relative) {
+            notif.push(warn_unknown_sem_token_format());
+        }
+
+        cfg.semantic_tokens.encoding.overlapping_tokens =
+            st.overlapping_token_support.is_some_and(|ov| ov);
+        cfg.semantic_tokens.encoding.multiline_tokens =
+            st.multiline_token_support.is_some_and(|ml| ml);
+
+        cfg.semantic_tokens.legend = {
+            let mut types: Vec<SemanticTokenTypes> = Vec::with_capacity(SemanticTokenTypes::num());
+            {
+                let mut unknown: Vec<&str> = Vec::new();
+
+                for (ii, r#type) in st.token_types.iter().enumerate() {
+                    if let Ok(token) = r#type.parse::<SemanticTokenTypes>() {
+                        types.push(token);
+                    } else {
+                        unknown.push(&st.token_types[ii]);
+                    }
+                }
+
+                if !unknown.is_empty() {
+                    notif.push(notif_unknown_client_sem_token_type(&unknown));
+                }
+            }
+
+            let mut modifiers: Vec<SemanticTokenModifiers> =
+                Vec::with_capacity(SemanticTokenModifiers::num());
+
+            {
+                let mut unknown: Vec<&str> = Vec::new();
+
+                for (ii, r#modifier) in st.token_modifiers.iter().enumerate() {
+                    if let Ok(token) = r#modifier.parse::<SemanticTokenModifiers>() {
+                        modifiers.push(token);
+                    } else {
+                        unknown.push(&st.token_modifiers[ii]);
+                    }
+                }
+                if !unknown.is_empty() {
+                    notif.push(notif_unknown_client_sem_token_modifiers(&unknown));
+                }
+            }
+            SemanticTokensLegend::from_attrs(types, modifiers)
+        };
+    }
+
+    Ok(notif)
 }
 
 fn read_msg(
@@ -313,7 +384,7 @@ fn read_msg(
 fn error_not_initialized() -> ResponseError {
     ResponseError {
         code: ErrorCodes::ServerNotInitialized as i64,
-        message: "Error: Server not initialized. Cannot handle request.".to_string(),
+        message: "ERROR: Server not initialized. Cannot handle request.".to_string(),
         data: None,
     }
 }
@@ -322,7 +393,7 @@ fn error_invalid_pid(pid: i64) -> ResponseError {
     ResponseError {
         code: ErrorCodes::InvalidParams as i64,
         message: format!(
-            "Error: Process ID of the parent process {} is invalid.",
+            "ERROR: Process ID of the parent process {} is invalid.",
             pid
         ),
         data: Some(
@@ -335,7 +406,7 @@ fn error_pid_mismatch(pid_msg: u32, pid_cli: u32) -> ResponseError {
     ResponseError {
         code: ErrorCodes::InvalidParams as i64,
         message: format!(
-            "Error: Process ID of the parent process {} is different from the process ID specified by \"--clientProcessId=\" {}.",
+            "ERROR: Process ID of the parent process {} is different from the process ID specified by \"--clientProcessId=\" {}.",
             pid_msg, pid_cli
         ),
         data: Some(
@@ -353,6 +424,42 @@ fn notif_initialized() -> Notification {
     }
 }
 
+fn notif_unknown_client_sem_token_type(unknown_toks: &[&str]) -> Notification {
+    debug_assert!(!unknown_toks.is_empty());
+    Notification::LogTraceNotification {
+        params: LogTraceParams {
+            message: "INFO: Client supports unknown semantic token types.".to_string(),
+            verbose: Some(format!(
+                "The types {} are not supported.",
+                unknown_toks.join(", ")
+            )),
+        },
+    }
+}
+
+fn notif_unknown_client_sem_token_modifiers(unknown_toks: &[&str]) -> Notification {
+    debug_assert!(!unknown_toks.is_empty());
+    Notification::LogTraceNotification {
+        params: LogTraceParams {
+            message: "INFO: Client supports unknown semantic token modifiers.".to_string(),
+            verbose: Some(format!(
+                "The modifiers {} are not supported.",
+                unknown_toks.join(", ")
+            )),
+        },
+    }
+}
+
+fn warn_unknown_sem_token_format() -> Notification {
+    Notification::LogTraceNotification {
+        params: LogTraceParams {
+            message: "WARNING: Client does not support relative format for semantic tokens."
+                .to_string(),
+            verbose: None,
+        },
+    }
+}
+
 fn log_notif(msg: &Notification) -> Notification {
     Notification::LogTraceNotification {
         params: LogTraceParams {
@@ -362,7 +469,7 @@ fn log_notif(msg: &Notification) -> Notification {
     }
 }
 
-/// We ignore the specification here when it states that the exit code 1 should
+/// We ignore the specification here, when it states that the exit code 1 should
 /// be returned if no shutdown request has been received. Instead, we try to return
 /// a meaningful error code.
 fn shutdown(channel: StdioChannel, rc: ReturnCode) -> ReturnCode {

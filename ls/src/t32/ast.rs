@@ -6,6 +6,7 @@ use tree_sitter::{Language, Node, Range};
 
 #[derive(Debug, Clone, Copy)]
 pub enum NodeKind {
+    AccessClass,
     ArgumentList,
     AssignmentExpression,
     BinaryExpression,
@@ -16,6 +17,8 @@ pub enum NodeKind {
     ElifBlock,
     ElseBlock,
     FormatExpression,
+    HllTypeDescriptor,
+    HllTypeIdentifier,
     Identifier,
     IfBlock,
     LabeledExpression, // TODO: Differentiate plain labels from subroutines.
@@ -92,6 +95,7 @@ pub const KEYWORD_SUBROUTINE_RETURN: &'static str = "RETURN";
 pub const KEYWORDS_SCRIPT_CALL: [&'static str; 2] = ["DO", "RUN"];
 pub const KEYWORDS_SCRIPT_END: [&'static str; 2] = ["END", "ENDDO"];
 
+pub const NODE_ACCESS_CLASS: &'static str = "access_class";
 pub const NODE_ARGUMENT_LIST: &'static str = "argument_list";
 pub const NODE_ASSIGNMENT_EXPRESSION: &'static str = "assignment_expression";
 pub const NODE_BINARY_EXPRESSION: &'static str = "binary_expression";
@@ -102,6 +106,8 @@ pub const NODE_COMMAND_EXPRESSION: &'static str = "command_expression";
 pub const NODE_ELIF_BLOCK: &'static str = "elif_block";
 pub const NODE_ELSE_BLOCK: &'static str = "else_block";
 pub const NODE_FORMAT_EXPRESSION: &'static str = "format_expression";
+pub const NODE_HLL_TYPE_IDENTIFIER: &'static str = "hll_type_identifier";
+pub const NODE_HLL_TYPE_DESCRIPTOR: &'static str = "hll_type_descriptor";
 pub const NODE_IDENTIFIER: &'static str = "identifier";
 pub const NODE_IF_BLOCK: &'static str = "if_block";
 pub const NODE_MACRO: &'static str = "macro";
@@ -128,6 +134,7 @@ impl NodeKind {
 fn node_into_id(lang: &Language, node: NodeKind) -> u16 {
     lang.id_for_node_kind(
         match node {
+            NodeKind::AccessClass => NODE_ACCESS_CLASS,
             NodeKind::ArgumentList => NODE_ARGUMENT_LIST,
             NodeKind::AssignmentExpression => NODE_ASSIGNMENT_EXPRESSION,
             NodeKind::BinaryExpression => NODE_BINARY_EXPRESSION,
@@ -138,6 +145,8 @@ fn node_into_id(lang: &Language, node: NodeKind) -> u16 {
             NodeKind::ElifBlock => NODE_ELIF_BLOCK,
             NodeKind::ElseBlock => NODE_ELSE_BLOCK,
             NodeKind::FormatExpression => NODE_FORMAT_EXPRESSION,
+            NodeKind::HllTypeDescriptor => NODE_HLL_TYPE_DESCRIPTOR,
+            NodeKind::HllTypeIdentifier => NODE_HLL_TYPE_IDENTIFIER,
             NodeKind::Identifier => NODE_IDENTIFIER,
             NodeKind::IfBlock => NODE_IF_BLOCK,
             NodeKind::LabeledExpression => NODE_LABELED_EXPRESSION,
@@ -163,6 +172,7 @@ fn node_into_id(lang: &Language, node: NodeKind) -> u16 {
 pub fn id_into_node(lang: &Language, id: u16) -> NodeKind {
     match lang.node_kind_for_id(id) {
         Some(name) => match name {
+            NODE_ACCESS_CLASS => NodeKind::AccessClass,
             NODE_ARGUMENT_LIST => NodeKind::ArgumentList,
             NODE_ASSIGNMENT_EXPRESSION => NodeKind::AssignmentExpression,
             NODE_BINARY_EXPRESSION => NodeKind::BinaryExpression,
@@ -173,6 +183,8 @@ pub fn id_into_node(lang: &Language, id: u16) -> NodeKind {
             NODE_ELIF_BLOCK => NodeKind::ElifBlock,
             NODE_ELSE_BLOCK => NodeKind::ElseBlock,
             NODE_FORMAT_EXPRESSION => NodeKind::FormatExpression,
+            NODE_HLL_TYPE_DESCRIPTOR => NodeKind::HllTypeDescriptor,
+            NODE_HLL_TYPE_IDENTIFIER => NodeKind::HllTypeIdentifier,
             NODE_IDENTIFIER => NodeKind::Identifier,
             NODE_IF_BLOCK => NodeKind::IfBlock,
             NODE_LABELED_EXPRESSION => NodeKind::LabeledExpression,
@@ -198,6 +210,7 @@ pub fn id_into_node(lang: &Language, id: u16) -> NodeKind {
 #[expect(unused)]
 pub fn name_into_node(name: &str) -> NodeKind {
     match name {
+        NODE_ACCESS_CLASS => NodeKind::AccessClass,
         NODE_ARGUMENT_LIST => NodeKind::ArgumentList,
         NODE_ASSIGNMENT_EXPRESSION => NodeKind::AssignmentExpression,
         NODE_BINARY_EXPRESSION => NodeKind::BinaryExpression,
@@ -208,6 +221,8 @@ pub fn name_into_node(name: &str) -> NodeKind {
         NODE_ELIF_BLOCK => NodeKind::ElifBlock,
         NODE_ELSE_BLOCK => NodeKind::ElseBlock,
         NODE_FORMAT_EXPRESSION => NodeKind::FormatExpression,
+        NODE_HLL_TYPE_DESCRIPTOR => NodeKind::HllTypeDescriptor,
+        NODE_HLL_TYPE_IDENTIFIER => NodeKind::HllTypeIdentifier,
         NODE_IDENTIFIER => NodeKind::Identifier,
         NODE_IF_BLOCK => NodeKind::IfBlock,
         NODE_MACRO => NodeKind::Macro,

@@ -12,7 +12,10 @@ use serde::Serialize;
 
 use crate::{
     ReturnCode,
-    protocol::{PositionEncodingKind, TraceValue, Uri, WorkspaceFolder},
+    protocol::{
+        PositionEncodingKind, SemanticTokenModifiers, SemanticTokenTypes, SemanticTokensLegend,
+        TraceValue, Uri, WorkspaceFolder,
+    },
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -45,35 +48,23 @@ pub struct Config {
     pub position_encoding: PositionEncodingKind,
     pub location_links: LocationLinkSupport,
     pub did_rename_files_supported: bool,
+    pub semantic_tokens: SemanticTokenSupport,
 }
 
 pub struct LocationLinkSupport {
     pub definitions_supported: bool,
 }
 
-impl FromStr for TraceValue {
-    type Err = ();
-
-    fn from_str(val: &str) -> Result<Self, Self::Err> {
-        match val {
-            "off" => Ok(TraceValue::Off),
-            "messages" => Ok(TraceValue::Messages),
-            "verbose" => Ok(TraceValue::Verbose),
-            _ => Err(()),
-        }
-    }
+#[derive(Clone, Debug)]
+pub struct SemanticTokenEncoding {
+    pub overlapping_tokens: bool,
+    pub multiline_tokens: bool,
 }
 
-impl FromStr for OperationMode {
-    type Err = ();
-
-    fn from_str(val: &str) -> Result<Self, Self::Err> {
-        match val {
-            "server" => Ok(OperationMode::Server),
-            "stdio-transport" => Ok(OperationMode::StdioTransport),
-            _ => Err(()),
-        }
-    }
+#[derive(Clone, Debug)]
+pub struct SemanticTokenSupport {
+    pub encoding: SemanticTokenEncoding,
+    pub legend: SemanticTokensLegend,
 }
 
 impl Config {
@@ -147,6 +138,7 @@ impl Config {
             did_rename_files_supported: false,
             trace_level,
             mode,
+            semantic_tokens: SemanticTokenSupport::default(),
         })
     }
 
@@ -202,19 +194,110 @@ impl Config {
     }
 }
 
+impl Default for SemanticTokenSupport {
+    fn default() -> Self {
+        Self {
+            encoding: SemanticTokenEncoding {
+                overlapping_tokens: false,
+                multiline_tokens: false,
+            },
+            legend: SemanticTokensLegend::new(),
+        }
+    }
+}
+
+impl FromStr for OperationMode {
+    type Err = ();
+
+    fn from_str(val: &str) -> Result<Self, Self::Err> {
+        match val {
+            "server" => Ok(OperationMode::Server),
+            "stdio-transport" => Ok(OperationMode::StdioTransport),
+            _ => Err(()),
+        }
+    }
+}
+
+impl FromStr for SemanticTokenModifiers {
+    type Err = ();
+
+    fn from_str(val: &str) -> Result<Self, Self::Err> {
+        match val {
+            "declaration" => Ok(Self::Declaration),
+            "definition" => Ok(Self::Definition),
+            "readonly" => Ok(Self::Readonly),
+            "static" => Ok(Self::Static),
+            "deprecated" => Ok(Self::Deprecated),
+            "abstract" => Ok(Self::Abstract),
+            "async" => Ok(Self::Async),
+            "modification" => Ok(Self::Modification),
+            "documentation" => Ok(Self::Documentation),
+            "defaultLibrary" => Ok(Self::DefaultLibrary),
+            _ => Err(()),
+        }
+    }
+}
+
+impl FromStr for SemanticTokenTypes {
+    type Err = ();
+
+    fn from_str(val: &str) -> Result<Self, Self::Err> {
+        match val {
+            "namespace" => Ok(Self::Namespace),
+            "type" => Ok(Self::Type),
+            "class" => Ok(Self::Class),
+            "enum" => Ok(Self::Enum),
+            "interface" => Ok(Self::Interface),
+            "struct" => Ok(Self::Struct),
+            "typeParameter" => Ok(Self::TypeParameter),
+            "parameter" => Ok(Self::Parameter),
+            "variable" => Ok(Self::Variable),
+            "property" => Ok(Self::Property),
+            "enumMember" => Ok(Self::EnumMember),
+            "event" => Ok(Self::Event),
+            "function" => Ok(Self::Function),
+            "method" => Ok(Self::Method),
+            "macro" => Ok(Self::Macro),
+            "keyword" => Ok(Self::Keyword),
+            "modifier" => Ok(Self::Modifier),
+            "comment" => Ok(Self::Comment),
+            "string" => Ok(Self::String),
+            "number" => Ok(Self::Number),
+            "regexp" => Ok(Self::Regexp),
+            "operator" => Ok(Self::Operator),
+            "decorator" => Ok(Self::Decorator),
+            "label" => Ok(Self::Label),
+            _ => Err(()),
+        }
+    }
+}
+
+impl FromStr for TraceValue {
+    type Err = ();
+
+    fn from_str(val: &str) -> Result<Self, Self::Err> {
+        match val {
+            "off" => Ok(TraceValue::Off),
+            "messages" => Ok(TraceValue::Messages),
+            "verbose" => Ok(TraceValue::Verbose),
+            _ => Err(()),
+        }
+    }
+}
+
 fn error_format(writer: &mut impl Write, param: &str) {
-    let _ = writeln!(writer, "Error: Invalid format for argument \"{param}\"");
+    let _ = writeln!(writer, "ERROR: Invalid format for argument \"{param}\"");
 }
 
 fn error_format_value(writer: &mut impl Write, param: &str) {
     let _ = writeln!(
         writer,
-        "Error: Invalid format for argument value \"{param}\""
+        "ERROR: Invalid format for argument value \"{param}\""
     );
 }
 
 fn error_missing(writer: &mut impl Write, param: &str) {
-    let _ = writeln!(writer, "Error: Missing argument \"{param}\"");
+    let _ = writeln!(writer, "ERROR: Missing argument \"{param}\"");
 }
 
 fn usage(writer: &mut impl Write) {

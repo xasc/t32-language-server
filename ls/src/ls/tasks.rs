@@ -29,13 +29,14 @@ use crate::{
         request::{Notification, Request},
         response::{
             ErrorResponse, FindReferencesResponse, GoToDefinitionResponse, LocationResult,
-            NullResponse, Response,
+            NullResponse, Response, SemanticTokensFullResponse, SemanticTokensRangeResponse,
         },
         tasks::{
             docsync::{process_doc_change_notif, process_doc_close_notif, process_doc_open_notif},
             lang::{
                 process_find_references_req, process_find_references_result,
                 process_goto_definition_req, process_goto_definition_result,
+                process_semantic_tokens_full_req, process_semantic_tokens_range_req,
                 progress_find_external_macro_definitions, progress_find_macro_def_references,
                 progress_find_subscript_macro_refs, progress_goto_external_macro_def,
                 recv_find_external_definitions_for_macro_reference_sync,
@@ -95,6 +96,8 @@ pub enum OngoingTask {
         undone: ExtMacroDefLookups,
         results: Vec<LocationLink>,
     },
+    SemanticTokensFull(NumberOrString, Instant),
+    SemanticTokensRange(NumberOrString, Instant),
     TextDocUpdate {
         uri: Uri,
         onset: Instant,
@@ -225,7 +228,9 @@ impl OngoingTask {
             | OngoingTask::FindMacroReferences { id, .. }
             | OngoingTask::FindReferences(id, ..)
             | OngoingTask::GoToExternalMacroDef { id, .. }
-            | OngoingTask::GoToDefinition(id, ..) => id,
+            | OngoingTask::GoToDefinition(id, ..)
+            | OngoingTask::SemanticTokensFull(id, ..)
+            | OngoingTask::SemanticTokensRange(id, ..) => id,
             OngoingTask::TextDocUpdate { .. } => unreachable!("Other types have not ID field."),
         }
     }
@@ -237,6 +242,8 @@ impl OngoingTask {
             | OngoingTask::FindReferences(_, onset)
             | OngoingTask::GoToExternalMacroDef { onset, .. }
             | OngoingTask::GoToDefinition(.., onset)
+            | OngoingTask::SemanticTokensFull(_, onset)
+            | OngoingTask::SemanticTokensRange(_, onset)
             | OngoingTask::TextDocUpdate { onset, .. } => onset,
         }
     }
@@ -248,6 +255,8 @@ impl OngoingTask {
             OngoingTask::DidRenameFiles(..)
             | OngoingTask::GoToDefinition(..)
             | OngoingTask::FindReferences(..)
+            | OngoingTask::SemanticTokensFull { .. }
+            | OngoingTask::SemanticTokensRange { .. }
             | OngoingTask::TextDocUpdate { .. } => false,
         }
     }
@@ -701,6 +710,7 @@ fn process_completed_task(
                     };
                     outgoing.push(Some(trace_goto_def(
                         Instant::now() - *onset,
+                        id,
                         resp.result.clone(),
                     )));
                 }
@@ -726,6 +736,7 @@ fn process_completed_task(
                 };
                 outgoing.push(Some(trace_goto_def(
                     Instant::now() - *onset,
+                    id.clone(),
                     result.clone(),
                 )));
             }
@@ -749,6 +760,46 @@ fn process_completed_task(
                 )));
             }
             Ok(false)
+        }
+        TaskDone::SemanticTokensFull(id, tokens) => {
+            if cfg.trace_level != TraceValue::Off {
+                let idx = find_ongoing_task_by_id(&id, &ts.ongoing);
+                let Some(OngoingTask::SemanticTokensFull(_, onset)) = &ts.ongoing[idx] else {
+                    unreachable!("No other type possible.");
+                };
+                outgoing.push(Some(trace_sem_tokens_full(
+                    Instant::now() - *onset,
+                    id.clone(),
+                )));
+            }
+
+            outgoing.push(Some(Message::Response(
+                Response::SemanticTokensFullResponse(SemanticTokensFullResponse {
+                    id,
+                    result: Some(tokens),
+                }),
+            )));
+            Ok(true)
+        }
+        TaskDone::SemanticTokensRange(id, tokens) => {
+            if cfg.trace_level != TraceValue::Off {
+                let idx = find_ongoing_task_by_id(&id, &ts.ongoing);
+                let Some(OngoingTask::SemanticTokensRange(_, onset)) = &ts.ongoing[idx] else {
+                    unreachable!("No other type possible.");
+                };
+                outgoing.push(Some(trace_sem_tokens_range(
+                    Instant::now() - *onset,
+                    id.clone(),
+                )));
+            }
+
+            outgoing.push(Some(Message::Response(
+                Response::SemanticTokensRangeResponse(SemanticTokensRangeResponse {
+                    id,
+                    result: Some(tokens),
+                }),
+            )));
+            Ok(true)
         }
         TaskDone::TextDocNew(doc, tree, globals) => {
             if cfg.trace_level != TraceValue::Off {
@@ -850,7 +901,9 @@ fn task_blocked(job: &Task, ongoing: &[Option<OngoingTask>]) -> bool {
                     OngoingTask::FindMacroReferences { .. }
                     | OngoingTask::FindReferences(..)
                     | OngoingTask::GoToDefinition(..)
-                    | OngoingTask::GoToExternalMacroDef { .. } => false,
+                    | OngoingTask::GoToExternalMacroDef { .. }
+                    | OngoingTask::SemanticTokensFull { .. }
+                    | OngoingTask::SemanticTokensRange { .. } => false,
                 },
                 None => unreachable!("Not empty slots allowed."),
             })
@@ -903,6 +956,26 @@ fn task_blocked(job: &Task, ongoing: &[Option<OngoingTask>]) -> bool {
             },
             ..,
         )
+        | Task::SemanticTokensFull(
+            _,
+            _,
+            _,
+            TextDocData {
+                doc: TextDoc { uri, .. },
+                ..
+            },
+            ..,
+        )
+        | Task::SemanticTokensRange(
+            _,
+            _,
+            _,
+            TextDocData {
+                doc: TextDoc { uri, .. },
+                ..
+            },
+            ..,
+        )
         | Task::TextDocEdit(
             TextDocData {
                 doc: TextDoc { uri, .. },
@@ -919,7 +992,9 @@ fn task_blocked(job: &Task, ongoing: &[Option<OngoingTask>]) -> bool {
                 OngoingTask::FindMacroReferences { .. }
                 | OngoingTask::FindReferences(..)
                 | OngoingTask::GoToDefinition(..)
-                | OngoingTask::GoToExternalMacroDef { .. } => false,
+                | OngoingTask::GoToExternalMacroDef { .. }
+                | OngoingTask::SemanticTokensFull { .. }
+                | OngoingTask::SemanticTokensRange { .. } => false,
             },
             None => unreachable!("Not empty slots allowed."),
         }),
@@ -931,7 +1006,9 @@ fn task_blocked(job: &Task, ongoing: &[Option<OngoingTask>]) -> bool {
                 OngoingTask::FindMacroReferences { .. }
                 | OngoingTask::FindReferences(..)
                 | OngoingTask::GoToDefinition(..)
-                | OngoingTask::GoToExternalMacroDef { .. } => false,
+                | OngoingTask::GoToExternalMacroDef { .. }
+                | OngoingTask::SemanticTokensFull { .. }
+                | OngoingTask::SemanticTokensRange { .. } => false,
             },
             None => unreachable!("Not empty slots allowed."),
         }),
@@ -943,11 +1020,18 @@ fn task_blocked(job: &Task, ongoing: &[Option<OngoingTask>]) -> bool {
 /// Document updates need to be processed in the order in which they were
 /// received. Hence, we need to monitor for which documents we are currently
 /// processing an update.
+/// No status tracking for multi-stage tasks is performed.
 fn add_task_status_tracking(job: &Task, ongoing: &mut Vec<Option<OngoingTask>>) {
     let t = match job {
         Task::DidRenameFiles(id, ..) => OngoingTask::DidRenameFiles(id.clone(), Instant::now()),
         Task::FindReferences { id, .. } => OngoingTask::FindReferences(id.clone(), Instant::now()),
         Task::GoToDefinition(id, ..) => OngoingTask::GoToDefinition(id.clone(), Instant::now()),
+        Task::SemanticTokensFull(id, ..) => {
+            OngoingTask::SemanticTokensFull(id.clone(), Instant::now())
+        }
+        Task::SemanticTokensRange(id, ..) => {
+            OngoingTask::SemanticTokensRange(id.clone(), Instant::now())
+        }
         Task::TextDocNew(TextDocumentItem { uri, .. }, ..)
         | Task::TextDocEdit(
             TextDocData {
@@ -963,7 +1047,14 @@ fn add_task_status_tracking(job: &Task, ongoing: &mut Vec<Option<OngoingTask>>) 
             uri: url.to_string(),
             onset: Instant::now(),
         },
-        _ => return,
+
+        Task::FindExternalDefinitionsForMacroRef { .. }
+        | Task::FindMacroReferencesFromDefinitions { .. }
+        | Task::FindMacroReferencesInSubscripts { .. }
+        | Task::GoToExternalMacroDef { .. }
+        | Task::WorkspaceFileDiscovery(..)
+        | Task::WorkspaceFileIndexNew(..) => return,
+        //_ => return,
     };
     ongoing.push(Some(t));
 }
@@ -1025,6 +1116,28 @@ fn process_msg(
                 id,
                 params,
                 cfg.trace_level,
+                &mut g.docs,
+                &mut g.tasks,
+                outgoing,
+            )?;
+        }
+        Message::Request(Request::SemanticTokensFull { id, params }) => {
+            process_semantic_tokens_full_req(
+                id,
+                params,
+                cfg.trace_level,
+                cfg.semantic_tokens.clone(),
+                &mut g.docs,
+                &mut g.tasks,
+                outgoing,
+            )?;
+        }
+        Message::Request(Request::SemanticTokensRange { id, params }) => {
+            process_semantic_tokens_range_req(
+                id,
+                params,
+                cfg.trace_level,
+                cfg.semantic_tokens.clone(),
                 &mut g.docs,
                 &mut g.tasks,
                 outgoing,
@@ -1118,7 +1231,9 @@ fn find_ongoing_task_by_id(identifier: &NumberOrString, ongoing: &[Option<Ongoin
             | Some(OngoingTask::FindReferences(id, ..))
             | Some(OngoingTask::FindMacroReferences { id, .. })
             | Some(OngoingTask::GoToDefinition(id, ..))
-            | Some(OngoingTask::GoToExternalMacroDef { id, .. }) => id == identifier,
+            | Some(OngoingTask::GoToExternalMacroDef { id, .. })
+            | Some(OngoingTask::SemanticTokensFull(id, _))
+            | Some(OngoingTask::SemanticTokensRange(id, _)) => id == identifier,
             None | Some(OngoingTask::TextDocUpdate { .. }) => {
                 unreachable!("No other tasks can by selected by id.")
             }
@@ -1154,7 +1269,7 @@ fn error_lang_id_unsupported(lang_id: &str) -> Message {
         error: ResponseError {
             code: ErrorCodes::InvalidParams as i64,
             message: format!(
-                "Error: Language ID \"{}\" is not supported for text documents. The only supported language ID is \"{}\".",
+                "ERROR: Language ID \"{}\" is not supported for text documents. The only supported language ID is \"{}\".",
                 lang_id, LANGUAGE_ID
             ),
             data: None,
@@ -1167,7 +1282,7 @@ fn error_shutdown_seq(id: NumberOrString) -> Message {
         id: Some(id),
         error: ResponseError {
             code: ErrorCodes::InvalidRequest as i64,
-            message: "Error: Server has received shutdown request. Cannot handle request."
+            message: "ERROR: Server has received shutdown request. Cannot handle request."
                 .to_string(),
             data: None,
         },
@@ -1285,11 +1400,12 @@ fn trace_find_ext_definitions_for_macro_ref_sync(
     })
 }
 
-fn trace_goto_def(duration: Duration, defs: Option<LocationResult>) -> Message {
+fn trace_goto_def(duration: Duration, id: NumberOrString, defs: Option<LocationResult>) -> Message {
     Message::Notification(Notification::LogTraceNotification {
         params: LogTraceParams {
             message: format!(
-                "INFO: Go to definition request completed in {:.4} seconds.",
+                "INFO: Go to definition request with ID {} completed in {:.4} seconds.",
+                id,
                 duration.as_secs_f32()
             ),
             verbose: if let Some(loc) = defs {
@@ -1297,6 +1413,32 @@ fn trace_goto_def(duration: Duration, defs: Option<LocationResult>) -> Message {
             } else {
                 None
             },
+        },
+    })
+}
+
+fn trace_sem_tokens_full(duration: Duration, id: NumberOrString) -> Message {
+    Message::Notification(Notification::LogTraceNotification {
+        params: LogTraceParams {
+            message: format!(
+                "INFO: Semantic tokens for whole file request with ID {} completed in {:.4} seconds.",
+                id,
+                duration.as_secs_f32()
+            ),
+            verbose: None,
+        },
+    })
+}
+
+fn trace_sem_tokens_range(duration: Duration, id: NumberOrString) -> Message {
+    Message::Notification(Notification::LogTraceNotification {
+        params: LogTraceParams {
+            message: format!(
+                "INFO: Semantic tokens for file range request with ID {} completed in {:.4} seconds.",
+                id,
+                duration.as_secs_f32()
+            ),
+            verbose: None,
         },
     })
 }
