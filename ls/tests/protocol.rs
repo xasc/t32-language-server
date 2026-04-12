@@ -266,7 +266,8 @@ fn supports_docsync_did_open_notification() {
     let notif = utils::make_set_trace_notification(utils::TraceValue::Messages);
     utils::to_stdin(&mut stdin, &notif);
 
-    let notif = utils::make_did_open_text_doc_notification();
+    let notif =
+        utils::make_did_open_text_doc_notification("file:///c:/project/test.cmm".to_string());
     utils::to_stdin(&mut stdin, &notif);
 
     utils::stop_ls(&mut ls, Some(&mut stdin), Some(2));
@@ -286,7 +287,8 @@ fn supports_docsync_did_change_notification() {
     let notif = utils::make_set_trace_notification(utils::TraceValue::Messages);
     utils::to_stdin(&mut stdin, &notif);
 
-    let notif = utils::make_did_open_text_doc_notification();
+    let notif =
+        utils::make_did_open_text_doc_notification("file:///c:/project/test.cmm".to_string());
     utils::to_stdin(&mut stdin, &notif);
 
     let notif = utils::make_did_close_text_doc_notification();
@@ -311,7 +313,8 @@ fn supports_docsync_did_close_notification() {
     let notif = utils::make_set_trace_notification(utils::TraceValue::Messages);
     utils::to_stdin(&mut stdin, &notif);
 
-    let notif = utils::make_did_open_text_doc_notification();
+    let notif =
+        utils::make_did_open_text_doc_notification("file:///c:/project/test.cmm".to_string());
     utils::to_stdin(&mut stdin, &notif);
 
     let notif = utils::make_did_change_text_doc_notification();
@@ -732,7 +735,7 @@ fn can_build_semantic_token_legend() {
 
     assert_eq!(output.status.code(), Some(0));
     assert!(
-        std::str::from_utf8(&output.stdout)
+        !std::str::from_utf8(&output.stdout)
             .unwrap()
             .contains("typeParameter")
     );
@@ -755,15 +758,20 @@ fn can_build_semantic_token_legend() {
     assert!(
         std::str::from_utf8(&output.stdout)
             .unwrap()
+            .contains("definition")
+    );
+    assert!(
+        !std::str::from_utf8(&output.stdout)
+            .unwrap()
             .contains("declaration")
     );
     assert!(
-        std::str::from_utf8(&output.stdout)
+        !std::str::from_utf8(&output.stdout)
             .unwrap()
             .contains("abstract")
     );
     assert!(
-        std::str::from_utf8(&output.stdout)
+        !std::str::from_utf8(&output.stdout)
             .unwrap()
             .contains("defaultLibrary")
     );
@@ -771,5 +779,85 @@ fn can_build_semantic_token_legend() {
         !std::str::from_utf8(&output.stdout)
             .unwrap()
             .contains("async")
+    );
+}
+
+#[test]
+fn supports_lang_semantic_tokens_full_doc_request() {
+    let mut ls = utils::start_ls_with_semantic_tokens(&[
+        &format!("--clientProcessId={}", process::id().to_string()),
+        &format!("--trace={}", "messages"),
+    ]);
+    let mut stdin = ls.stdin.take().unwrap();
+
+    let file = env::current_dir()
+        .unwrap()
+        .join("tests")
+        .join("samples")
+        .join("semantic.cmm");
+    let uri = Url::from_file_path(file).expect("Must not fail.");
+
+    let notif = utils::make_did_open_text_doc_notification(String::from(uri.clone()));
+    utils::to_stdin(&mut stdin, &notif);
+
+    thread::sleep(time::Duration::from_millis(200));
+
+    let req = utils::make_semantic_tokens_full_doc_request(1, String::from(uri));
+    utils::to_stdin(&mut stdin, &req);
+
+    thread::sleep(time::Duration::from_millis(2000));
+
+    utils::stop_ls(&mut ls, Some(&mut stdin), Some(2));
+    let output = ls.wait_with_output().expect("Cannot capture output");
+
+    assert!(
+        std::str::from_utf8(&output.stdout)
+            .unwrap()
+            .contains("1,0,2,0")
+    );
+    assert!(
+        std::str::from_utf8(&output.stdout)
+            .unwrap()
+            .contains("3,2,1,0")
+    );
+}
+
+#[test]
+fn supports_lang_semantic_tokens_doc_range_request() {
+    let mut ls = utils::start_ls_with_semantic_tokens(&[
+        &format!("--clientProcessId={}", process::id().to_string()),
+        &format!("--trace={}", "messages"),
+    ]);
+    let mut stdin = ls.stdin.take().unwrap();
+
+    let file = env::current_dir()
+        .unwrap()
+        .join("tests")
+        .join("samples")
+        .join("semantic.cmm");
+    let uri = Url::from_file_path(file).expect("Must not fail.");
+
+    let notif = utils::make_did_open_text_doc_notification(String::from(uri.clone()));
+    utils::to_stdin(&mut stdin, &notif);
+
+    thread::sleep(time::Duration::from_millis(200));
+
+    let req = utils::make_semantic_tokens_doc_range_request(1, String::from(uri));
+    utils::to_stdin(&mut stdin, &req);
+
+    thread::sleep(time::Duration::from_millis(2000));
+
+    utils::stop_ls(&mut ls, Some(&mut stdin), Some(2));
+    let output = ls.wait_with_output().expect("Cannot capture output");
+
+    assert!(
+        std::str::from_utf8(&output.stdout)
+            .unwrap()
+            .contains("1,0,2,0")
+    );
+    assert!(
+        std::str::from_utf8(&output.stdout)
+            .unwrap()
+            .contains("3,2,1,0")
     );
 }

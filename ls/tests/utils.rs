@@ -219,7 +219,6 @@ pub fn make_initialize_request_with_root_path(id: isize, pid: u32) -> String {
     build_msg(&content.to_string())
 }
 
-#[allow(dead_code)]
 pub fn make_initialize_request_with_semantic_tokens(id: isize, pid: u32) -> String {
     let content = json!({
         "jsonrpc": "2.0",
@@ -237,11 +236,12 @@ pub fn make_initialize_request_with_semantic_tokens(id: isize, pid: u32) -> Stri
                             "number",
                         ],
                         "tokenModifiers": [
+                            "definition",
                             "declaration",
                             "abstract",
                             "defaultLibrary",
                         ],
-                        "formats": [],
+                        "formats": ["relative"],
                     },
                 },
             },
@@ -310,16 +310,16 @@ pub fn make_goto_definition_request(id: isize, uri: Url, line: u32, character: u
 }
 
 #[allow(dead_code)]
-pub fn make_did_open_text_doc_notification() -> String {
+pub fn make_did_open_text_doc_notification(uri: String) -> String {
     let content = json!({
         "jsonrpc": "2.0",
         "method": "textDocument/didOpen",
         "params": {
             "textDocument": {
-                "uri": "file:///c:/project/test.cmm",
+                "uri": uri,
                 "languageId": "practice",
                 "version": 1,
-                "text": "PRINT \"Hello, World!\"",
+                "text": "PRINT \"Hello, World!\"\n&a=1.+1.\n",
             }
         }
     });
@@ -395,6 +395,47 @@ pub fn make_set_trace_notification(level: TraceValue) -> String {
                 TraceValue::Messages => "messages",
                 TraceValue::Verbose => "verbose",
                 TraceValue::Off => "off",
+            }
+        }
+    });
+    build_msg(&content.to_string())
+}
+
+#[allow(dead_code)]
+pub fn make_semantic_tokens_full_doc_request(id: isize, uri: String) -> String {
+    let content = json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "method": "textDocument/semanticTokens/full",
+        "params": {
+            "textDocument": {
+                "uri": uri,
+            }
+        }
+    });
+    build_msg(&content.to_string())
+}
+
+#[allow(dead_code)]
+pub fn make_semantic_tokens_doc_range_request(id: isize, uri: String) -> String {
+    let content = json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "method": "textDocument/semanticTokens/range",
+        "params": {
+            "textDocument": {
+                "uri": uri,
+            },
+            "range": {
+                "start": {
+                    "line": 1,
+                    "character": 0,
+                },
+                "end": {
+                    "line": 2,
+                    "character": 0,
+                }
+
             }
         }
     });
