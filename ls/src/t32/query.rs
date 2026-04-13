@@ -67,13 +67,15 @@
 
 mod captures;
 
+use std::sync::LazyLock;
+
 use tree_sitter::{LanguageRef, Query, QueryCaptures, QueryCursor, StreamingIterator, Tree};
 use tree_sitter_t32::HIGHLIGHTS_QUERY;
 
 use crate::{
     ls::TextDoc,
     protocol::{Range as LRange, SemanticTokenModifiers, SemanticTokenTypes, SemanticTokensLegend},
-    t32::NodeKind,
+    t32::{NodeKind, parse},
     utils::BRange,
 };
 
@@ -105,6 +107,11 @@ struct SemanticTokenQueryCaptureMapIterator<'a> {
 
 #[derive(Debug)]
 struct SemanticTokenQueryCaptureMap(pub Vec<usize>, pub Vec<usize>, pub Vec<u32>);
+
+pub static QUERY_HIGHLIGHTS_CACHED: LazyLock<Query> = LazyLock::new(|| {
+    let tree = parse(&[], None);
+    Query::new(&tree.language(), HIGHLIGHTS_QUERY).expect("Highlights query must be valid")
+});
 
 impl SemanticTokenQueryCaptures {
     pub fn new(legend: &SemanticTokensLegend, query: &Query) -> Self {
@@ -351,8 +358,7 @@ pub fn do_syntax_highlighting(
 ) -> Vec<SemanticToken> {
     debug_assert!(!(legend.token_types.is_empty() && legend.token_modifiers.is_empty()));
 
-    let query =
-        Query::new(&tree.language(), HIGHLIGHTS_QUERY).expect("Highlights query must be valid");
+    let query = &*QUERY_HIGHLIGHTS_CACHED;
 
     let mut cursor = QueryCursor::new();
 
@@ -372,9 +378,7 @@ pub fn do_syntax_highlighting_in_range(
 ) -> Vec<SemanticToken> {
     debug_assert!(!(legend.token_types.is_empty() && legend.token_modifiers.is_empty()));
 
-    // TODO: The query remains constant. Cache it in between requests.
-    let query =
-        Query::new(&tree.language(), HIGHLIGHTS_QUERY).expect("Highlights query must be valid");
+    let query = &*QUERY_HIGHLIGHTS_CACHED;
 
     let span = doc.to_byte_range(&range.start, &range.end);
 
