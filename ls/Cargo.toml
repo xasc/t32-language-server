@@ -5,7 +5,7 @@
 [package]
 name = "t32-language-server"
 description = "Language server for Lauterbach TRACE32® script language"
-version = "0.4.0"
+version = "0.5.0"
 authors = ["Christoph Sax <c_sax@mailbox.org>"]
 keywords = [
   "language-server",

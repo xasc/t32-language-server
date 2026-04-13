@@ -65,9 +65,9 @@ This language server implements version 3.18 of the language server protocol.
 | `workspace/foldingRange/refresh`         | ➖             |
 | `textDocument/selectionRange`            | ➖             |
 | `textDocument/documentSymbol`            | ➖             |
-| `textDocument/semanticTokens/full`       | ➖             |
+| `textDocument/semanticTokens/full`       | ✅             |
 | `textDocument/semanticTokens/full/delta` | ➖             |
-| `textDocument/semanticTokens/range`      | ➖             |
+| `textDocument/semanticTokens/range`      | ✅             |
 | `workspace/semanticTokens/refresh`       | ➖             |
 | `textDocument/inlineValue`               | ➖             |
 | `workspace/inlineValue/refresh`          | ➖             |
