@@ -373,10 +373,18 @@ fn read_msg(
             Ok(None)
         }
         Err(err) => {
-            // The message could not be parsed, so we have no request ID to
-            // work with.
-            channel.send_msg(Message::Response(Response::ErrorResponse(err)));
-            Ok(None)
+            if err.error.code == (ErrorCodes::TransportError as i64) {
+                // The loopback reader thread returns a transport error after
+                // it has terminated. We use this return code as shutdown
+                // trigger.
+                Err(ReturnCode::OkExit)
+            } else {
+                // The message could not be parsed, so we have no request ID to
+                // work with.
+                channel.send_msg(Message::Response(Response::ErrorResponse(err)));
+
+                Ok(None)
+            }
         }
     }
 }

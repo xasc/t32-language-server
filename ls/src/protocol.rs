@@ -38,6 +38,8 @@ pub enum ErrorCodes {
 
     #[expect(unused)]
     RequestCancelled = -32800,
+
+    TransportError = -32060,
 }
 
 #[derive(Debug, Deserialize)]

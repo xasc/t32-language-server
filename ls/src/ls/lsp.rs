@@ -387,4 +387,17 @@ mod tests {
         assert!(rc.is_some());
         assert_eq!(state, ParseState::Syncing);
     }
+
+    #[test]
+    fn deals_with_malformed_header() {
+        let msg = "{{\"jsonrpc\": \"2.0\", \"method\": \"initialize\", \"id\": 1, \"params\": {{\"capabilities\": {{}}}}}}";
+
+        let mut state = ParseState::Syncing;
+        let mut tokens = Vec::<Token>::new();
+
+        let rc =
+            parse(&mut state, &mut msg.as_bytes().to_vec(), &mut tokens).expect("Should not fail.");
+
+        assert!(rc.is_none());
+    }
 }

@@ -34,6 +34,10 @@ pub fn run(args: Vec<String>) -> ReturnCode {
     if cfg.mode == OperationMode::Server {
         ls::serve(cfg)
     } else {
-        stdiotrans::receive();
+        #[cfg(any(windows, unix))]
+        stdiotrans::receive_excl();
+
+        #[cfg(all(target_os = "wasi", target_env = "p1"))]
+        unreachable!("WASI has no API support for spawning of new processes.")
     }
 }

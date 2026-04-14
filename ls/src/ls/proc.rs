@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: EUPL-1.2
 //
 
+#[cfg(any(windows, unix))]
 use std::io::Error;
 
 #[cfg(unix)]
@@ -17,7 +18,11 @@ use windows_sys::Win32::{
 #[derive(Debug, PartialEq)]
 pub enum ProcState {
     Alive,
+
+    #[cfg(any(windows, unix))]
     Dead,
+
+    #[cfg(any(windows, unix))]
     Unknown,
 }
 
@@ -72,6 +77,11 @@ pub fn proc_alive(pid: u32) -> ProcState {
     } else {
         ProcState::Dead
     }
+}
+
+#[cfg(all(target_os = "wasi", target_env = "p1"))]
+pub fn proc_alive(_pid: u32) -> ProcState {
+    ProcState::Alive
 }
 
 #[cfg(test)]

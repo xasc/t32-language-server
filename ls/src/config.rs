@@ -120,6 +120,11 @@ impl Config {
             return Err(ReturnCode::OkExit);
         }
 
+        #[cfg(all(target_os = "wasi", target_env = "p1"))]
+        if mode == OperationMode::StdioTransport {
+            error_wasm(&mut io::stderr(), "--mode=StdioTransport");
+        }
+
         if ppid.is_none() {
             error_missing(&mut io::stderr(), "--clientProcessId=PID");
             return Err(ReturnCode::UsageErr);
@@ -298,6 +303,11 @@ fn error_format_value(writer: &mut impl Write, param: &str) {
 
 fn error_missing(writer: &mut impl Write, param: &str) {
     let _ = writeln!(writer, "ERROR: Missing argument \"{param}\"");
+}
+
+#[cfg(all(target_os = "wasi", target_env = "p1"))]
+fn error_wasm(writer: &mut impl Write, param: &str) {
+    let _ = writeln!(writer, "ERROR: Operation mode \"{param}\" not supported for WebAssembly runtime environments");
 }
 
 fn usage(writer: &mut impl Write) {
