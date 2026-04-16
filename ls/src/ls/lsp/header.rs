@@ -259,7 +259,13 @@ fn value(state: &mut ScanState) -> Token {
         }
         state.next += 1;
     }
-    let end = state.next;
+    let till_end = is_at_end(state);
+
+    let end = if till_end {
+        state.next - 1
+    } else {
+        state.next
+    };
 
     Token {
         kind: TokenType::HeaderFieldValue,

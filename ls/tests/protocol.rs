@@ -800,12 +800,12 @@ fn supports_lang_semantic_tokens_full_doc_request() {
     let notif = utils::make_did_open_text_doc_notification(String::from(uri.clone()));
     utils::to_stdin(&mut stdin, &notif);
 
-    thread::sleep(time::Duration::from_millis(200));
+    thread::sleep(time::Duration::from_millis(500));
 
     let req = utils::make_semantic_tokens_full_doc_request(1, String::from(uri));
     utils::to_stdin(&mut stdin, &req);
 
-    thread::sleep(time::Duration::from_millis(2000));
+    thread::sleep(time::Duration::from_millis(3000));
 
     utils::stop_ls(&mut ls, Some(&mut stdin), Some(2));
     let output = ls.wait_with_output().expect("Cannot capture output");
@@ -840,7 +840,7 @@ fn supports_lang_semantic_tokens_doc_range_request() {
     let notif = utils::make_did_open_text_doc_notification(String::from(uri.clone()));
     utils::to_stdin(&mut stdin, &notif);
 
-    thread::sleep(time::Duration::from_millis(200));
+    thread::sleep(time::Duration::from_millis(500));
 
     let req = utils::make_semantic_tokens_doc_range_request(1, String::from(uri));
     utils::to_stdin(&mut stdin, &req);
