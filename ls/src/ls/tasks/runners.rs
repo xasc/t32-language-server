@@ -7,6 +7,7 @@
 
 use std::{
     collections::VecDeque,
+    num::NonZeroUsize,
     sync::{
         Arc, Condvar, Mutex, TryLockError,
         atomic::{AtomicBool, AtomicU32, Ordering},
@@ -222,9 +223,17 @@ impl TaskDone {
 
 impl TaskSystem {
     pub fn build() -> Self {
-        let num_workers = match available_parallelism() {
-            Ok(num) => usize::from(num),
-            Err(_) => 4,
+        let num_workers = {
+            let lower_bound = 4;
+
+            match available_parallelism() {
+                Ok(num) => usize::from(std::cmp::max(
+                    num.saturating_mul(NonZeroUsize::new(8).expect("Number is greater than 0."))
+                        .div_ceil(NonZeroUsize::new(10).expect("Number is greater than 0.")),
+                    NonZeroUsize::new(lower_bound).expect("Number is greater than 0."),
+                )),
+                Err(_) => lower_bound,
+            }
         };
 
         let mut queues: Vec<JobQueue> = Vec::with_capacity(num_workers);
