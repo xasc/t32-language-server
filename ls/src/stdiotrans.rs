@@ -9,8 +9,7 @@
 
 use std::{
     io::{self, BufRead, Error, Write},
-    thread,
-    time,
+    thread, time,
 };
 
 #[cfg(all(target_os = "wasi", target_env = "p1"))]

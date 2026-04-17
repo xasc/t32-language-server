@@ -42,6 +42,7 @@ impl fmt::Display for HeaderValue {
 /// Scanning tolerates superfluous whitespaces between header name, colon and
 /// header field.
 pub fn scan(buf: &[u8], one_token: bool) -> Result<Vec<Token>, ScanError> {
+    // TODO: Avoid frequent memory allocations for tokens in function.
     let mut tokens = Vec::<Token>::new();
 
     let mut state = ScanState {
@@ -261,11 +262,7 @@ fn value(state: &mut ScanState) -> Token {
     }
     let till_end = is_at_end(state);
 
-    let end = if till_end {
-        state.next - 1
-    } else {
-        state.next
-    };
+    let end = if till_end { state.next - 1 } else { state.next };
 
     Token {
         kind: TokenType::HeaderFieldValue,

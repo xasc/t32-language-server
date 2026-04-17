@@ -307,7 +307,10 @@ fn error_missing(writer: &mut impl Write, param: &str) {
 
 #[cfg(all(target_os = "wasi", target_env = "p1"))]
 fn error_wasm(writer: &mut impl Write, param: &str) {
-    let _ = writeln!(writer, "ERROR: Operation mode \"{param}\" not supported for WebAssembly runtime environments");
+    let _ = writeln!(
+        writer,
+        "ERROR: Operation mode \"{param}\" not supported for WebAssembly runtime environments"
+    );
 }
 
 fn usage(writer: &mut impl Write) {

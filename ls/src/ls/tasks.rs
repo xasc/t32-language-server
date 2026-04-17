@@ -487,7 +487,7 @@ pub fn recv_completed_tasks(
     docs: &mut TextDocs,
     files: &mut FileIndex,
     outgoing: &mut Vec<Option<Message>>,
-) -> Result<(), ReturnCode> {
+) -> Result<bool, ReturnCode> {
     let mut completed: Vec<TaskDone> = Vec::new();
     for done in ts.runner.rx.try_iter() {
         completed.push(done);
@@ -498,6 +498,8 @@ pub fn recv_completed_tasks(
     }
     ts.completed.clear();
 
+    let compl_recv = !completed.is_empty();
+
     for done in completed {
         let handle = done.get_task_handle();
         let finished = process_completed_task(done, cfg, ts, docs, files, outgoing)?;
@@ -506,7 +508,7 @@ pub fn recv_completed_tasks(
             mark_ongoing_task_completed(handle, &mut ts.ongoing);
         }
     }
-    Ok(())
+    Ok(compl_recv)
 }
 
 pub fn schedule_tasks(

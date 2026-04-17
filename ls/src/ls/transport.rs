@@ -9,10 +9,7 @@ use std::{
 };
 
 #[cfg(any(windows, unix))]
-use std::{
-    cmp::min,
-    io::Read,
-};
+use std::{cmp::min, io::Read};
 
 #[cfg(any(windows, unix))]
 use std::{
@@ -155,11 +152,8 @@ impl StdioChannel {
 
         let _ = thread::Builder::new()
             .name("stdin Loopback".to_string())
-            .spawn(move || {
-
-            receive_shared(tx)
-        })
-        .expect("Thread creation must work.");
+            .spawn(move || receive_shared(tx))
+            .expect("Thread creation must work.");
 
         let (tx, rx) = mpsc::channel::<RecvMessage>();
 
@@ -291,7 +285,9 @@ impl StdioChannel {
                     // The loopback reader might panic first. However, we must
                     // not propagate the channel shutdown. The other half of
                     // the channel must trigger the shutodwn.
-                    mpsc::TryRecvError::Disconnected => Err(Self::error_transport(&err.to_string())),
+                    mpsc::TryRecvError::Disconnected => {
+                        Err(Self::error_transport(&err.to_string()))
+                    }
                 }
             }
         }

@@ -13,7 +13,7 @@ use crate::{
     ls::lsp::Message,
     ls::transport::StdioChannel,
     ls::{
-        ProcHeartbeat, State, TaskCounterInternal, Tasks,
+        DutyCycleBackoff, ProcHeartbeat, State, TaskCounterInternal, Tasks,
         doc::{TextDoc, TextDocs, read_doc},
         read_msg,
         request::Notification,
@@ -54,6 +54,7 @@ pub fn handle_requests(channel: &mut StdioChannel, mut cfg: Config) -> Result<()
         shutdown_request_recv: false,
         exit_requested: false,
         heartbeat: ProcHeartbeat::build(&cfg),
+        backoff: DutyCycleBackoff::new(),
         docs: TextDocs::from_workspace(file_data),
         files: files,
         tasks,
@@ -62,11 +63,21 @@ pub fn handle_requests(channel: &mut StdioChannel, mut cfg: Config) -> Result<()
     let mut incoming: Vec<Option<Message>> = Vec::new();
 
     loop {
-        recv_incoming(channel, &mut g.heartbeat, &mut incoming)?;
-        recv_completed_tasks(&cfg, &mut g.tasks, &mut g.docs, &mut g.files, &mut outgoing)?;
+        g.backoff.idle(&Instant::now());
+
+        if recv_incoming(channel, &mut g.heartbeat, &mut incoming)? {
+            g.backoff.clear();
+        }
+
+        if recv_completed_tasks(&cfg, &mut g.tasks, &mut g.docs, &mut g.files, &mut outgoing)? {
+            g.backoff.clear();
+        }
 
         schedule_tasks(&mut incoming, &mut g, &mut cfg, &mut outgoing)?;
 
+        if !outgoing.is_empty() {
+            g.backoff.clear();
+        }
         send_outgoing(channel, &mut outgoing);
 
         if g.exit_requested {
@@ -85,15 +96,19 @@ fn recv_incoming(
     channel: &mut StdioChannel,
     heartbeat: &mut ProcHeartbeat,
     incoming: &mut Vec<Option<Message>>,
-) -> Result<(), ReturnCode> {
+) -> Result<bool, ReturnCode> {
+    let mut inc_recv: bool = false;
     loop {
         match read_msg(channel, heartbeat) {
-            Ok(Some(r)) => incoming.push(Some(r)),
+            Ok(Some(r)) => {
+                inc_recv = true;
+                incoming.push(Some(r));
+            }
             Ok(None) => break,
             Err(rc) => return Err(rc),
         };
     }
-    Ok(())
+    Ok(inc_recv)
 }
 
 fn send_outgoing(channel: &mut StdioChannel, msgs: &mut Vec<Option<Message>>) {

@@ -19,7 +19,10 @@ pub use {doc::TextDoc, workspace::FileIndex};
 #[cfg(test)]
 pub use crate::ls::{doc::TextDocs, doc::read_doc, tasks::TaskSystem, workspace::index_files};
 
-use std::time::{Duration, Instant};
+use std::{
+    thread,
+    time::{Duration, Instant},
+};
 
 use url;
 
@@ -44,6 +47,11 @@ use crate::{
 #[cfg(not(test))]
 use crate::ls::{doc::TextDocs, tasks::TaskSystem};
 
+struct DutyCycleBackoff {
+    level: i32,
+    inactive_since: Instant,
+}
+
 struct InitializationStatus {
     msg: Message,
     rc: ReturnCode,
@@ -59,6 +67,7 @@ struct State {
     shutdown_request_recv: bool,
     exit_requested: bool,
     heartbeat: ProcHeartbeat,
+    backoff: DutyCycleBackoff,
     tasks: Tasks,
     docs: TextDocs,
     files: FileIndex,
@@ -74,6 +83,51 @@ struct Tasks {
     ongoing: Vec<Option<OngoingTask>>,
     completed: Vec<Option<TaskDone>>,
     counter: TaskCounterInternal,
+}
+
+impl DutyCycleBackoff {
+    const IDLE: [Duration; 4] = [
+        Duration::from_millis(5),
+        Duration::from_millis(20),
+        Duration::from_millis(50),
+        Duration::from_millis(250),
+    ];
+    const STAGES: [Duration; 3] = [
+        Duration::from_secs(1),
+        Duration::from_secs(10),
+        Duration::from_secs(100),
+    ];
+    fn new() -> Self {
+        debug_assert_eq!(Self::IDLE.len(), Self::STAGES.len() + 1);
+
+        Self {
+            level: 0,
+            inactive_since: Instant::now(),
+        }
+    }
+
+    fn idle(&mut self, now: &Instant) {
+        debug_assert!(self.level >= -1 && self.level <= (Self::STAGES.len() as i32));
+        debug_assert!(*now >= self.inactive_since);
+
+        if self.level < 0 {
+            self.level += 1;
+            return;
+        }
+        debug_assert!(self.level >= 0);
+
+        if (self.level as usize) < Self::IDLE.len() - 1
+            && *now - self.inactive_since > Self::STAGES[self.level as usize]
+        {
+            self.level += 1;
+        }
+        thread::sleep(Self::IDLE[self.level as usize]);
+    }
+
+    fn clear(&mut self) {
+        debug_assert!(self.level >= -1 && self.level <= (Self::STAGES.len() as i32));
+        self.level = -1;
+    }
 }
 
 impl ProcHeartbeat {
@@ -176,9 +230,12 @@ fn wait_for_initialize_req(
     channel: &mut StdioChannel,
     mut heartbeat: ProcHeartbeat,
 ) -> InitializationStatus {
-    // TODO: Add backoff to avoid idle loop if no messages are received.
+    let mut backoff = DutyCycleBackoff::new();
+
     let mut shutdown_request_recv = false;
     loop {
+        backoff.idle(&Instant::now());
+
         let msg = match read_msg(channel, &mut heartbeat) {
             Ok(Some(m)) => m,
             Ok(None) => continue,
@@ -203,6 +260,8 @@ fn wait_for_initialize_req(
                 };
             }
             m if m.is_request() => {
+                backoff.clear();
+
                 if let Message::Request(Request::ShutdownRequest { .. }) = m {
                     shutdown_request_recv = true;
                 }
