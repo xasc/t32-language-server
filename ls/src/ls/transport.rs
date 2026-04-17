@@ -61,160 +61,162 @@ impl Decoder {
 }
 
 impl StdioChannel {
-    #[cfg(any(windows, unix))]
-    pub fn build() -> Result<Self, ReturnCode> {
-        let (tx, rx) = mpsc::channel::<RecvMessage>();
+    cfg_select! {
+        any(windows, unix) => {
+            pub fn build() -> Result<Self, ReturnCode> {
+                let (tx, rx) = mpsc::channel::<RecvMessage>();
 
-        let bin = env::current_exe().expect("Operation must not fail.");
+                let bin = env::current_exe().expect("Operation must not fail.");
 
-        // All read operations on stdin are blocking by default. We can move
-        // them to a separate thread, but then it becomes impossible to clean
-        // it up at the end. It will remain blocked and cannot be aborted
-        // cleanly.
-        // As workaround we move all stdin read operations to a listener
-        // child process that inherits the stdin handle of the parent process. All
-        // stdin input is then simply piped back to the parent process. In
-        // contrast to a thread, a child process can be cleanly shut down.
-        //
-        let mut listener = Command::new(bin)
-            .args(["--clientProcessId=42", "--mode=stdio-transport"])
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap();
+                // All read operations on stdin are blocking by default. We can move
+                // them to a separate thread, but then it becomes impossible to clean
+                // it up at the end. It will remain blocked and cannot be aborted
+                // cleanly.
+                // As workaround we move all stdin read operations to a listener
+                // child process that inherits the stdin handle of the parent process. All
+                // stdin input is then simply piped back to the parent process. In
+                // contrast to a thread, a child process can be cleanly shut down.
+                //
+                let mut listener = Command::new(bin)
+                    .args(["--clientProcessId=42", "--mode=stdio-transport"])
+                    .stdout(Stdio::piped())
+                    .spawn()
+                    .unwrap();
 
-        let mut cin = listener.stdout.take().unwrap();
+                let mut cin = listener.stdout.take().unwrap();
 
-        let builder = thread::Builder::new();
+                let builder = thread::Builder::new();
 
-        let worker = builder
-            .name("Transport Channel".to_string())
-            .spawn(move || {
-                let mut buf: [u8; Decoder::CAPACITY] = [0; Decoder::CAPACITY];
-                let mut decoder = Decoder::build();
+                let worker = builder
+                    .name("Transport Channel".to_string())
+                    .spawn(move || {
+                        let mut buf: [u8; Decoder::CAPACITY] = [0; Decoder::CAPACITY];
+                        let mut decoder = Decoder::build();
 
-                let idle = time::Duration::from_millis(10);
+                        let idle = time::Duration::from_millis(10);
 
-                loop {
-                    match Self::read_stdin(&mut cin, &mut buf, &mut decoder) {
-                        Ok(0) => {
-                            if let Err(_) = tx.send(RecvMessage::Heartbeat) {
-                                return;
-                            }
-                            thread::sleep(idle);
-                            continue;
-                        }
-                        Ok(_) => (),
-                        Err(err) => {
-                            if let Err(_) = tx.send(RecvMessage::Err(err)) {
-                                return;
-                            }
-                            thread::sleep(idle);
-                            continue;
-                        }
-                    };
-
-                    loop {
-                        match lsp::parse(&mut decoder.state, &mut decoder.rest, &mut decoder.tokens)
-                        {
-                            Ok(None) => {
-                                if let Err(_) = tx.send(RecvMessage::Heartbeat) {
-                                    return;
+                        loop {
+                            match Self::read_stdin(&mut cin, &mut buf, &mut decoder) {
+                                Ok(0) => {
+                                    if let Err(_) = tx.send(RecvMessage::Heartbeat) {
+                                        return;
+                                    }
+                                    thread::sleep(idle);
+                                    continue;
                                 }
-                                break;
-                            }
-                            Ok(Some(req)) => {
-                                if let Err(_) = tx.send(RecvMessage::Msg(req)) {
-                                    return;
+                                Ok(_) => (),
+                                Err(err) => {
+                                    if let Err(_) = tx.send(RecvMessage::Err(err)) {
+                                        return;
+                                    }
+                                    thread::sleep(idle);
+                                    continue;
                                 }
-                            }
-                            Err(err) => {
-                                if let Err(_) = tx.send(RecvMessage::Err(err)) {
-                                    return;
+                            };
+
+                            loop {
+                                match lsp::parse(&mut decoder.state, &mut decoder.rest, &mut decoder.tokens)
+                                {
+                                    Ok(None) => {
+                                        if let Err(_) = tx.send(RecvMessage::Heartbeat) {
+                                            return;
+                                        }
+                                        break;
+                                    }
+                                    Ok(Some(req)) => {
+                                        if let Err(_) = tx.send(RecvMessage::Msg(req)) {
+                                            return;
+                                        }
+                                    }
+                                    Err(err) => {
+                                        if let Err(_) = tx.send(RecvMessage::Err(err)) {
+                                            return;
+                                        }
+                                        break;
+                                    }
                                 }
-                                break;
                             }
                         }
-                    }
-                }
-            })
-            .expect("Thread creation must work.");
+                    })
+                    .expect("Thread creation must work.");
 
-        Ok(StdioChannel {
-            worker: Some(worker),
-            rx: Some(rx),
-            listener: Some(listener),
-        })
+                Ok(StdioChannel {
+                    worker: Some(worker),
+                    rx: Some(rx),
+                    listener: Some(listener),
+                })
+            }
+        }
+        all(target_os = "wasi", target_env = "p1") => {
+            pub fn build() -> Result<Self, ReturnCode> {
+                let (tx, mut cin) = mpsc::channel::<Vec<u8>>();
+
+                let _ = thread::Builder::new()
+                    .name("stdin Loopback".to_string())
+                    .spawn(move || receive_shared(tx))
+                    .expect("Thread creation must work.");
+
+                let (tx, rx) = mpsc::channel::<RecvMessage>();
+
+                let worker = thread::Builder::new()
+                    .name("Transport Channel".to_string())
+                    .spawn(move || {
+                        let mut decoder = Decoder::build();
+
+                        let idle = time::Duration::from_millis(10);
+
+                        loop {
+                            match Self::read_stdin(&mut cin, &mut decoder) {
+                                Ok(0) => {
+                                    if let Err(_) = tx.send(RecvMessage::Heartbeat) {
+                                        return;
+                                    }
+                                    thread::sleep(idle);
+                                    continue;
+                                }
+                                Ok(_) => (),
+                                Err(err) => {
+                                    if let Err(_) = tx.send(RecvMessage::Err(err)) {
+                                        return;
+                                    }
+                                    thread::sleep(idle);
+                                    continue;
+                                }
+                            };
+
+                            loop {
+                                match lsp::parse(&mut decoder.state, &mut decoder.rest, &mut decoder.tokens)
+                                {
+                                    Ok(None) => {
+                                        if let Err(_) = tx.send(RecvMessage::Heartbeat) {
+                                            return;
+                                        }
+                                        break;
+                                    }
+                                    Ok(Some(req)) => {
+                                        if let Err(_) = tx.send(RecvMessage::Msg(req)) {
+                                            return;
+                                        }
+                                    }
+                                    Err(err) => {
+                                        if let Err(_) = tx.send(RecvMessage::Err(err)) {
+                                            return;
+                                        }
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    })
+                    .expect("Thread creation must work.");
+
+                Ok(StdioChannel {
+                    worker: Some(worker),
+                    rx: Some(rx),
+                })
+            }
+        }
     }
-
-    #[cfg(all(target_os = "wasi", target_env = "p1"))]
-    pub fn build() -> Result<Self, ReturnCode> {
-        let (tx, mut cin) = mpsc::channel::<Vec<u8>>();
-
-        let _ = thread::Builder::new()
-            .name("stdin Loopback".to_string())
-            .spawn(move || receive_shared(tx))
-            .expect("Thread creation must work.");
-
-        let (tx, rx) = mpsc::channel::<RecvMessage>();
-
-        let worker = thread::Builder::new()
-            .name("Transport Channel".to_string())
-            .spawn(move || {
-                let mut decoder = Decoder::build();
-
-                let idle = time::Duration::from_millis(10);
-
-                loop {
-                    match Self::read_stdin(&mut cin, &mut decoder) {
-                        Ok(0) => {
-                            if let Err(_) = tx.send(RecvMessage::Heartbeat) {
-                                return;
-                            }
-                            thread::sleep(idle);
-                            continue;
-                        }
-                        Ok(_) => (),
-                        Err(err) => {
-                            if let Err(_) = tx.send(RecvMessage::Err(err)) {
-                                return;
-                            }
-                            thread::sleep(idle);
-                            continue;
-                        }
-                    };
-
-                    loop {
-                        match lsp::parse(&mut decoder.state, &mut decoder.rest, &mut decoder.tokens)
-                        {
-                            Ok(None) => {
-                                if let Err(_) = tx.send(RecvMessage::Heartbeat) {
-                                    return;
-                                }
-                                break;
-                            }
-                            Ok(Some(req)) => {
-                                if let Err(_) = tx.send(RecvMessage::Msg(req)) {
-                                    return;
-                                }
-                            }
-                            Err(err) => {
-                                if let Err(_) = tx.send(RecvMessage::Err(err)) {
-                                    return;
-                                }
-                                break;
-                            }
-                        }
-                    }
-                }
-            })
-            .expect("Thread creation must work.");
-
-        Ok(StdioChannel {
-            worker: Some(worker),
-            rx: Some(rx),
-        })
-    }
-
     pub fn recv_msg(&self) -> Result<Option<Message>, ErrorResponse> {
         match self
             .rx
@@ -242,57 +244,59 @@ impl StdioChannel {
         self.write_stdout(&repr);
     }
 
-    #[cfg(any(windows, unix))]
-    fn read_stdin(
-        cin: &mut impl Read,
-        buf: &mut [u8],
-        decoder: &mut Decoder,
-    ) -> Result<usize, ErrorResponse> {
-        let len = min(Decoder::CAPACITY - decoder.rest.len(), buf.len());
+    cfg_select! {
+        any(windows, unix) => {
+            fn read_stdin(
+                cin: &mut impl Read,
+                buf: &mut [u8],
+                decoder: &mut Decoder,
+            ) -> Result<usize, ErrorResponse> {
+                let len = min(Decoder::CAPACITY - decoder.rest.len(), buf.len());
 
-        match cin.read(&mut buf[..len]) {
-            Ok(0) => Ok(0),
-            Ok(num) => {
-                decoder.rest.extend(&buf[..num]);
+                match cin.read(&mut buf[..len]) {
+                    Ok(0) => Ok(0),
+                    Ok(num) => {
+                        decoder.rest.extend(&buf[..num]);
 
-                debug_assert!(decoder.rest.len() <= Decoder::CAPACITY);
-                Ok(num)
-            }
-            Err(err) => Err(Self::error_read(&err.to_string())),
-        }
-    }
-
-    #[cfg(all(target_os = "wasi", target_env = "p1"))]
-    fn read_stdin(
-        cin: &mut mpsc::Receiver<Vec<u8>>,
-        decoder: &mut Decoder,
-    ) -> Result<usize, ErrorResponse> {
-        if decoder.rest.len() >= Decoder::CAPACITY {
-            return Ok(Decoder::CAPACITY);
-        }
-
-        match cin.try_recv() {
-            Ok(mut buf) => {
-                let num = buf.len();
-                if num > 0 {
-                    decoder.rest.append(&mut buf);
+                        debug_assert!(decoder.rest.len() <= Decoder::CAPACITY);
+                        Ok(num)
+                    }
+                    Err(err) => Err(Self::error_read(&err.to_string())),
                 }
-                Ok(num)
             }
-            Err(err) => {
-                match err {
-                    mpsc::TryRecvError::Empty => Ok(0),
-                    // The loopback reader might panic first. However, we must
-                    // not propagate the channel shutdown. The other half of
-                    // the channel must trigger the shutodwn.
-                    mpsc::TryRecvError::Disconnected => {
-                        Err(Self::error_transport(&err.to_string()))
+        }
+        all(target_os = "wasi", target_env = "p1") => {
+            fn read_stdin(
+                cin: &mut mpsc::Receiver<Vec<u8>>,
+                decoder: &mut Decoder,
+            ) -> Result<usize, ErrorResponse> {
+                if decoder.rest.len() >= Decoder::CAPACITY {
+                    return Ok(Decoder::CAPACITY);
+                }
+
+                match cin.try_recv() {
+                    Ok(mut buf) => {
+                        let num = buf.len();
+                        if num > 0 {
+                            decoder.rest.append(&mut buf);
+                        }
+                        Ok(num)
+                    }
+                    Err(err) => {
+                        match err {
+                            mpsc::TryRecvError::Empty => Ok(0),
+                            // The loopback reader might panic first. However, we must
+                            // not propagate the channel shutdown. The other half of
+                            // the channel must trigger the shutodwn.
+                            mpsc::TryRecvError::Disconnected => {
+                                Err(Self::error_transport(&err.to_string()))
+                            }
+                        }
                     }
                 }
             }
         }
     }
-
     fn write_stdout(&mut self, buf: &[u8]) {
         match io::stdout().write_all(buf) {
             Ok(_) => {
