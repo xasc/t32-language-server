@@ -13,7 +13,7 @@ wasi_cflags = "-Wno-implicit-function-declaration"
 wasi_cc = "$(wasi_dir)/bin/clang"
 
 wasmtime_opts := --wasm "threads=y,shared-memory=y" --wasi "threads=y"
-wasmtime_ls := target/wasm32-wasip1-threads/debug/t32-language-server.wasm
+wasmtime_ls := target/wasm32-wasip1-threads/debug/t32ls.wasm
 
 
 .PHONY: wasm-build

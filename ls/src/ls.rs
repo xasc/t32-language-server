@@ -110,6 +110,7 @@ impl DutyCycleBackoff {
         debug_assert!(self.level >= -1 && self.level <= (Self::STAGES.len() as i32));
         debug_assert!(*now >= self.inactive_since);
 
+        // Grant one additional uninterrupted cycle if the server was just busy.
         if self.level < 0 {
             self.level += 1;
             return;

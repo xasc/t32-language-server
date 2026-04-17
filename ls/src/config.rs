@@ -66,11 +66,14 @@ pub struct SemanticTokenSupport {
     pub encoding: SemanticTokenEncoding,
     pub legend: SemanticTokensLegend,
 }
+const PKG_VERSION: &'static str = env!("CARGO_PKG_VERSION");
+const GIT_HEADREF: Option<&'static str> = option_env!("GIT_HEAD_REF");
 
 impl Config {
     pub fn build(args: &[String]) -> Result<Self, ReturnCode> {
         let mut ppid: Option<u32> = None;
         let mut show_help: bool = false;
+        let mut show_version: bool = false;
         let mut trace_level: TraceValue = TraceValue::Off;
         let mut mode: OperationMode = OperationMode::Server;
 
@@ -113,10 +116,19 @@ impl Config {
             if Self::parse_flag("--help", "-h", arg) {
                 show_help = true;
             }
+
+            if Self::parse_flag("--version", "-V", arg) {
+                show_version = true;
+            }
         }
 
         if show_help {
             usage(&mut io::stdout());
+            return Err(ReturnCode::OkExit);
+        }
+
+        if show_version {
+            version(&mut io::stdout());
             return Err(ReturnCode::OkExit);
         }
 
@@ -316,7 +328,7 @@ fn error_wasm(writer: &mut impl Write, param: &str) {
 fn usage(writer: &mut impl Write) {
     let _ = writeln!(
         writer,
-        r#"Usage: t32-language-server [OPTIONS]
+        r#"Usage: t32ls [OPTIONS]
 
 Language server for the Lauterbach TRACE32® script language.
 
@@ -332,7 +344,23 @@ General options:
 
   -t LEVEL, --trace=LEVEL
     Set the initial logging level of the server's execution trace. LEVEL must
-    be one of 'off,messages,verbose'."#
+    be one of 'off,messages,verbose'.
+
+  -V, --version
+    Print version info and exit."#
     )
     .expect("Writer must be configured correctly.");
+}
+
+fn version(writer: &mut impl Write) {
+    // REUSE-IgnoreStart
+    let _ = writeln!(
+        writer,
+        r#"t32ls (t32-language-server), version {}{}
+SPDX-FileCopyrightText: 2024 Christoph Sax <c_sax@mailbox.org>
+SPDX-License-Identifier: EUPL-1.2"#,
+        PKG_VERSION,
+        if let Some(hash) = GIT_HEADREF { format!("+{}", hash) } else { "".to_string() }
+    ).expect("Writer must be configured correctly.");
+    // REUSE-IgnoreEnd
 }
