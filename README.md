@@ -10,6 +10,33 @@ t32-language-server
 Language server for the Lauterbach TRACE32® script language.
 It is available for Linux, Windows, macOS, and WebAssembly.
 
+<details>
+  <summary>Table of Contents</summary>
+  <ol>
+    <li>
+      <a href="#features">Features</a>
+      <ul>
+        <li><a href="#quick-start">Quick start</a></li>
+        <ul>
+            <li><a href="#dependencies-start">Dependencies</a></li>
+            <li><a href="#installation">Installation</a></li>
+        </ul>
+      </ul>
+    </li>
+    <li>
+      <a href="#usage">Usage</a>
+      <ul>
+        <li><a href="#command-line-interface">Command line interface</a></li>
+      </ul>
+    </li>
+    <li><a href="#packages">Packages</a></li>
+    <li><a href="#mirrors">Mirrors</a></li>
+    <li><a href="#license">License</a></li>
+    <li><a href="#license">License</a></li>
+    <li><a href="#language-server-protocol-support">Language server protocol support</a></li>
+  </ol>
+</details>
+
 
 Features
 --------
@@ -25,16 +52,16 @@ Quick start
 ### Dependencies
 
 Builds require [Rust] version **1.95** or newer.
-
--  [libc] [Unix]
--  [serde]
--  [serde_json]
--  [serde_repr]
--  [tree-sitter]
--  [tree-sitter-t32]
--  [url]
--  [wasi-sdk] [WebAssembly]
--  [windows-sys] [Windows]
+These additional dependencies are required:
+ -  [libc] [Unix]
+ -  [serde]
+ -  [serde_json]
+ -  [serde_repr]
+ -  [tree-sitter]
+ -  [tree-sitter-t32]
+ -  [url]
+ -  [wasi-sdk] [WebAssembly]
+ -  [windows-sys] [Windows]
 
 [Rust]: https://rust-lang.org/tools/install
 [libc]: https://github.com/rust-lang/libc
@@ -64,16 +91,19 @@ Builds require [Rust] version **1.95** or newer.
 Binary releases for Linux, Windows, macOS, and WebAssembly are available on the
 project's releases page.
 
+> [!NOTE]
+> Binary releases are not yet available.
+
 
 Usage
 -----
 
-#### Command line interface
+### Command line interface
 
 ~~~~ bash
 t32ls [OPTIONS]
 ~~~~
-##### General options
+#### General options
 
 ~~~~ text
   -h, --help
@@ -91,7 +121,7 @@ t32ls [OPTIONS]
   -V, --version
     Print version info and exit.
 ~~~~
-##### Example
+#### Example
 
 ~~~~ bash
 t32ls --clientProcessId=42 -t messages
