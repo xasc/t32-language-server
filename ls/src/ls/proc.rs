@@ -26,62 +26,65 @@ pub enum ProcState {
     Unknown,
 }
 
-#[cfg(unix)]
-pub fn proc_alive(pid: u32) -> ProcState {
-    let proc = pid.try_into();
-    // pid is out of range
-    if let Err(_) = proc {
-        return ProcState::Unknown;
-    }
+cfg_select! {
+    unix => {
+        pub fn proc_alive(pid: u32) -> ProcState {
+            let proc = pid.try_into();
+            // pid is out of range
+            if let Err(_) = proc {
+                return ProcState::Unknown;
+            }
 
-    unsafe {
-        if kill(proc.unwrap(), 0) == 0 {
-            return ProcState::Alive;
+            unsafe {
+                if kill(proc.unwrap(), 0) == 0 {
+                    return ProcState::Alive;
+                }
+            }
+
+            let errno = Error::last_os_error()
+                .raw_os_error()
+                .expect("Call to kill() should have set errno.");
+            assert_ne!(errno, libc::EINVAL);
+            if errno == libc::ESRCH {
+                ProcState::Dead
+            } else {
+                // EPERM: No permission to send signal
+                ProcState::Unknown
+            }
         }
     }
+    windows => {
+        pub fn proc_alive(pid: u32) -> ProcState {
+            const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+            const FALSE: i32 = 0;
 
-    let errno = Error::last_os_error()
-        .raw_os_error()
-        .expect("Call to kill() should have set errno.");
-    assert_ne!(errno, libc::EINVAL);
-    if errno == libc::ESRCH {
-        ProcState::Dead
-    } else {
-        // EPERM: No permission to send signal
-        ProcState::Unknown
-    }
-}
+            let handle = unsafe {
+                let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+                if handle.is_null() {
+                    return ProcState::Unknown;
+                }
+                h
+            };
 
-#[cfg(windows)]
-pub fn proc_alive(pid: u32) -> ProcState {
-    const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
-    const FALSE: i32 = 0;
+            let exit_code: u32 = 0;
+            unsafe {
+                if GetExitCodeProcess(handle, exit_code.as_mut_ptr()) == 0 {
+                    return ProcState::Unknown;
+                }
+            }
 
-    let handle = unsafe {
-        let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
-        if handle.is_null() {
-            return ProcState::Unknown;
-        }
-        h
-    };
-
-    let exit_code: u32 = 0;
-    unsafe {
-        if GetExitCodeProcess(handle, exit_code.as_mut_ptr()) == 0 {
-            return ProcState::Unknown;
+            if exit_code == STILL_ACTIVE {
+                ProcState::Alive
+            } else {
+                ProcState::Dead
+            }
         }
     }
-
-    if exit_code == STILL_ACTIVE {
-        ProcState::Alive
-    } else {
-        ProcState::Dead
+    all(target_os = "wasi", target_env = "p1") => {
+        pub fn proc_alive(_pid: u32) -> ProcState {
+            ProcState::Alive
+        }
     }
-}
-
-#[cfg(all(target_os = "wasi", target_env = "p1"))]
-pub fn proc_alive(_pid: u32) -> ProcState {
-    ProcState::Alive
 }
 
 #[cfg(test)]
