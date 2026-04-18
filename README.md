@@ -18,7 +18,7 @@ It is available for Linux, Windows, macOS, and WebAssembly.
       <ul>
         <li><a href="#quick-start">Quick start</a></li>
         <ul>
-            <li><a href="#dependencies-start">Dependencies</a></li>
+            <li><a href="#dependencies">Dependencies</a></li>
             <li><a href="#installation">Installation</a></li>
         </ul>
       </ul>
@@ -31,7 +31,6 @@ It is available for Linux, Windows, macOS, and WebAssembly.
     </li>
     <li><a href="#packages">Packages</a></li>
     <li><a href="#mirrors">Mirrors</a></li>
-    <li><a href="#license">License</a></li>
     <li><a href="#license">License</a></li>
     <li><a href="#language-server-protocol-support">Language server protocol support</a></li>
   </ol>
