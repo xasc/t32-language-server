@@ -35,7 +35,7 @@ name = "t32ls"
 path = "src/main.rs"
 
 [build-dependencies]
-cc="*"
+cc=">=1.2.60"
 
 [dependencies]
 serde = { version = ">=1.0.215", features = ["derive"] }
