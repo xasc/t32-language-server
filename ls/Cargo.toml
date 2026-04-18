@@ -24,7 +24,11 @@ license = "EUPL-1.2"
 repository = "https://codeberg.org/xasc/t32-language-server"
 edition = "2024"
 rust-version = "1.95"
-include = ["../LICENSES"]
+include = [
+  "/src/",
+  "/tests/",
+  "/LICENSES/"
+]
 
 [[bin]]
 name = "t32ls"

@@ -5,6 +5,6 @@
 [workspace]
 
 members = [
-    "ls",
+  "ls",
 ]
 resolver = "2"

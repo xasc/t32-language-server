@@ -1,0 +1,73 @@
+# SPDX-FileCopyrightText: 2024 Christoph Sax <c_sax@mailbox.org>
+#
+# SPDX-License-Identifier: EUPL-1.2
+
+name: Build & test language server
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build_and_test_t32ls:
+    name: Build and test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        toolchain:
+          - stable
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v6
+
+      - name: Install Rust
+        run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
+
+      - name: Build language serve
+        run: cargo build --verbose --bin t32ls
+
+      - name: Run tests
+        run: cargo test --verbose --bin t32ls
+
+  latest_deps_t32ls:
+    name: Check compatibility with dependencies
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    env:
+      CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS: allow
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v6
+
+      - name: Install Rust
+        run: rustup update stable && rustup default stable
+
+      - name: Upgrade dependencies
+        run: cargo update --verbose
+
+      - name: Build language server
+        run: cargo build --verbose --bin t32ls
+
+      - name: Run tests
+        run: cargo test --verbose --bin t32ls
+
+  msrv:
+    name: Check Rust version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v6
+
+      - name: Install cargo-hack
+        uses: taiki-e/install-action@cargo-hack
+
+      - name: Validate minimum Rust version
+        run: cargo hack check --rust-version --workspace --all-targets --ignore-private
