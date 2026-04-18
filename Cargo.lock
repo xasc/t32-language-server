@@ -361,7 +361,7 @@ dependencies = [
 
 [[package]]
 name = "t32-language-server"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "cc",
  "libc",
