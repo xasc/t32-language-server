@@ -171,7 +171,7 @@ pub fn serve(mut cfg: Config) -> ReturnCode {
     };
     let heartbeat = ProcHeartbeat::build(&cfg);
 
-    let InitializationStatus { msg, rc } = wait_for_initialize_req(&mut channel, heartbeat);
+    let InitializationStatus { msg, rc } = wait_for_initialize_req(cfg.trace_level, &mut channel, heartbeat);
     match msg {
         Message::Request(Request::InitializeRequest { id, params }) => {
             match process_initialize_params(params, &mut cfg) {
@@ -228,6 +228,7 @@ pub fn serve(mut cfg: Config) -> ReturnCode {
 /// error exit code. However, sending a shutdown request without prior
 /// initialization will return an error response.
 fn wait_for_initialize_req(
+    trace_level: TraceValue,
     channel: &mut StdioChannel,
     mut heartbeat: ProcHeartbeat,
 ) -> InitializationStatus {
@@ -237,7 +238,7 @@ fn wait_for_initialize_req(
     loop {
         backoff.idle(&Instant::now());
 
-        let msg = match read_msg(channel, &mut heartbeat) {
+        let msg = match read_msg(trace_level, channel, &mut heartbeat) {
             Ok(Some(m)) => m,
             Ok(None) => continue,
             Err(rc) => {
@@ -414,6 +415,7 @@ fn process_initialize_params(
 }
 
 fn read_msg(
+    trace_level: TraceValue,
     channel: &mut StdioChannel,
     heartbeat: &mut ProcHeartbeat,
 ) -> Result<Option<Message>, ReturnCode> {
@@ -427,6 +429,11 @@ fn read_msg(
             if let Some(_) = heartbeat.pid {
                 let now = Instant::now();
                 if heartbeat.elapsed(&now) && !heartbeat.check(&now) {
+                    if trace_level != TraceValue::Off {
+                        channel.send_msg(Message::Notification(notif_ppid_heartbeat_timeout(
+                            heartbeat.pid.unwrap(),
+                        )));
+                    }
                     return Err(ReturnCode::UnavailableErr);
                 }
             }
@@ -480,6 +487,15 @@ fn error_pid_mismatch(pid_msg: u32, pid_cli: u32) -> ResponseError {
         data: Some(
             serde_json::to_value(InitializeError { retry: true }).expect("Must convert to value."),
         ),
+    }
+}
+
+fn notif_ppid_heartbeat_timeout(pid: u32) -> Notification {
+    Notification::LogTraceNotification {
+        params: LogTraceParams {
+            message: format!("INFO: Parent process with process ID {} has exited.", pid),
+            verbose: Some("Server is shutting down...".to_string()),
+        },
     }
 }
 

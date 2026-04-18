@@ -138,12 +138,11 @@ impl Config {
         }
 
         if ppid.is_none() {
-            error_missing(&mut io::stderr(), "--clientProcessId=PID");
-            return Err(ReturnCode::UsageErr);
+            warn_missing_ppid(&mut io::stderr(), "--clientProcessId=PID");
         }
 
         Ok(Config {
-            parent_pid: Some(ppid.unwrap()),
+            parent_pid: ppid,
             pid_check_interval: Duration::from_secs(5),
             channel: ChannelKind::Stdio,
             workspace: Workspace::Root(None),
@@ -313,8 +312,18 @@ fn error_format_value(writer: &mut impl Write, param: &str) {
     );
 }
 
+#[allow(dead_code)]
 fn error_missing(writer: &mut impl Write, param: &str) {
     let _ = writeln!(writer, "ERROR: Missing argument \"{param}\"");
+}
+
+fn warn_missing_ppid(writer: &mut impl Write, param: &str) {
+    let _ = writeln!(
+        writer,
+        r#"WARNING: Missing argument \"{param}\".
+Process ID of parent process is not available. The editor process cannot be
+monitored for shutdown."#
+    );
 }
 
 #[cfg(all(target_os = "wasi", target_env = "p1"))]

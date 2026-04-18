@@ -65,7 +65,7 @@ pub fn handle_requests(channel: &mut StdioChannel, mut cfg: Config) -> Result<()
     loop {
         g.backoff.idle(&Instant::now());
 
-        if recv_incoming(channel, &mut g.heartbeat, &mut incoming)? {
+        if recv_incoming(cfg.trace_level, channel, &mut g.heartbeat, &mut incoming)? {
             g.backoff.clear();
         }
 
@@ -93,13 +93,14 @@ pub fn handle_requests(channel: &mut StdioChannel, mut cfg: Config) -> Result<()
 }
 
 fn recv_incoming(
+    trace_level: TraceValue,
     channel: &mut StdioChannel,
     heartbeat: &mut ProcHeartbeat,
     incoming: &mut Vec<Option<Message>>,
 ) -> Result<bool, ReturnCode> {
     let mut inc_recv: bool = false;
     loop {
-        match read_msg(channel, heartbeat) {
+        match read_msg(trace_level, channel, heartbeat) {
             Ok(Some(r)) => {
                 inc_recv = true;
                 incoming.push(Some(r));
