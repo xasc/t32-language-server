@@ -1,6 +1,8 @@
 #! /bin/sh
 //usr/bin/env rustc $0 -o ${0}x && ./${0}x; rm -f ${0}x ; exit
 
+// See https://blog.firedrake.org/archive/2020/11/A_Shebang_For_Rust.html
+
 // SPDX-FileCopyrightText: 2024 Christoph Sax <c_sax@mailbox.org>
 //
 // SPDX-License-Identifier: EUPL-1.2
