@@ -32,15 +32,12 @@ jobs:
       - name: Build language server
         run: cargo build --verbose --bin t32ls --profile=release
 
-      - name: Capture target output directory
-        run: echo "CARGO_TARGET_DIR=$(cargo metadata --format-version=1 --no-deps | jq '.target_directory')" >> $GITHUB_ENV
-
       - name: Generate artifact attestations
         uses: actions/attest@v4
         with:
           push-to-registry: true
           subject-path: |
-            "${{env.CARGO_TARGET_DIR}}"/t32ls
+            target/release/t32ls
 
   release_t32ls_bin_win:
     name: Create Windows release
@@ -55,12 +52,9 @@ jobs:
       - name: Build language server
         run: cargo build --verbose --bin t32ls --profile=release
 
-      - name: Capture target output directory
-        run: echo "CARGO_TARGET_DIR=$(cargo metadata --format-version=1 --no-deps | jq '.target_directory')" >> $GITHUB_ENV
-
       - name: Generate artifact attestations
         uses: actions/attest@v4
         with:
           push-to-registry: true
           subject-path: |
-            "${{env.CARGO_TARGET_DIR}}"/t32ls.exe
+            target/release/t32ls.exe
