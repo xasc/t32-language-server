@@ -56,8 +56,8 @@ jobs:
       - name: Update environment variables
         run: |
           echo "WASI_SDK=wasi-sdk-${{ env.WASI_VERSION }}.0-${{ env.WASI_ARCH }}-${{ env.WASI_OS }}" >> $GITHUB_ENV
-          echo "WASI_RUSTFLAGS=-L $WASI_SDK/share/wasi-sysroot/lib/wasm32-wasip1-threads" >> $GITHUB_ENV
-          echo "WASI_CC=$WASI_SDK/bin/clang" >> $GITHUB_ENV
+          echo "RUSTFLAGS=-L $WASI_SDK/share/wasi-sysroot/lib/wasm32-wasip1-threads" >> $GITHUB_ENV
+          echo "CC=$WASI_SDK/bin/clang" >> $GITHUB_ENV
 
       - name: Install WASI SDK
         run: |
@@ -65,7 +65,7 @@ jobs:
           tar xvf $WASI_SDK.tar.gz
 
       - name: Build language server
-        run: RUSTFLAGS="$WASI_RUSTFLAGS" CC="$WASI_CC" CFLAGS="${{ env.WASI_CFLAGS }}" cargo build --target=wasm32-wasip1-threads
+        run: CFLAGS="${{ env.WASI_CFLAGS }}" cargo build --target=wasm32-wasip1-threads
         env:
           WASI_CFLAGS: -Wno-implicit-function-declaration
 
