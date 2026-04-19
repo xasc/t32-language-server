@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: EUPL-1.2
 
-name: Publish language server releases
+name: Publish language server crate
 
 on:
   push:
@@ -12,9 +12,8 @@ concurrency:
   group: ${{github.workflow}}-${{github.ref}}
   cancel-in-progress: true
 
-
 jobs:
-  publish_t32ls:
+  publish_t32ls_crate:
     name: Publish language server crate
     runs-on: ubuntu-latest
     steps:

@@ -13,14 +13,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
-[Unreleased]
-------------
+[0.7.0] - 2026-04-19
+--------------------
+
+### Added
+
+-  Make precompiled binaries for Linux, macOS, and Windows available.
 
 ### Fixed
 
 -  Fix parent process status detection for Windows builds.
 -  Fix test execution on Windows machines. EOL conversion to CRLF was breaking
    tests that are checking byte offsets.
+-  Accept alternative exit status if parent process ID does not exist.
 
 
 [0.6.1] - 2026-04-18
