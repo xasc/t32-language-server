@@ -43,7 +43,6 @@ jobs:
       WASI_VERSION: 32
       WASI_OS: linux
       WASI_ARCH: x86_64
-      WASI_VERSION_FULL: ${{ env.WASI_VERSION }}.0
     steps:
       - name: Set up repository
         uses: actions/checkout@v6
@@ -54,18 +53,22 @@ jobs:
       - name: Install WebAssembly cross-compiler
         run: rustup target add wasm32-wasip1-threads
 
+      - name: Update environment variables
+        run: |
+          echo "WASI_VERSION_FULL=${{ env.WASI_VERSION }}.0" >> $GITHUB_ENV
+          echo "WASI_SDK=wasi-sdk-${{ env.WASI_VERSION_FULL }}-${{ env.WASI_ARCH }}-${{ env.WASI_OS }}" >> $GITHUB_ENV
+          echo "WASI_RUSTFLAGS=-L ${{ env.WASI_SDK }}/share/wasi-sysroot/lib/wasm32-wasip1-threads" >> $GITHUB_ENV
+          echo "WASI_CC=${{ env.WASI_SDK }}/bin/clang" >> $GITHUB_ENV
+
       - name: Install WASI SDK
         run: |
-          wget https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${{ env.WASI_VERSION }}/wasi-sdk-${{ env.WASI_VERSION_FULL }}-${{ env.WASI_ARCH }}-${{ env.WASI_OS }}.tar.gz
-          tar xvf wasi-sdk-${{ env.WASI_VERSION_FULL }}-${{ env.WASI_ARCH }}-${{ env.WASI_OS }}.tar.gz
+          wget https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${{ env.WASI_VERSION }}/${{ env.WASI_SDK }}.tar.gz
+          tar xvf ${{ env.WASI_SDK }}.tar.gz
 
       - name: Build language server
-        run: RUSTFLAGS=${{ env.WASI_RUSTFLAGS }} CC=${{ env.WASI_CC }} CFLAGS=${{ env.WASI_CFLAGS }} cargo build --target=wasm32-wasip1-threads
+        run: RUSTFLAGS="${{ env.WASI_RUSTFLAGS }}" CC="${{ env.WASI_CC }}" CFLAGS="${{ env.WASI_CFLAGS }}" cargo build --target=wasm32-wasip1-threads
         env:
-          WASI_SDK: wasi-sdk-${{ env.WASI_VERSION_FULL }}-${{ env.WASI_ARCH }}-${{ env.WASI_OS }}
-          WASI_RUSTFLAGS: "-L ${{ env.WASI_SDK }}/share/wasi-sysroot/lib/wasm32-wasip1-threads"
-          WASI_CFLAGS: "-Wno-implicit-function-declaration"
-          WASI_CC: "${{ env.WASI_SDK }}/bin/clang"
+          WASI_CFLAGS: -Wno-implicit-function-declaration
 
   latest_deps_t32ls:
     name: Check compatibility with dependencies
