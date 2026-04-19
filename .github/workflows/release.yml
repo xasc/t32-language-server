@@ -37,7 +37,7 @@ jobs:
         with:
           push-to-registry: true
           subject-path: |
-            ${{env.$GITHUB_WORKSPACE}}/target/release/t32ls
+            ${{env.GITHUB_WORKSPACE}}/target/release/t32ls
 
   release_t32ls_bin_win:
     name: Create Windows release
@@ -57,4 +57,4 @@ jobs:
         with:
           push-to-registry: true
           subject-path: |
-            ${{env.$GITHUB_WORKSPACE}}/target/release/t32ls.exe
+            ${{env.GITHUB_WORKSPACE}}/target/release/t32ls.exe
