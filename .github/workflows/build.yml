@@ -56,13 +56,16 @@ jobs:
       - name: Update environment variables
         run: |
           echo "WASI_SDK=wasi-sdk-${{ env.WASI_VERSION }}.0-${{ env.WASI_ARCH }}-${{ env.WASI_OS }}" >> $GITHUB_ENV
-          echo "RUSTFLAGS=-L $WASI_SDK/share/wasi-sysroot/lib/wasm32-wasip1-threads" >> $GITHUB_ENV
-          echo "CC=$WASI_SDK/bin/clang" >> $GITHUB_ENV
 
       - name: Install WASI SDK
         run: |
           wget https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${{ env.WASI_VERSION }}/$WASI_SDK.tar.gz
           tar xvf $WASI_SDK.tar.gz
+
+      - name: Update environment variables
+        run: |
+          echo "RUSTFLAGS=-L $WASI_SDK/share/wasi-sysroot/lib/wasm32-wasip1-threads" >> $GITHUB_ENV
+          echo "CC=$WASI_SDK/bin/clang" >> $GITHUB_ENV
 
       - name: Build language server
         run: CFLAGS="${{ env.WASI_CFLAGS }}" cargo build --target=wasm32-wasip1-threads
