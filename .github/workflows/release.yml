@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   release_t32ls_bin_linux:
-    name: Create Unix release
+    name: Create Linux release
     runs-on: ubuntu-latest
     steps:
       - name: Set up repository
@@ -26,22 +26,33 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Build language server
-        run: cargo build --verbose --bin t32ls --profile=release
+        run: |
+          cargo build --verbose --bin t32ls --profile=release
+          mkdir --parents ./t32ls-linux-x86_64/
+          cp --verbose ./target/release/t32ls ./t32ls-linux-x86_64/
+          tar cvfz t32ls-linux-x86_64.tar.gz ./t32ls-linux-x86_64/
 
       - name: Generate artifact attestations
         uses: actions/attest@v4
         with:
           subject-path: |
-            ./target/release/t32ls
+            ./t32ls-linux-x86_64.tar.gz
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          path: ./t32ls-linux-x86_64.tar.gz
+          archive: false
+          retention-days: 1
 
       - name: Create GitHub release
-        run: gh release create "$TAG_NAME" --notes-from-tag --verify-tag './target/release/t32ls#linux-x86_64'
+        run: gh release upload "$TAG_NAME" ./t32ls-linux-x86_64.tar.gz
         env:
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ github.ref_name }}
 
-  release_t32ls_bin_unix:
-    name: Create Unix release
+  release_t32ls_bin_macos:
+    name: Create macOS release
     runs-on: macos-latest
     steps:
       - name: Set up repository
@@ -51,16 +62,27 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Build language server
-        run: cargo build --verbose --bin t32ls --profile=release
+        run: |
+          cargo build --verbose --bin t32ls --profile=release
+          mkdir --parents ./t32ls-macos-x86_64/
+          cp --verbose ./target/release/t32ls ./t32ls-macos-x86_64/
+          tar cvfz t32ls-macos-x86_64.tar.gz ./t32ls-macos-x86_64/
 
       - name: Generate artifact attestations
         uses: actions/attest@v4
         with:
           subject-path: |
-            ./target/release/t32ls
+            ./t32ls-macos-x86_64.tar.gz
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          path: ./t32ls-macos-x86_64.tar.gz
+          archive: false
+          retention-days: 1
 
       - name: Create GitHub release
-        run: gh release create "$TAG_NAME" --notes-from-tag --verify-tag './target/release/t32ls#macos-x86_64'
+        run: gh release upload "$TAG_NAME" ./t32ls-macos-x86_64.tar.gz
         env:
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ github.ref_name }}
@@ -76,7 +98,11 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Build language server
-        run: cargo build --verbose --bin t32ls --profile=release
+        run: |
+          cargo build --verbose --bin t32ls --profile=release
+          mkdir ./t32ls-macos-win64/
+          copy ./target/release/t32ls.exe ./t32ls-win64/
+          7z a -r t32ls-win64.zip ./t32ls-win64
 
       - name: Generate artifact attestations
         uses: actions/attest@v4
@@ -84,8 +110,15 @@ jobs:
           subject-path: |
             ./target/release/t32ls.exe
 
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          path: ./t32ls-win64.zip
+          archive: false
+          retention-days: 1
+
       - name: Create GitHub release
-        run: gh release create "$TAG_NAME" --notes-from-tag --verify-tag './target/release/t32ls.exe#win64'
+        run: gh release upload "$TAG_NAME" ./t32ls-win64.zip
         env:
           GH_TOKEN: ${{github.token}}
           TAG_NAME: ${{ github.ref_name }}
