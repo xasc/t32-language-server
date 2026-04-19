@@ -56,17 +56,17 @@ jobs:
       - name: Update environment variables
         run: |
           echo "WASI_VERSION_FULL=${{ env.WASI_VERSION }}.0" >> $GITHUB_ENV
-          echo "WASI_SDK=wasi-sdk-${{ env.WASI_VERSION_FULL }}-${{ env.WASI_ARCH }}-${{ env.WASI_OS }}" >> $GITHUB_ENV
-          echo "WASI_RUSTFLAGS=-L ${{ env.WASI_SDK }}/share/wasi-sysroot/lib/wasm32-wasip1-threads" >> $GITHUB_ENV
-          echo "WASI_CC=${{ env.WASI_SDK }}/bin/clang" >> $GITHUB_ENV
+          echo "WASI_SDK=wasi-sdk-$WASI_VERSION_FULL-${{ env.WASI_ARCH }}-${{ env.WASI_OS }}" >> $GITHUB_ENV
+          echo "WASI_RUSTFLAGS=-L $WASI_SDK/share/wasi-sysroot/lib/wasm32-wasip1-threads" >> $GITHUB_ENV
+          echo "WASI_CC=$WASI_SDK/bin/clang" >> $GITHUB_ENV
 
       - name: Install WASI SDK
         run: |
-          wget https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${{ env.WASI_VERSION }}/${{ env.WASI_SDK }}.tar.gz
-          tar xvf ${{ env.WASI_SDK }}.tar.gz
+          wget https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${{ env.WASI_VERSION }}/$WASI_SDK.tar.gz
+          tar xvf $WASI_SDK.tar.gz
 
       - name: Build language server
-        run: RUSTFLAGS="${{ env.WASI_RUSTFLAGS }}" CC="${{ env.WASI_CC }}" CFLAGS="${{ env.WASI_CFLAGS }}" cargo build --target=wasm32-wasip1-threads
+        run: RUSTFLAGS="$WASI_RUSTFLAGS" CC="$WASI_CC" CFLAGS="${{ env.WASI_CFLAGS }}" cargo build --target=wasm32-wasip1-threads
         env:
           WASI_CFLAGS: -Wno-implicit-function-declaration
 
