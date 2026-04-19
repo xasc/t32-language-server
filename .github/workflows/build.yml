@@ -55,8 +55,7 @@ jobs:
 
       - name: Update environment variables
         run: |
-          echo "WASI_VERSION_FULL=${{ env.WASI_VERSION }}.0" >> $GITHUB_ENV
-          echo "WASI_SDK=wasi-sdk-$WASI_VERSION_FULL-${{ env.WASI_ARCH }}-${{ env.WASI_OS }}" >> $GITHUB_ENV
+          echo "WASI_SDK=wasi-sdk-${{ env.WASI_VERSION }}.0-${{ env.WASI_ARCH }}-${{ env.WASI_OS }}" >> $GITHUB_ENV
           echo "WASI_RUSTFLAGS=-L $WASI_SDK/share/wasi-sysroot/lib/wasm32-wasip1-threads" >> $GITHUB_ENV
           echo "WASI_CC=$WASI_SDK/bin/clang" >> $GITHUB_ENV
 
