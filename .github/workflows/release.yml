@@ -40,7 +40,7 @@ jobs:
         with:
           push-to-registry: true
           subject-path: |
-            "$CARGO_TARGET_DIR"/t32ls
+            "${{env.CARGO_TARGET_DIR}}"/t32ls
 
   release_t32ls_bin_win:
     name: Create Windows release
@@ -63,4 +63,4 @@ jobs:
         with:
           push-to-registry: true
           subject-path: |
-            "$CARGO_TARGET_DIR"/t32ls.exe
+            "${{env.CARGO_TARGET_DIR}}"/t32ls.exe
