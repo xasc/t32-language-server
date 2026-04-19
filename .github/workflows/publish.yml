@@ -17,22 +17,18 @@ jobs:
   publish_t32ls:
     name: Publish language server crate
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        toolchain:
-          - stable
     steps:
       - name: Set up repository
         uses: actions/checkout@v6
 
       - name: Install Rust
-        run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Build language server
         run: cargo build --verbose --bin t32ls
 
       - name: Run tests
-        run: cargo test --verbose --bin t32ls
+        run: cargo test --verbose --package t32-language-server
 
       - name: Publish crate dry run
         run: cargo publish --dry-run --package t32-language-server --token "$CARGO_REGISTRY_TOKEN"
