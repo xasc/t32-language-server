@@ -46,13 +46,14 @@ jobs:
           retention-days: 1
 
       - name: Create GitHub release
-        run: gh release upload "$TAG_NAME" ./t32ls-linux-x86_64.tar.gz
+        run: gh release create "$TAG_NAME" --notes-from-tag --verify-tag ./t32ls-linux-x86_64.tar.gz
         env:
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ github.ref_name }}
 
   release_t32ls_bin_macos:
     name: Create macOS release
+    needs: release_t32ls_bin_linux
     runs-on: macos-latest
     steps:
       - name: Set up repository
@@ -89,6 +90,7 @@ jobs:
 
   release_t32ls_bin_win:
     name: Create Windows release
+    needs: release_t32ls_bin_linux
     runs-on: windows-latest
     steps:
       - name: Set up repository
@@ -100,7 +102,7 @@ jobs:
       - name: Build language server
         run: |
           cargo build --verbose --bin t32ls --profile=release
-          mkdir ./t32ls-macos-win64/
+          mkdir ./t32ls-win64/
           copy ./target/release/t32ls.exe ./t32ls-win64/
           7z a -r t32ls-win64.zip ./t32ls-win64
 
