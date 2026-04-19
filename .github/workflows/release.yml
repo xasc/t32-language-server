@@ -30,7 +30,7 @@ jobs:
           cargo build --verbose --bin t32ls --profile=release
           mkdir --parents ./t32ls-linux-x86_64/
           cp --verbose ./target/release/t32ls ./t32ls-linux-x86_64/
-          tar cvfz t32ls-linux-x86_64.tar.gz ./t32ls-linux-x86_64/
+          tar cvfz t32ls-linux-x86_64.tar.gz t32ls-linux-x86_64/
 
       - name: Generate artifact attestations
         uses: actions/attest@v4
@@ -68,7 +68,7 @@ jobs:
           cargo build --verbose --bin t32ls --profile=release
           mkdir -p ./t32ls-macos-x86_64/
           cp ./target/release/t32ls ./t32ls-macos-x86_64/
-          tar cvfz t32ls-macos-x86_64.tar.gz ./t32ls-macos-x86_64/
+          tar cvfz t32ls-macos-x86_64.tar.gz t32ls-macos-x86_64/
 
       - name: Generate artifact attestations
         uses: actions/attest@v4
