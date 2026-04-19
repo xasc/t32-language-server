@@ -17,10 +17,7 @@ permissions:
 jobs:
   release_t32ls_bin_linux:
     name: Create Unix release
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
       - name: Set up repository
         uses: actions/checkout@v6
@@ -45,10 +42,7 @@ jobs:
 
   release_t32ls_bin_unix:
     name: Create Unix release
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: macos-latest
     steps:
       - name: Set up repository
         uses: actions/checkout@v6
