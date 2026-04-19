@@ -43,7 +43,7 @@ jobs:
       WASI_VERSION: 32
       WASI_OS: linux
       WASI_ARCH: x86_64
-      WASI_VERSION_FULL: ${WASI_VERSION}.0
+      WASI_VERSION_FULL: ${{ env.WASI_VERSION }}.0
     steps:
       - name: Set up repository
         uses: actions/checkout@v6
@@ -56,16 +56,16 @@ jobs:
 
       - name: Install WASI SDK
         run: |
-          wget https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${WASI_VERSION}/wasi-sdk-${WASI_VERSION_FULL}-${WASI_ARCH}-${WASI_OS}.tar.gz
-          tar xvf wasi-sdk-${WASI_VERSION_FULL}-${WASI_ARCH}-${WASI_OS}.tar.gz
+          wget https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${{ env.WASI_VERSION }}/wasi-sdk-${{ env.WASI_VERSION_FULL }}-${{ env.WASI_ARCH }}-${{ env.WASI_OS }}.tar.gz
+          tar xvf wasi-sdk-${{ env.WASI_VERSION_FULL }}-${{ env.WASI_ARCH }}-${{ env.WASI_OS }}.tar.gz
 
       - name: Build language server
-        run: RUSTFLAGS=$(WASI_RUSTFLAGS) CC=$(WASI_CC) CFLAGS=$(WASI_CFLAGS) cargo build --target=wasm32-wasip1-threads
+        run: RUSTFLAGS=${{ env.WASI_RUSTFLAGS }} CC=${{ env.WASI_CC }} CFLAGS=${{ env.WASI_CFLAGS }} cargo build --target=wasm32-wasip1-threads
         env:
-          WASI_SDK: wasi-sdk-${WASI_VERSION_FULL}-${WASI_ARCH}-${WASI_OS}
-          WASI_RUSTFLAGS: "-L $(wasi_dir)/share/wasi-sysroot/lib/wasm32-wasip1-threads"
+          WASI_SDK: wasi-sdk-${{ env.WASI_VERSION_FULL }}-${{ env.WASI_ARCH }}-${{ env.WASI_OS }}
+          WASI_RUSTFLAGS: "-L ${{ env.WASI_SDK }}/share/wasi-sysroot/lib/wasm32-wasip1-threads"
           WASI_CFLAGS: "-Wno-implicit-function-declaration"
-          WASI_CC: "$(WASI_SDK)/bin/clang"
+          WASI_CC: "${{ env.WASI_SDK }}/bin/clang"
 
   latest_deps_t32ls:
     name: Check compatibility with dependencies
