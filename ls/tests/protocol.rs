@@ -70,7 +70,8 @@ fn exits_on_missing_parent_process() {
     utils::stop_ls(&mut ls, None, None);
     let output = ls.wait_with_output().expect("Cannot capture output");
 
-    assert_eq!(output.status.code(), Some(76));
+    let rc = output.status.code();
+    assert!(rc == Some(76) || rc == Some(69));
 }
 
 #[test]

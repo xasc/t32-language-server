@@ -18,7 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
--  Fixed parent process status detection for Windows builds.
+-  Fix parent process status detection for Windows builds.
+-  Fix test execution on Windows machines. EOL conversion to CRLF was breaking
+   tests that are checking byte offsets.
 
 
 [0.6.1] - 2026-04-18
