@@ -32,12 +32,15 @@ jobs:
       - name: Build language server
         run: cargo build --verbose --bin t32ls --profile=release
 
+      - name: Print target dir
+        run: echo $(realpath target) && ls -l target
+
       - name: Generate artifact attestations
         uses: actions/attest@v4
         with:
           push-to-registry: true
           subject-path: |
-            ${{env.GITHUB_WORKSPACE}}/target/release/t32ls
+            ./target/release/t32ls
 
   release_t32ls_bin_win:
     name: Create Windows release
@@ -57,4 +60,4 @@ jobs:
         with:
           push-to-registry: true
           subject-path: |
-            ${{env.GITHUB_WORKSPACE}}/target/release/t32ls.exe
+            ./target/release/t32ls.exe
