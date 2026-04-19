@@ -64,8 +64,8 @@ jobs:
 
       - name: Update environment variables
         run: |
-          echo "RUSTFLAGS=-L $WASI_SDK/share/wasi-sysroot/lib/wasm32-wasip1-threads" >> $GITHUB_ENV
-          echo "CC=$WASI_SDK/bin/clang" >> $GITHUB_ENV
+          echo "RUSTFLAGS=-L $(realpath $WASI_SDK)/share/wasi-sysroot/lib/wasm32-wasip1-threads" >> $GITHUB_ENV
+          echo "CC=$(realpath $WASI_SDK)/bin/clang" >> $GITHUB_ENV
 
       - name: Build language server
         run: CFLAGS="${{ env.WASI_CFLAGS }}" cargo build --target=wasm32-wasip1-threads
