@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: EUPL-1.2
 //
 
-#[cfg(any(windows, unix))]
+#[cfg(unix)]
 use std::io::Error;
 
 #[cfg(unix)]
@@ -11,7 +11,7 @@ use libc::kill;
 
 #[cfg(windows)]
 use windows_sys::Win32::{
-    Foundation::{HANDLE, STILL_ACTIVE},
+    Foundation::STILL_ACTIVE,
     System::Threading::{GetExitCodeProcess, OpenProcess},
 };
 
@@ -60,20 +60,21 @@ cfg_select! {
 
             let handle = unsafe {
                 let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
-                if handle.is_null() {
+                if h.is_null() {
                     return ProcState::Unknown;
                 }
                 h
             };
 
-            let exit_code: u32 = 0;
+            let mut exit_code: u32 = 0;
+            let exit_code_ptr: *mut u32 = &mut exit_code;
             unsafe {
-                if GetExitCodeProcess(handle, exit_code.as_mut_ptr()) == 0 {
+                if GetExitCodeProcess(handle, exit_code_ptr) == 0 {
                     return ProcState::Unknown;
                 }
             }
 
-            if exit_code == STILL_ACTIVE {
+            if exit_code == (STILL_ACTIVE as u32) {
                 ProcState::Alive
             } else {
                 ProcState::Dead
