@@ -13,7 +13,6 @@ permissions:
   contents: write
   id-token: write
   attestations: write
-  artifact-metadata: write
 
 jobs:
   release_t32ls_bin_unix:
@@ -32,13 +31,12 @@ jobs:
       - name: Build language server
         run: cargo build --verbose --bin t32ls --profile=release
 
-      - name: Print target dir
-        run: echo $(realpath target) && ls -l target
+      - name: Dump target dir
+        run: echo $(realpath target/release) && ls -l target/release
 
       - name: Generate artifact attestations
         uses: actions/attest@v4
         with:
-          push-to-registry: true
           subject-path: |
             ./target/release/t32ls
 
@@ -58,6 +56,5 @@ jobs:
       - name: Generate artifact attestations
         uses: actions/attest@v4
         with:
-          push-to-registry: true
           subject-path: |
             ./target/release/t32ls.exe
