@@ -31,14 +31,14 @@ jobs:
       - name: Build language server
         run: cargo build --verbose --bin t32ls --profile=release
 
-      - name: Dump target dir
-        run: echo $(realpath target/release) && ls -l target/release
-
       - name: Generate artifact attestations
         uses: actions/attest@v4
         with:
           subject-path: |
             ./target/release/t32ls
+
+      - name: Create GitHub release
+        run: gh release create "$GITHUB_REF_NAME" --notes-from-tag ./target/release/t32ls.exe
 
   release_t32ls_bin_win:
     name: Create Windows release
@@ -58,3 +58,8 @@ jobs:
         with:
           subject-path: |
             ./target/release/t32ls.exe
+
+      - name: Create GitHub release
+        run: gh release create "$GITHUB_REF_NAME" --notes-from-tag ./target/release/t32ls.exe
+        env:
+          GH_TOKEN: ${{github.token}}
