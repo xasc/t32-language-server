@@ -11,7 +11,7 @@ on:
         type: string
 
 jobs:
-  build:
+  build_and_test:
     runs-on: ${{ inputs.runner }}
     steps:
       - name: Set up repository
@@ -23,10 +23,5 @@ jobs:
       - name: Build language server
         run: cargo build --verbose --bin t32ls --profile ${{ inputs.profile }}
 
-
-  test:
-    needs: build
-    runs-on: ${{ inputs.runner }}
-    steps:
       - name: Run tests
         run: cargo test --verbose --package t32-language-server
