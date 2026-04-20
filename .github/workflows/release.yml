@@ -19,9 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Build release binary
-        uses: ./.github/workflows/build_os.yml
+        uses: ./.github/actions/build_steps_os
         with:
-          runner: ubuntu-latest
           profile: release
 
       - name: Bundle release artifacts
@@ -56,9 +55,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Build release binary
-        uses: ./.github/workflows/build_os.yml
+        uses: ./.github/actions/build_steps_os
         with:
-          runner: macos-latest
           profile: release
 
       - name: Bundle release artifacts
@@ -93,9 +91,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Build release binary
-        uses: ./.github/workflows/build_os.yml
+        uses: ./.github/actions/build_steps_os
         with:
-          runner: windows-latest
           profile: release
 
       - name: Bundle release artifacts
@@ -129,8 +126,8 @@ jobs:
     needs: release_t32ls_bin_linux
     runs-on: ubuntu-latest
     steps:
-      - name: Set up repository
-        uses: ./.github/workflows/build_wasm.yml
+      - name: Build release WebAssembly module
+        uses: ./.github/actions/build_steps_wasm
         with:
           profile: release
           wasi-version: 32

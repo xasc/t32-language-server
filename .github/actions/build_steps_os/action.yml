@@ -1,0 +1,22 @@
+# SPDX-FileCopyrightText: 2024 Christoph Sax <c_sax@mailbox.org>
+#
+# SPDX-License-Identifier: EUPL-1.2
+
+name: 'build_steps_os'
+description: 'Build steps for OS builds'
+inputs:
+  profile:
+    required: true
+    type: string
+    default: ''
+runs:
+  using: "composite"
+  steps:
+    - name: Set up repository
+      uses: actions/checkout@v6
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Build language server
+      run: cargo build --verbose --bin t32ls --profile ${{ inputs.profile }}

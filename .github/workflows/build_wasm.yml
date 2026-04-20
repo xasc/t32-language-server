@@ -24,35 +24,11 @@ jobs:
   build:
     name: Build WebAssembly binary
     runs-on: ubuntu-latest
-    env:
-      WASI_VERSION: ${{ inputs.wasi-version }}
-      WASI_OS: ${{ inputs.wasi-os }}
-      WASI_ARCH: ${{ inputs.wasi-arch }}
     steps:
-      - name: Set up repository
-        uses: actions/checkout@v6
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install WebAssembly cross-compiler
-        run: rustup target add wasm32-wasip1-threads
-
-      - name: Update environment variables
-        run: |
-          echo "WASI_SDK=wasi-sdk-${{ env.WASI_VERSION }}.0-${{ env.WASI_ARCH }}-${{ env.WASI_OS }}" >> $GITHUB_ENV
-
-      - name: Install WASI SDK
-        run: |
-          wget https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${{ env.WASI_VERSION }}/$WASI_SDK.tar.gz
-          tar xvf $WASI_SDK.tar.gz
-
-      - name: Update environment variables
-        run: |
-          echo "RUSTFLAGS=-L $(realpath $WASI_SDK)/share/wasi-sysroot/lib/wasm32-wasip1-threads" >> $GITHUB_ENV
-          echo "CC=$(realpath $WASI_SDK)/bin/clang" >> $GITHUB_ENV
-
-      - name: Build language server
-        run: CFLAGS="${{ env.WASI_CFLAGS }}" cargo build --verbose --target=wasm32-wasip1-threads --bin t32ls --profile=${{ inputs.profile }}
-        env:
-          WASI_CFLAGS: -Wno-implicit-function-declaration
+      - name: Build WebAssembly module
+        uses: ./.github/actions/build_steps_wasm
+        with:
+          profile: release
+          wasi-version: 32
+          wasi-os: linux
+          wasi-arch: x86_64
