@@ -2,7 +2,6 @@
 #
 # SPDX-License-Identifier: EUPL-1.2
 
-
 name: Create binary release
 
 on:
@@ -19,15 +18,14 @@ jobs:
     name: Create Linux release
     runs-on: ubuntu-latest
     steps:
-      - name: Set up repository
-        uses: actions/checkout@v6
+      - name: Build release binary
+        uses: ./.github/workflows/build_os.yml
+        with:
+          runner: ubuntu-latest
+          profile: release
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Build language server
+      - name: Bundle release artifacts
         run: |
-          cargo build --verbose --bin t32ls --profile=release
           mkdir --parents ./t32ls-linux-x86_64/
           cp --verbose ./target/release/t32ls ./t32ls-linux-x86_64/
           tar cvfz t32ls-linux-x86_64.tar.gz t32ls-linux-x86_64/
@@ -57,15 +55,14 @@ jobs:
     needs: release_t32ls_bin_linux
     runs-on: macos-latest
     steps:
-      - name: Set up repository
-        uses: actions/checkout@v6
+      - name: Build release binary
+        uses: ./.github/workflows/build_os.yml
+        with:
+          runner: macos-latest
+          profile: release
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Build language server
+      - name: Bundle release artifacts
         run: |
-          cargo build --verbose --bin t32ls --profile=release
           mkdir -p ./t32ls-macos-x86_64/
           cp ./target/release/t32ls ./t32ls-macos-x86_64/
           tar cvfz t32ls-macos-x86_64.tar.gz t32ls-macos-x86_64/
@@ -95,15 +92,14 @@ jobs:
     needs: release_t32ls_bin_linux
     runs-on: windows-latest
     steps:
-      - name: Set up repository
-        uses: actions/checkout@v6
+      - name: Build release binary
+        uses: ./.github/workflows/build_os.yml
+        with:
+          runner: windows-latest
+          profile: release
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Build language server
+      - name: Bundle release artifacts
         run: |
-          cargo build --verbose --bin t32ls --profile=release
           mkdir ./t32ls-win64/
           copy ./target/release/t32ls.exe ./t32ls-win64/
           7z a -r t32ls-win64.zip ./t32ls-win64
@@ -127,3 +123,42 @@ jobs:
           gh release upload ${{ github.ref_name }} ./t32ls-win64.zip
         env:
           GH_TOKEN: ${{github.token}}
+
+  release_t32_bin_wasm:
+    name: Create WebAssembly release
+    needs: release_t32ls_bin_linux
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up repository
+        uses: ./.github/workflows/build_wasm.yml
+        with:
+          profile: release
+          wasi-version: 32
+          wasi-os: linux
+          wasi-arch: x86_64
+
+      - name: Bundle release artifacts
+        run: |
+          mkdir --parents ./wasm32-wasip1-threads/
+          cp --verbose ./target/wasm32-wasip1-threads/release/t32ls.wasm ./t32ls-wasm32-wasip1-threads/
+          tar cvfz t32ls-wasm32-wasip1-threads.tar.gz t32ls-wasm32-wasip1-threads/
+
+      - name: Generate artifact attestations
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            ./t32ls-wasm32-wasip1-threads.tar.gz
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          path: ./t32ls-wasm32-wasip1-threads.tar.gz
+          archive: false
+          retention-days: 1
+
+      - name: Create GitHub release
+        run: |
+          gh release create ${{ github.ref_name }} --notes-from-tag --verify-tag ./t32ls-wasm32-wasip1-threads.tar.gz
+          gh release list
+        env:
+          GH_TOKEN: ${{ github.token }}

@@ -18,7 +18,7 @@ wasmtime_ls := target/wasm32-wasip1-threads/debug/t32ls.wasm
 
 .PHONY: wasm-build
 wasm-build:
-	RUSTFLAGS=$(wasi_rustflags) CC=$(wasi_cc) CFLAGS=$(wasi_cflags) cargo build --target=wasm32-wasip1-threads
+	RUSTFLAGS=$(wasi_rustflags) CC=$(wasi_cc) CFLAGS=$(wasi_cflags) cargo build --target=wasm32-wasip1-threads --bin t32ls
 
 .PHONY: wasm-test
 wasm-test:
