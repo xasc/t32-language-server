@@ -24,7 +24,8 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     uses: ./.github/workflows/build_os.yml
     with:
-      target: ${{ matrix.os }}
+      runner: ${{ matrix.os }}
+      profile: release
 
   build_t32ls_wasm:
     name: Build WebAssembly binary
