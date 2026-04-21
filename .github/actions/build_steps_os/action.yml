@@ -17,3 +17,4 @@ runs:
 
     - name: Build language server
       run: cargo build --verbose --bin t32ls --profile ${{ inputs.profile }}
+      shell: bash
