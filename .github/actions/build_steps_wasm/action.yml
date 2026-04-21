@@ -44,6 +44,8 @@ runs:
       run: |
         wget https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${{ env.WASI_VERSION }}/$WASI_SDK.tar.gz
         tar xvf $WASI_SDK.tar.gz
+      env:
+        WASI_VERSION: ${{ inputs.wasi-version }}
       shell: bash
 
     - name: Update environment variables
