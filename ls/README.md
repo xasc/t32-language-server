@@ -29,6 +29,7 @@ It is available for Linux, Windows, macOS, and WebAssembly.
         <li><a href="#command-line-interface">Command line interface</a></li>
       </ul>
     </li>
+    <li><a href="#roadmap">Roadmap</a></li>
     <li><a href="#packages">Packages</a></li>
     <li><a href="#mirrors">Mirrors</a></li>
     <li><a href="#license">License</a></li>
@@ -126,6 +127,13 @@ t32ls [OPTIONS]
 ~~~~ bash
 t32ls --clientProcessId=42 -t messages
 ~~~~
+
+
+Roadmap
+-------
+
+1.  Extension for VSCode
+2.  Support for autocompletions
 
 
 Packages
