@@ -148,7 +148,7 @@ jobs:
 
       - name: Bundle release artifacts
         run: |
-          mkdir --parents ./wasm32-wasip1-threads/
+          mkdir --parents ./t32ls-wasm32-wasip1-threads/
           cp --verbose ./target/wasm32-wasip1-threads/release/t32ls.wasm ./t32ls-wasm32-wasip1-threads/
           tar cvfz t32ls-wasm32-wasip1-threads.tar.gz t32ls-wasm32-wasip1-threads/
 
