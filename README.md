@@ -88,10 +88,9 @@ These additional dependencies are required:
 #### Precompiled binaries
 
 Binary releases for Linux, Windows, macOS, and WebAssembly are available on the
-project's releases page.
+project's [GitHub releases page].
 
-> [!NOTE]
-> Binary releases are not yet available.
+[GitHub releases page]: https://github.com/xasc/t32-language-server/releases
 
 
 Usage
@@ -102,6 +101,7 @@ Usage
 ~~~~ bash
 t32ls [OPTIONS]
 ~~~~
+
 #### General options
 
 ~~~~ text
@@ -120,6 +120,7 @@ t32ls [OPTIONS]
   -V, --version
     Print version info and exit.
 ~~~~
+
 #### Example
 
 ~~~~ bash
@@ -130,9 +131,9 @@ t32ls --clientProcessId=42 -t messages
 Packages
 --------
 
-| Registry      | Package                                                              | Download                                              |
-| ------------- | -------------------------------------------------------------------- | ----------------------------------------------------- |
-| crates.io     | [t32-language-server](https://crates.io/crates/t32-language-server)  |                                                       |
+| Registry      | Package                                                              | Download                                                                             |
+| ------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| crates.io     | [t32-language-server](https://crates.io/crates/t32-language-server)  | https://crates.io/api/v1/crates/t32-language-server/`major`.`minor`.`patch`/download |
 
 
 Mirrors
