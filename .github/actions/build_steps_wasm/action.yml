@@ -28,9 +28,6 @@ runs:
     WASI_OS: ${{ inputs.wasi-os }}
     WASI_ARCH: ${{ inputs.wasi-arch }}
   steps:
-    - name: Set up repository
-      uses: actions/checkout@v6
-
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
 

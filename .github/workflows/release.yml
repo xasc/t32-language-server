@@ -18,6 +18,9 @@ jobs:
     name: Create Linux release
     runs-on: ubuntu-latest
     steps:
+      - name: Set up repository
+        uses: actions/checkout@v6
+
       - name: Build release binary
         uses: ./.github/actions/build_steps_os
         with:
@@ -54,6 +57,9 @@ jobs:
     needs: release_t32ls_bin_linux
     runs-on: macos-latest
     steps:
+      - name: Set up repository
+        uses: actions/checkout@v6
+
       - name: Build release binary
         uses: ./.github/actions/build_steps_os
         with:
@@ -90,6 +96,9 @@ jobs:
     needs: release_t32ls_bin_linux
     runs-on: windows-latest
     steps:
+      - name: Set up repository
+        uses: actions/checkout@v6
+
       - name: Build release binary
         uses: ./.github/actions/build_steps_os
         with:
@@ -126,6 +135,9 @@ jobs:
     needs: release_t32ls_bin_linux
     runs-on: ubuntu-latest
     steps:
+      - name: Set up repository
+        uses: actions/checkout@v6
+
       - name: Build release WebAssembly module
         uses: ./.github/actions/build_steps_wasm
         with:

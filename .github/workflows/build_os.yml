@@ -14,6 +14,9 @@ jobs:
   build_and_test:
     runs-on: ${{ inputs.runner }}
     steps:
+      - name: Set up repository
+        uses: actions/checkout@v6
+
       - name: Build binary
         uses: ./.github/actions/build_steps_os
         with:

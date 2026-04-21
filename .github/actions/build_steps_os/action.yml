@@ -12,9 +12,6 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - name: Set up repository
-      uses: actions/checkout@v6
-
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
 

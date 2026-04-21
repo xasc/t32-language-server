@@ -25,6 +25,9 @@ jobs:
     name: Build WebAssembly binary
     runs-on: ubuntu-latest
     steps:
+      - name: Set up repository
+        uses: actions/checkout@v6
+
       - name: Build WebAssembly module
         uses: ./.github/actions/build_steps_wasm
         with:
