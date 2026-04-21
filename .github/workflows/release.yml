@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: EUPL-1.2
 
-name: Create binary release
+name: Create binary release packages
 
 on:
   push:
@@ -167,7 +167,7 @@ jobs:
 
       - name: Create GitHub release
         run: |
-          gh release create ${{ github.ref_name }} --notes-from-tag --verify-tag ./t32ls-wasm32-wasip1-threads.tar.gz
           gh release list
+          gh release upload ${{ github.ref_name }} ./t32ls-wasm32-wasip1-threads.tar.gz
         env:
           GH_TOKEN: ${{ github.token }}
