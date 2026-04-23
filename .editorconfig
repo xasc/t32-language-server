@@ -15,3 +15,7 @@ indent_style = space
 [*.{yml,yaml}]
 indent_style = space
 indent_size = 2
+
+[*.ts]
+indent_size = 2
+indent_style = space

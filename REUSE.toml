@@ -6,5 +6,36 @@ version = 1
 
 [[annotations]]
 path = "Cargo.lock"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2024 Christoph Sax <c_sax@mailbox.org>"
+SPDX-License-Identifier = "EUPL-1.2"
+
+[[annotations]]
+path = "vscode/.vscode/*.json"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2024 Christoph Sax <c_sax@mailbox.org>"
+SPDX-License-Identifier = "EUPL-1.2"
+
+[[annotations]]
+path = "vscode/images/logo.png"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2024 Christoph Sax <c_sax@mailbox.org>"
+SPDX-License-Identifier = "EUPL-1.2"
+
+[[annotations]]
+path = "vscode/tsconfig.json"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2024 Christoph Sax <c_sax@mailbox.org>"
+SPDX-License-Identifier = "EUPL-1.2"
+
+[[annotations]]
+path = "vscode/package.json"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2024 Christoph Sax <c_sax@mailbox.org>"
+SPDX-License-Identifier = "EUPL-1.2"
+
+[[annotations]]
+path = "vscode/yarn.lock"
+precedence = "aggregate"
 SPDX-FileCopyrightText = "2024 Christoph Sax <c_sax@mailbox.org>"
 SPDX-License-Identifier = "EUPL-1.2"

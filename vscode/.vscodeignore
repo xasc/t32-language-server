@@ -1,0 +1,20 @@
+# SPDX-FileCopyrightText: 2024 Christoph Sax <c_sax@mailbox.org>
+#
+# SPDX-License-Identifier: EUPL-1.2
+
+.vscode/**
+.vscode-test/**
+out/**
+node_modules/**
+src/**
+.gitignore
+.yarn
+.yarnrc
+.yarnrc.yml
+webpack.config.js
+vsc-extension-quickstart.md
+**/tsconfig.json
+**/eslint.config.mjs
+**/*.map
+**/*.ts
+**/.vscode-test.*

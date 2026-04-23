@@ -1,0 +1,147 @@
+{
+  "name": "t32ls",
+  "displayName": "t32-language-server",
+  "description": "Language server for the Lauterbach TRACE32® script language.",
+  "version": "0.1.0",
+  "author": "Christoph Sax <c_sax@mailbox.org>",
+  "publisher": "xasc",
+  "license": "EUPL-1.2",
+  "homepage": "https://codeberg.org/xasc/t32-language-server/src/branch/main/README.md",
+  "repository": {
+    "type": "git",
+    "url": "https://codeberg.org/xasc/t32-language-server.git"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "keywords": [
+    "TRACE32",
+    "Lauterbach",
+    "PRACTICE",
+    "t32",
+    "cmm",
+    "PowerView"
+  ],
+  "pricing": "Free",
+  "icon": "images/logo.png",
+  "galleryBanner": {
+    "color": "#003380",
+    "theme": "dark"
+  },
+  "activationEvents": [
+    "onLanguage:practice"
+  ],
+  "main": "./dist/extension.js",
+  "extensionKind": [
+    "workspace"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "practice",
+        "aliases": [
+          "PRACTICE"
+        ],
+        "extensions": [
+          ".cmm",
+          ".cmmt"
+        ]
+      }
+    ],
+    "configuration": [
+      {
+        "title": "t32-language-server",
+        "properties": {
+          "t32ls.trace.server": {
+            "scope": "window",
+            "type": "string",
+            "enum": [
+              "off",
+              "messages",
+              "verbose"
+            ],
+            "default": "off",
+            "description": "Traces the communication between VS Code and the language server."
+          }
+        }
+      }
+    ],
+    "configurationDefaults": {
+      "[practice]": {
+        "editor.semanticHighlighting.enabled": true
+      }
+    },
+    "semanticTokenScopes": [
+      {
+        "language": "practice",
+        "scopes": {
+          "comment": [
+            "comment.practice"
+          ],
+          "function": [
+            "entity.name.function.practice"
+          ],
+          "function.defaultLibrary": [
+            "support.function.trace32.practice"
+          ],
+          "keyword": [
+            "keyword.control.practice"
+          ],
+          "macro": [
+            "variable.other.macro.practice"
+          ],
+          "macro.definition": [
+            "variable.other.macro.definition.practice"
+          ],
+          "number": [
+            "constant.numeric.practice"
+          ],
+          "operator": [
+            "keyword.operator.practice"
+          ],
+          "parameter": [
+            "variable.parameter.practice"
+          ],
+          "string": [
+            "string.quoted.double.practice"
+          ],
+          "string.abstract": [
+            "string.other.path.practice"
+          ]
+        }
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "yarn run package",
+    "compile": "webpack",
+    "watch": "webpack --watch",
+    "package": "webpack --mode production --devtool hidden-source-map",
+    "compile-tests": "tsc -p . --outDir out",
+    "watch-tests": "tsc -p . -w --outDir out",
+    "pretest": "yarn run compile-tests && yarn run compile && yarn run lint",
+    "lint": "eslint src",
+    "test": "vscode-test"
+  },
+  "engines": {
+    "vscode": "^1.118.0"
+  },
+  "dependencies": {
+    "vscode-languageclient": "10.0.0-next.21"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^22.19.18",
+    "@types/vscode": "^1.118.0",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2",
+    "@vscode/vsce": "^3.9.1",
+    "eslint": "^10.3.0",
+    "ts-loader": "^9.5.7",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.59.2",
+    "webpack": "^5.106.2",
+    "webpack-cli": "^7.0.2"
+  },
+  "packageManager": "yarn@4.14.1"
+}

@@ -1,0 +1,141 @@
+# SPDX-FileCopyrightText: 2024 Christoph Sax <c_sax@mailbox.org>
+#
+# SPDX-License-Identifier: EUPL-1.2
+
+name: Build and publish VS Code extension
+
+on:
+  # Workflow can be triggered manually
+  workflow_dispatch:
+    inputs:
+      t32ls_version: 'v0.9.0'
+
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+
+jobs:
+  publish_unix:
+    name: Build and publish Unix variants
+    strategy:
+      matrix:
+        os: [
+          { img: ubuntu-latest, vsce_target: linux-x64, t32ls_flavor: x86_64, npm_config_arch: x64 },
+          { img: ubuntu-latest, vsce_target: linux-arm64, t32ls_flavor: arm64, npm_config_arch: arm64 },
+          { img: macos-latest, vsce_target: darwin-x64, t32ls_flavor: x86_64, npm_config_arch: x64 },
+          { img: macos-latest, vsce_target: darwin-arm64, t32ls_flavor: arm64, npm_config_arch: arm64 },
+        ]
+    runs-on: ${{ matrix.os.img }}
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Download t32ls release
+        run: |
+          wget https://github.com/xasc/t32-language-server/releases/download/${{ github.event.inputs.t32ls_version }}/t32ls-linux-${{ matrix.os.t32ls_flavor }}.tar.gz
+          tar xvf t32ls-linux-${{ matrix.os.flavor }}.tar.gz
+
+          mkdir vscode/bin
+          cp t32ls-linux-${{ matrix.os.flavor }}/* vscode/bin/
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Install Node.js dependencies
+        run: cd vscode && npm install
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          npm_config_arch: ${{ matrix.os.npm_config_arch }}
+
+      - name: Update environment variables
+        shell: pwsh
+        run: echo "target=${{ matrix.os.vsce_target }}" >> $env:GITHUB_ENV
+
+      - name: Build package
+        run: cd vscode && npx vsce package --skip-license --target ${{ env.target }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          path: ./vscode/t32ls-${{ env.target }}-*.vsix
+          archive: false
+          retention-days: 1
+
+      - name: Create GitHub release
+        run: |
+          gh release list
+          gh release upload ${{ github.ref_name }} ./vscode/t32ls-${{ env.target }}-*.vsix
+        env:
+          GH_TOKEN: ${{github.token}}
+
+      - name: Publish package
+      - run: cd vscode && npx vsce publish --skip-license --packagePath ./vscode/t32ls-${{ env.target }}-*.vsix
+        env:
+          VSCE_PAT: ${{ secrets.VSMARKETPLACE_TOKEN }}
+
+  publish_windows:
+    name: Build and publish Windows variants
+    strategy:
+      matrix:
+        os: [
+          { img: windows-latest, vsce_target: win32-x64, t32ls_flavor: win64, npm_config_arch: x64 },
+          { img: windows-latest, vsce_target: win32-arm64, t32ls_flavor: win-arm64, npm_config_arch: arm },
+        ]
+    runs-on: ${{ matrix.os.img }}
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Download t32ls release
+        run: |
+          wget https://github.com/xasc/t32-language-server/releases/download/${{ github.event.inputs.t32ls_version }}/t32ls-${{ matrix.os.t32ls_flavor }}.zip
+          7z x t32ls-${{ matrix.os.t32ls_flavor }}.zip
+
+          mkdir vscode/bin
+          copy t32ls-linux-${{ matrix.os.flavor }}/* vscode/bin/
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Install Node.js dependencies
+        run: cd vscode && npm install
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          npm_config_arch: ${{ matrix.os.npm_config_arch }}
+
+      - name: Update environment variables
+        shell: pwsh
+        run: echo "target=${{ matrix.os.vsce_target }}" >> $env:GITHUB_ENV
+
+      - name: Build package
+        run: cd vscode && npx vsce package --skip-license --target ${{ env.target }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          path: ./vscode/t32ls-${{ env.target }}-*.vsix
+          archive: false
+          retention-days: 1
+
+      - name: Create GitHub release
+        run: |
+          gh release list
+          gh release upload ${{ github.ref_name }} ./vscode/t32ls-${{ env.target }}-*.vsix
+        env:
+          GH_TOKEN: ${{github.token}}
+
+      - name: Publish package
+      - run: cd vscode && npx vsce publish --skip-license --packagePath ./vscode/t32ls-${{ env.target }}-*.vsix
+        env:
+          VSCE_PAT: ${{ secrets.VSMARKETPLACE_TOKEN }}

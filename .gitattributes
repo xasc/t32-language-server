@@ -3,3 +3,8 @@
 # SPDX-License-Identifier: EUPL-1.2
 
 /ls/tests/samples/**/*.cmm   text eol=lf
+
+/vscode/.yarn/**            linguist-vendored
+/vscode/.yarn/releases/*    binary
+/vscode/.yarn/plugins/**/*  binary
+/vscode/.pnp.*              binary linguist-generated
