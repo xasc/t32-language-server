@@ -11,6 +11,9 @@ use serde::{
 };
 use serde_json::{Error, Value, error::Category};
 
+#[cfg(debug_assertions)]
+use serde_path_to_error;
+
 use crate::{
     ls::lsp::Message,
     ls::request::{Notification, Request},
@@ -251,15 +254,37 @@ impl<'de> de::Deserialize<'de> for ResponseMessage {
     }
 }
 
+/// TODO: Deserialize in a single step without converting params into generic
+/// `Value` type.
 pub fn parse_message(buf: &[u8]) -> Result<LineMessage, ResponseError> {
-    match serde_json::from_slice(buf) {
-        Ok(val) => Ok(val),
-        Err(err) => {
-            match err.classify() {
-                Category::Io => unreachable!(), // Byte buffer must be valid.
-                Category::Syntax => return Err(error_syntax(err, Some(buf))),
-                Category::Data => return Err(error_data(err, Some(buf))),
-                Category::Eof => return Err(error_incomplete(err, buf.len())),
+    cfg_select! {
+        debug_assertions => {
+            let des = &mut serde_json::Deserializer::from_slice(buf);
+            match serde_path_to_error::deserialize(des) {
+                Ok(val) => Ok(val),
+                Err(err) => {
+                    match err.inner().classify() {
+                        Category::Io => unreachable!(), // Byte buffer must be valid.
+                        Category::Syntax => return Err(precise_error_syntax(err.path().to_string(), err.into_inner(), Some(buf))),
+                        Category::Data => {
+                            return Err(precise_error_data(err.path().to_string(), err.into_inner(), Some(buf)));
+                        }
+                        Category::Eof => return Err(precise_error_incomplete(err.path().to_string(), err.into_inner(), buf.len())),
+                    }
+                }
+            }
+        }
+        _ => {
+            match serde_json::from_slice(buf) {
+                Ok(val) => Ok(val),
+                Err(err) => {
+                    match err.classify() {
+                        Category::Io => unreachable!(), // Byte buffer must be valid.
+                        Category::Syntax => return Err(imprecise_error_syntax(err, Some(buf))),
+                        Category::Data => return Err(imprecise_error_data(err, Some(buf))),
+                        Category::Eof => return Err(imprecise_error_incomplete(err, buf.len())),
+                    }
+                }
             }
         }
     }
@@ -504,13 +529,14 @@ fn serialize_response(msg: Response) -> LineMessage {
     })
 }
 
-fn error_syntax(err: Error, buf: Option<&[u8]>) -> ResponseError {
+#[cfg(not(debug_assertions))]
+fn imprecise_error_syntax(err: Error, buf: Option<&[u8]>) -> ResponseError {
     if err.line() == 0 {
         ResponseError {
             code: ErrorCodes::ParseError as i64,
             message: String::from(format!(
                 "Syntax error: Unexpected data in message content due to {}.",
-                err.to_string()
+                 err.to_string()
             )),
             data: None,
         }
@@ -532,6 +558,37 @@ fn error_syntax(err: Error, buf: Option<&[u8]>) -> ResponseError {
     }
 }
 
+#[cfg(debug_assertions)]
+fn precise_error_syntax(path: String, err: Error, buf: Option<&[u8]>) -> ResponseError {
+    if err.line() == 0 {
+        ResponseError {
+            code: ErrorCodes::ParseError as i64,
+            message: String::from(format!(
+                "Syntax error: {}: Unexpected data in message content due to {}.",
+                path,
+                 err.to_string()
+            )),
+            data: None,
+        }
+    } else {
+        let offset = match buf {
+            Some(b) => get_error_offset(&err, b),
+            None => 0,
+        };
+
+        ResponseError {
+            code: ErrorCodes::ParseError as i64,
+            message: String::from(format!(
+                "Syntax error: {}: Unexpected data in message content at offset \"{}\" due to {}.",
+                path,
+                offset,
+                err.to_string(),
+            )),
+            data: None,
+        }
+    }
+}
+
 fn error_missing(field: &str) -> ResponseError {
     ResponseError {
         code: ErrorCodes::ParseError as i64,
@@ -543,7 +600,8 @@ fn error_missing(field: &str) -> ResponseError {
     }
 }
 
-fn error_data(err: Error, buf: Option<&[u8]>) -> ResponseError {
+#[cfg(not(debug_assertions))]
+fn imprecise_error_data(err: Error, buf: Option<&[u8]>) -> ResponseError {
     if err.line() == 0 {
         ResponseError {
             code: ErrorCodes::ParseError as i64,
@@ -570,11 +628,56 @@ fn error_data(err: Error, buf: Option<&[u8]>) -> ResponseError {
     }
 }
 
-fn error_incomplete(err: Error, len: usize) -> ResponseError {
+#[cfg(debug_assertions)]
+fn precise_error_data(path: String, err: Error, buf: Option<&[u8]>) -> ResponseError {
+    if err.line() == 0 {
+        ResponseError {
+            code: ErrorCodes::ParseError as i64,
+            message: String::from(format!(
+                "Data error: {}: Semantically incorrect data in message content due to {}.",
+                path,
+                err.to_string()
+            )),
+            data: None,
+        }
+    } else {
+        let offset = match buf {
+            Some(b) => get_error_offset(&err, b),
+            None => 0,
+        };
+        ResponseError {
+            code: ErrorCodes::ParseError as i64,
+            message: String::from(format!(
+                "Data error: {}: Semantically incorrect data in message content at offset \"{}\" due to {}.",
+                path,
+                offset,
+                err.to_string()
+            )),
+            data: None,
+        }
+    }
+}
+
+#[cfg(not(debug_assertions))]
+fn imprecise_error_incomplete(err: Error, len: usize) -> ResponseError {
     ResponseError {
         code: ErrorCodes::ParseError as i64,
         message: String::from(format!(
             "Data error: Message content is incomplete due to {}. Expected a total length of \"{}\" bytes.",
+            err.to_string(),
+            len
+        )),
+        data: None,
+    }
+}
+
+#[cfg(debug_assertions)]
+fn precise_error_incomplete(path: String, err: Error, len: usize) -> ResponseError {
+    ResponseError {
+        code: ErrorCodes::ParseError as i64,
+        message: String::from(format!(
+            "Data error: {}: Message content is incomplete due to {}. Expected a total length of \"{}\" bytes.",
+            path,
             err.to_string(),
             len
         )),
@@ -639,14 +742,31 @@ fn get_error_offset(err: &Error, buf: &[u8]) -> usize {
 }
 
 fn request_params<T: DeserializeOwned>(params: Value) -> Result<T, ResponseError> {
-    match serde_json::from_value::<T>(params) {
-        Ok(val) => Ok(val),
-        Err(err) => {
-            match err.classify() {
-                Category::Syntax => return Err(error_syntax(err, None)),
-                Category::Data => return Err(error_data(err, None)),
-                Category::Io => unreachable!(), // Byte buffer must be valid.
-                Category::Eof => unreachable!(), // We already have a valid JSON value.
+    cfg_select! {
+        debug_assertions => {
+            match serde_path_to_error::deserialize::<'_, _, T>(params) {
+                Ok(val) => Ok(val),
+                Err(err) => {
+                    match err.inner().classify() {
+                        Category::Syntax => return Err(precise_error_syntax(err.path().to_string(), err.into_inner(), None)),
+                        Category::Data => return Err(precise_error_data(err.path().to_string(), err.into_inner(), None)),
+                        Category::Io => unreachable!(), // Byte buffer must be valid.
+                        Category::Eof => unreachable!(), // We already have a valid JSON value.
+                    }
+                }
+            }
+        }
+        _ => {
+            match serde_json::from_value::<T>(params) {
+                Ok(val) => Ok(val),
+                Err(err) => {
+                    match err.classify() {
+                        Category::Syntax => return Err(imprecise_error_syntax(err, None)),
+                        Category::Data => return Err(imprecise_error_data(err, None)),
+                        Category::Io => unreachable!(), // Byte buffer must be valid.
+                        Category::Eof => unreachable!(), // We already have a valid JSON value.
+                    }
+                }
             }
         }
     }

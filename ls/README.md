@@ -56,6 +56,7 @@ These additional dependencies are required:
  -  [libc] [Unix]
  -  [serde]
  -  [serde_json]
+ -  [serde_path_to_error]
  -  [serde_repr]
  -  [tree-sitter]
  -  [tree-sitter-t32]
@@ -68,6 +69,7 @@ These additional dependencies are required:
 [serde]: https://github.com/serde-rs/serde
 [serde_json]: https://github.com/serde-rs/json
 [serde_repr]: https://github.com/dtolnay/serde-repr
+[serde_path_to_error]: https://github.com/dtolnay/path-to-error
 [tree-sitter]: https://github.com/tree-sitter/tree-sitter
 [tree-sitter-t32]: https://codeberg.org/xasc/tree-sitter-t32
 [url]: https://github.com/servo/rust-url

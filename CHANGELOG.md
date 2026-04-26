@@ -16,9 +16,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [Unreleased]
 ------------
 
+### Added
+
+-  On serialization errors the complete path to the node that triggers the
+   error is printed. Only active for debug builds.
+
 ### Fixed
 
-- Fix type definitions for initialization request.
+-  Fix type definitions for initialization request.
 
 
 [0.7.1] - 2026-04-21
