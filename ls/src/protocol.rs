@@ -1136,7 +1136,7 @@ pub struct CompletionItemKindCompletionClientCapabilities {
 #[serde(rename_all = "camelCase")]
 pub struct CompletionListCompletionClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
-    item_defaults: Option<String>,
+    item_defaults: Option<Vec<String>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     apply_kind_support: Option<bool>,
@@ -1150,7 +1150,7 @@ pub struct HoverClientCapabilities {
     dynamic_registration: Option<bool>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    content_format: Option<MarkupKind>,
+    content_format: Option<Vec<MarkupKind>>,
 }
 
 #[expect(unused)]
@@ -1677,7 +1677,7 @@ pub struct RegularExpressionsClientCapabilities {
     engine: String,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    version: Option<bool>,
+    version: Option<String>,
 }
 
 #[expect(unused)]
