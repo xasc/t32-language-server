@@ -349,7 +349,8 @@ General options:
   -c PID, --clientProcessId=PID
     Process ID of the client that started the server. The server can use the
     PID to monitor the client process and shut itself down if the client
-    process dies.
+    process dies. If the client process ID is not provided, set the value to 0
+    to suppress the warning.
 
   -t LEVEL, --trace=LEVEL
     Set the initial logging level of the server's execution trace. LEVEL must

@@ -296,8 +296,8 @@ fn process_initialize_params(
 
         match cfg.parent_pid {
             Some(ppid) if ppid == parent_pid => (),
-            Some(ppid) => return Err(error_pid_mismatch(parent_pid, ppid)),
-            None => {
+            Some(ppid) if ppid > 0 => return Err(error_pid_mismatch(parent_pid, ppid)),
+            Some(_) | None => {
                 cfg.parent_pid = Some(parent_pid);
             }
         }

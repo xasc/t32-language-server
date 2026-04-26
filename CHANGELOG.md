@@ -21,6 +21,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 -  On serialization errors the complete path to the node that triggers the
    error is printed. Only active for debug builds.
 
+### Changed
+
+-  Setting "--clientProcessId" to the value 0 does neither trigger the warning
+   that the option is missing nor the check for inconsistent parent process
+   IDs.
+
 ### Fixed
 
 -  Fix type definitions for initialization request.
