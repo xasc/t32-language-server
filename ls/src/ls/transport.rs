@@ -9,7 +9,7 @@ use std::{
 };
 
 #[cfg(any(windows, unix))]
-use std::{cmp::min, io::Read};
+use std::io::Read;
 
 #[cfg(any(windows, unix))]
 use std::{
@@ -49,12 +49,12 @@ pub struct Decoder {
 }
 
 impl Decoder {
-    const CAPACITY: usize = 4096;
+    const INITIAL_CAPACITY: usize = 4096;
 
     pub fn build() -> Self {
         Decoder {
             state: ParseState::Syncing,
-            rest: Vec::with_capacity(Decoder::CAPACITY),
+            rest: Vec::with_capacity(Decoder::INITIAL_CAPACITY),
             tokens: Vec::new(),
         }
     }
@@ -90,12 +90,16 @@ impl StdioChannel {
                 let worker = builder
                     .name("Transport Channel".to_string())
                     .spawn(move || {
-                        let mut buf: [u8; Decoder::CAPACITY] = [0; Decoder::CAPACITY];
+                        let mut buf: Vec<u8> = vec![0; Decoder::INITIAL_CAPACITY];
                         let mut decoder = Decoder::build();
 
                         let idle = time::Duration::from_millis(10);
 
                         loop {
+                            if let ParseState::InContent(num) = decoder.state && usize::from(num) > buf.capacity() {
+                                buf.resize(usize::from(num), 0);
+                            }
+
                             match Self::read_stdin(&mut cin, &mut buf, &mut decoder) {
                                 Ok(0) => {
                                     if let Err(_) = tx.send(RecvMessage::Heartbeat) {
@@ -251,14 +255,10 @@ impl StdioChannel {
                 buf: &mut [u8],
                 decoder: &mut Decoder,
             ) -> Result<usize, ErrorResponse> {
-                let len = min(Decoder::CAPACITY - decoder.rest.len(), buf.len());
-
-                match cin.read(&mut buf[..len]) {
+                match cin.read(buf) {
                     Ok(0) => Ok(0),
                     Ok(num) => {
                         decoder.rest.extend(&buf[..num]);
-
-                        debug_assert!(decoder.rest.len() <= Decoder::CAPACITY);
                         Ok(num)
                     }
                     Err(err) => Err(Self::error_read(&err.to_string())),
@@ -270,10 +270,6 @@ impl StdioChannel {
                 cin: &mut mpsc::Receiver<Vec<u8>>,
                 decoder: &mut Decoder,
             ) -> Result<usize, ErrorResponse> {
-                if decoder.rest.len() >= Decoder::CAPACITY {
-                    return Ok(Decoder::CAPACITY);
-                }
-
                 match cin.try_recv() {
                     Ok(mut buf) => {
                         let num = buf.len();
