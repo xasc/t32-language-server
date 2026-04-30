@@ -27,7 +27,6 @@ pub enum ErrorCodes {
     #[expect(unused)]
     UnknownErrorCode = -32001,
 
-    #[expect(unused)]
     RequestFailed = -32803,
 
     #[expect(unused)]

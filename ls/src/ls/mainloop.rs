@@ -17,13 +17,14 @@ use crate::{
         doc::{TextDoc, TextDocs, read_doc},
         read_msg,
         request::Notification,
+        response::{ErrorResponse, Response},
         tasks::{
             Task, TaskDone, TaskSystem, categorize_files, discover_files, recv_completed_tasks,
             schedule_tasks, try_schedule,
         },
         workspace::{FileIndex, WorkspaceMembers},
     },
-    protocol::{LogTraceParams, TraceValue, Uri},
+    protocol::{ErrorCodes, LogTraceParams, ResponseError, TraceValue, Uri},
     t32::LangExpressions,
 };
 
@@ -64,6 +65,14 @@ pub fn handle_requests(channel: &mut StdioChannel, mut cfg: Config) -> Result<()
 
     loop {
         g.backoff.idle(&Instant::now());
+
+        if g.tasks.runner.aborted() {
+            channel.send_msg(Message::Response(Response::ErrorResponse(ErrorResponse {
+                id: None,
+                error: error_task_queue_abort(),
+            })));
+            return Err(ReturnCode::SoftwareErr);
+        }
 
         if recv_incoming(cfg.trace_level, channel, &mut g.heartbeat, &mut incoming)? {
             g.backoff.clear();
@@ -145,6 +154,14 @@ fn parse_files(
 
     let mut completed: u32 = 0;
     while completed < num_files {
+        if tasks.runner.aborted() {
+            outgoing.push(Some(Message::Response(Response::ErrorResponse(ErrorResponse {
+                id: None,
+                error: error_task_queue_abort()
+            }))));
+            return Err(ReturnCode::SoftwareErr);
+        }
+
         match tasks.runner.rx.recv() {
             Ok(TaskDone::WorkspaceFileScan(res)) => match res {
                 Ok((doc, tree, expr)) => {
@@ -212,6 +229,26 @@ pub fn trace_doc_cannot_read(uri: &str) -> Message {
     })
 }
 
+pub fn trace_doc_change(doc: &TextDoc, tree: &Tree, duration: Duration) -> Message {
+    Message::Notification(Notification::LogTraceNotification {
+        params: LogTraceParams {
+            message: format!(
+                "INFO: Text document \"{}\" was updated to version {} in {:.4} seconds.",
+                doc.uri,
+                doc.version,
+                duration.as_secs_f32()
+            ),
+            verbose: Some(
+                json!({
+                    "text": doc.text,
+                    "tree": tree.root_node().to_sexp(),
+                })
+                .to_string(),
+            ),
+        },
+    })
+}
+
 fn trace_workspace_indexed(duration: Duration, workspace: &Workspace) -> Message {
     Message::Notification(Notification::LogTraceNotification {
         params: LogTraceParams {
@@ -236,22 +273,10 @@ fn trace_root_invalid(roots: &[Uri]) -> Message {
     })
 }
 
-pub fn trace_doc_change(doc: &TextDoc, tree: &Tree, duration: Duration) -> Message {
-    Message::Notification(Notification::LogTraceNotification {
-        params: LogTraceParams {
-            message: format!(
-                "INFO: Text document \"{}\" was updated to version {} in {:.4} seconds.",
-                doc.uri,
-                doc.version,
-                duration.as_secs_f32()
-            ),
-            verbose: Some(
-                json!({
-                    "text": doc.text,
-                    "tree": tree.root_node().to_sexp(),
-                })
-                .to_string(),
-            ),
-        },
-    })
+fn error_task_queue_abort() -> ResponseError {
+    ResponseError {
+        code: ErrorCodes::RequestFailed as i64,
+        message: "ERROR: Task queue worker has aborted due to an internal error. Shutting down...".to_string(),
+        data: None,
+    }
 }

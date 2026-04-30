@@ -19,6 +19,8 @@ pub enum ReturnCode {
     UsageErr = 65,
     NoInputErr = 66,
     UnavailableErr = 69,
+
+    SoftwareErr = 70,
     IoErr = 74,
     ProtocolErr = 76,
 }

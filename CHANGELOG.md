@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 -  On serialization errors the complete path to the node that triggers the
    error is printed. Only active for debug builds.
+-  Trigger server shutdown if any of the task queue workers aborts.
 
 ### Changed
 

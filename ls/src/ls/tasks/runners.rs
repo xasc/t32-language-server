@@ -297,6 +297,15 @@ impl TaskSystem {
         }
     }
 
+    pub fn aborted(&self) -> bool {
+        for worker in self.threads.iter() {
+            if let Some(w) = worker && w.is_finished() {
+                return true;
+            }
+        }
+        false
+    }
+
     fn run(
         idx: usize,
         signal: Arc<(Condvar, Mutex<usize>)>,
