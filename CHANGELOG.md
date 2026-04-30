@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 -  Setting "--clientProcessId" to the value 0 does neither trigger the warning
    that the option is missing nor the check for inconsistent parent process
    IDs.
+-  Switch to *tree-sitter-t32* v8.0.0.
 
 ### Fixed
 
