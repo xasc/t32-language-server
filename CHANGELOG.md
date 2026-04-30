@@ -34,6 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 -  Fix type definitions for initialization request.
 -  Fix handling of LSP messages with large payload. The read loop ended up in a
    deadlock.
+-  Fix crashes when parsing scripts containing a `RETURNVALUES` command.
+-  Fix support of `ENTRY` commands with `%LINE%` directive in the parameter
+   list.
 
 
 [0.7.1] - 2026-04-21

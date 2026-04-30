@@ -99,8 +99,9 @@ use crate::{protocol::Uri, utils::BRange};
 use super::{
     FindMacroRefsLangContext, GotoDefLangContext, MacroDefinitionResult,
     ast::{
-        KEYWORD_SUBROUTINE_ENTRY, KEYWORD_SUBROUTINE_PARAMETERS, NodeKind, get_block_opener_ids,
-        get_control_flow_block_ids, get_macro_container_expr_ids, get_subroutine_ids,
+        KEYWORD_SUBROUTINE_ENTRY, KEYWORD_SUBROUTINE_PARAMETERS, KEYWORD_SUBROUTINE_RETURNVALUES,
+        NodeKind, get_block_opener_ids, get_control_flow_block_ids, get_macro_container_expr_ids,
+        get_subroutine_ids,
     },
     cache::find_subroutine_for_call,
     expressions::{
@@ -1355,7 +1356,7 @@ pub fn params_ignore_block_global_definitions(text: &str, cursor: &mut TreeCurso
     if KEYWORD_SUBROUTINE_ENTRY.eq_ignore_ascii_case(&command) {
         false
     } else {
-        debug_assert_eq!(*command, *KEYWORD_SUBROUTINE_PARAMETERS);
+        debug_assert!([KEYWORD_SUBROUTINE_PARAMETERS, KEYWORD_SUBROUTINE_RETURNVALUES].iter().any(|k| *k == command));
         true
     }
 }
@@ -1423,26 +1424,71 @@ pub fn extract_params(
     );
 
     let kind = extract_param_decl_kind(&text[command.byte_range()]);
-    let kind = kind.expect("No other command identifiers are possible.");
+    if kind.is_none() {
+        cursor.goto_parent();
+        return;
+    }
+    let kind = kind.unwrap();
+
+    let lang = command.language();
+
+    let id_macro: u16 = NodeKind::Macro.into_id(&lang);
+    let id_string: u16 = NodeKind::String.into_id(&lang);
+
 
     while cursor.goto_next_sibling() {
-        let r#macro = cursor.node();
+        let mut level: usize = 0;
+
+        let node = cursor.node();
+        if kind == ParameterDeclarationKind::RETURNVALUES
+            && node.kind_id() == id_string
+        {
+            if !cursor.goto_first_child() {
+                break;
+            }
+
+            while cursor.node().kind_id() != id_macro && cursor.goto_next_sibling() {};
+            level += 1;
+        }
+        let node = cursor.node();
+        let id = node.kind_id();
+
+        // The line directive `%LINE` may be placed somewhere in the
+        // parameter list.
+        if id != id_macro {
+            debug_assert_eq!(
+                id,
+                NodeKind::Identifier.into_id(&node.language())
+            );
+            debug_assert_eq!(
+                &text[node.byte_range()].to_ascii_uppercase(),
+                "%LINE"
+            );
+            continue;
+        }
 
         debug_assert_eq!(
-            r#macro.kind_id(),
-            NodeKind::Macro.into_id(&r#macro.language())
+            id,
+            NodeKind::Macro.into_id(&node.language())
         );
 
-        let range = r#macro.byte_range();
+        let range = node.byte_range();
         if range.end >= text.len() {
             break;
         }
         declarations.push(ParameterDeclaration {
             cmd: decl.byte_range(),
-            r#macro: r#macro.byte_range(),
+            r#macro: range,
             kind,
             docstring: None,
         });
+
+        if level > 0 {
+            if !cursor.goto_parent() {
+                break;
+            }
+            debug_assert_eq!(cursor.node().kind_id(), NodeKind::String.into_id(&lang));
+        }
     }
     cursor.goto_parent();
 }
@@ -1985,6 +2031,8 @@ fn extract_param_decl_kind(command: &str) -> Option<ParameterDeclarationKind> {
         Some(ParameterDeclarationKind::Entry)
     } else if command == KEYWORD_SUBROUTINE_PARAMETERS {
         Some(ParameterDeclarationKind::Parameters)
+    } else if command == KEYWORD_SUBROUTINE_RETURNVALUES {
+        Some(ParameterDeclarationKind::RETURNVALUES)
     } else {
         None
     }
@@ -2032,4 +2080,55 @@ fn filter_param_declarations_by_name(
         }
     }
     have_name
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::{env, fs};
+
+    use crate::t32;
+
+    fn find_param_decl_nodes(tree: &Tree) -> Vec<TreeCursor<'_>> {
+        let declaration: u16 = NodeKind::ParameterDeclaration.into_id(&tree.language());
+
+        let mut cursor = tree.walk();
+
+        cursor.goto_first_child();
+
+        let mut declarations: Vec<TreeCursor<'_>> = Vec::new();
+
+        while cursor.goto_next_sibling() {
+            let id = cursor.node().kind_id();
+
+            if id == declaration {
+                declarations.push(cursor.clone());
+            }
+        }
+        declarations
+    }
+
+    #[test]
+    fn can_extract_params_around_line_directive() {
+        let file = env::current_dir().unwrap().join("tests").join("samples").join("params.cmm");
+
+        let text = fs::read_to_string(file).expect("File must exist.");
+        let tree = t32::parse(text.as_bytes(), None);
+
+        let nodes = find_param_decl_nodes(&tree);
+
+        for (mut cursor, expected) in nodes.into_iter().zip([
+            vec![(119..128, "&password")],
+            vec![(136..141, "&user"), (148..151, "&pw")],
+        ]) {
+            let mut declarations: Vec<ParameterDeclaration> = Vec::new();
+            extract_params(&text, &mut cursor, &mut declarations);
+
+            assert_eq!(declarations.len(), expected.len());
+            for (decl, exp) in declarations.into_iter().zip(expected.into_iter()) {
+                assert_eq!(decl.r#macro, exp.0);
+            }
+        }
+    }
 }

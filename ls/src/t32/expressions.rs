@@ -18,6 +18,10 @@
 //! ========================
 //!
 //! The grammar is classifying `RETURNVALUES` as `(parameter_declaration)`.
+//! Per documentation the command `RETURNVALUES` can accept return values from
+//! subroutine calls. On the other hand, it can take over the functionality of
+//! `ENTRY`. `ENTRY` is used to pass parameters into scripts and subroutines.
+//!
 //! Check out this example:
 //!
 //! ```ignore
@@ -95,6 +99,7 @@ pub enum MacroScope {
 pub enum ParameterDeclarationKind {
     Parameters,
     Entry,
+    RETURNVALUES,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -437,6 +442,7 @@ pub fn find_all_commands_and_parameter_declarations(
         if id == declaration {
             let num = parameters.len();
             extract_params(text, &mut cursor, &mut parameters);
+
             if parameters.len() != num {
                 let docstring = find_docstring(&mut cursor);
                 if docstring.is_some() {
@@ -452,6 +458,7 @@ pub fn find_all_commands_and_parameter_declarations(
         } else if id == command {
             let num = commands.len();
             extract_command(&mut cursor, &mut commands);
+
             if commands.len() != num {
                 let docstring = find_docstring(&mut cursor);
                 if let Some(docstr) = docstring {
@@ -712,12 +719,15 @@ pub fn goto_subroutine(tree: &Tree, offset: usize) -> TreeCursor<'_> {
 
 pub fn find_docstring(cursor: &mut TreeCursor) -> Option<Range<usize>> {
     let target = cursor.node();
+    let lang = target.language();
+
+    debug_assert_ne!(target.kind_id(), NodeKind::Script.into_id(&lang));
 
     if !(cursor.goto_parent() && cursor.goto_first_child()) {
         unreachable!("Target node must have a parent.");
     }
 
-    let id_comment = NodeKind::Comment.into_id(&target.language());
+    let id_comment = NodeKind::Comment.into_id(&lang);
     let mut node = cursor.node();
 
     let mut docstring: Option<TRange> = None;
