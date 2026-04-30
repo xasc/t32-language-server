@@ -171,7 +171,8 @@ pub fn serve(mut cfg: Config) -> ReturnCode {
     };
     let heartbeat = ProcHeartbeat::build(&cfg);
 
-    let InitializationStatus { msg, rc } = wait_for_initialize_req(cfg.trace_level, &mut channel, heartbeat);
+    let InitializationStatus { msg, rc } =
+        wait_for_initialize_req(cfg.trace_level, &mut channel, heartbeat);
     match msg {
         Message::Request(Request::InitializeRequest { id, params }) => {
             match process_initialize_params(params, &mut cfg) {

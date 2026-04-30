@@ -1356,7 +1356,14 @@ pub fn params_ignore_block_global_definitions(text: &str, cursor: &mut TreeCurso
     if KEYWORD_SUBROUTINE_ENTRY.eq_ignore_ascii_case(&command) {
         false
     } else {
-        debug_assert!([KEYWORD_SUBROUTINE_PARAMETERS, KEYWORD_SUBROUTINE_RETURNVALUES].iter().any(|k| *k == command));
+        debug_assert!(
+            [
+                KEYWORD_SUBROUTINE_PARAMETERS,
+                KEYWORD_SUBROUTINE_RETURNVALUES
+            ]
+            .iter()
+            .any(|k| *k == command)
+        );
         true
     }
 }
@@ -1435,19 +1442,16 @@ pub fn extract_params(
     let id_macro: u16 = NodeKind::Macro.into_id(&lang);
     let id_string: u16 = NodeKind::String.into_id(&lang);
 
-
     while cursor.goto_next_sibling() {
         let mut level: usize = 0;
 
         let node = cursor.node();
-        if kind == ParameterDeclarationKind::RETURNVALUES
-            && node.kind_id() == id_string
-        {
+        if kind == ParameterDeclarationKind::RETURNVALUES && node.kind_id() == id_string {
             if !cursor.goto_first_child() {
                 break;
             }
 
-            while cursor.node().kind_id() != id_macro && cursor.goto_next_sibling() {};
+            while cursor.node().kind_id() != id_macro && cursor.goto_next_sibling() {}
             level += 1;
         }
         let node = cursor.node();
@@ -1456,21 +1460,12 @@ pub fn extract_params(
         // The line directive `%LINE` may be placed somewhere in the
         // parameter list.
         if id != id_macro {
-            debug_assert_eq!(
-                id,
-                NodeKind::Identifier.into_id(&node.language())
-            );
-            debug_assert_eq!(
-                &text[node.byte_range()].to_ascii_uppercase(),
-                "%LINE"
-            );
+            debug_assert_eq!(id, NodeKind::Identifier.into_id(&node.language()));
+            debug_assert_eq!(&text[node.byte_range()].to_ascii_uppercase(), "%LINE");
             continue;
         }
 
-        debug_assert_eq!(
-            id,
-            NodeKind::Macro.into_id(&node.language())
-        );
+        debug_assert_eq!(id, NodeKind::Macro.into_id(&node.language()));
 
         let range = node.byte_range();
         if range.end >= text.len() {
@@ -2111,7 +2106,11 @@ mod tests {
 
     #[test]
     fn can_extract_params_around_line_directive() {
-        let file = env::current_dir().unwrap().join("tests").join("samples").join("params.cmm");
+        let file = env::current_dir()
+            .unwrap()
+            .join("tests")
+            .join("samples")
+            .join("params.cmm");
 
         let text = fs::read_to_string(file).expect("File must exist.");
         let tree = t32::parse(text.as_bytes(), None);

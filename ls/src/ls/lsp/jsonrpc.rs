@@ -536,7 +536,7 @@ fn imprecise_error_syntax(err: Error, buf: Option<&[u8]>) -> ResponseError {
             code: ErrorCodes::ParseError as i64,
             message: String::from(format!(
                 "Syntax error: Unexpected data in message content due to {}.",
-                 err.to_string()
+                err.to_string()
             )),
             data: None,
         }
@@ -566,7 +566,7 @@ fn precise_error_syntax(path: String, err: Error, buf: Option<&[u8]>) -> Respons
             message: String::from(format!(
                 "Syntax error: {}: Unexpected data in message content due to {}.",
                 path,
-                 err.to_string()
+                err.to_string()
             )),
             data: None,
         }

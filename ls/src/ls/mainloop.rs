@@ -155,10 +155,12 @@ fn parse_files(
     let mut completed: u32 = 0;
     while completed < num_files {
         if tasks.runner.aborted() {
-            outgoing.push(Some(Message::Response(Response::ErrorResponse(ErrorResponse {
-                id: None,
-                error: error_task_queue_abort()
-            }))));
+            outgoing.push(Some(Message::Response(Response::ErrorResponse(
+                ErrorResponse {
+                    id: None,
+                    error: error_task_queue_abort(),
+                },
+            ))));
             return Err(ReturnCode::SoftwareErr);
         }
 
@@ -276,7 +278,8 @@ fn trace_root_invalid(roots: &[Uri]) -> Message {
 fn error_task_queue_abort() -> ResponseError {
     ResponseError {
         code: ErrorCodes::RequestFailed as i64,
-        message: "ERROR: Task queue worker has aborted due to an internal error. Shutting down...".to_string(),
+        message: "ERROR: Task queue worker has aborted due to an internal error. Shutting down..."
+            .to_string(),
         data: None,
     }
 }
