@@ -480,8 +480,7 @@ fn normalize_position(spot: &Position, lines: &LineMap, text: &str) -> Position 
     // allows us to create a range that only includes the last character in a string
     // and to have an empty range for appending to new text after the end of the
     // string.
-    let max_char_offset = lines.max_utf16_char_offset[line as usize].unwrap_or(0);
-    if spot.line >= num_lines {
+    if line >= num_lines {
         if text_ends_with_eol(&lines) {
             line = num_lines;
             character = 0;
@@ -489,7 +488,13 @@ fn normalize_position(spot: &Position, lines: &LineMap, text: &str) -> Position 
             line = num_lines - 1;
             character = lines.max_utf16_char_offset[(num_lines - 1) as usize].unwrap();
         }
-    } else if character > max_char_offset {
+        return Position { line, character };
+    }
+    debug_assert!(line <= num_lines);
+    debug_assert!(lines.max_utf16_char_offset.len() > (line as usize));
+
+    let max_char_offset = lines.max_utf16_char_offset[line as usize].unwrap_or(0);
+    if character > max_char_offset {
         if text_ends_with_eol(&lines) {
             line += 1;
             character = 0;
