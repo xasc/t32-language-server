@@ -301,6 +301,18 @@ impl FromStr for TraceValue {
     }
 }
 
+pub fn version_str() -> String {
+    format!(
+        "{}{}",
+        PKG_VERSION,
+        if let Some(hash) = GIT_HEADREF {
+            format!("+{}", hash)
+        } else {
+            "".to_string()
+        }
+    )
+}
+
 fn error_format(writer: &mut impl Write, param: &str) {
     let _ = writeln!(writer, "ERROR: Invalid format for argument \"{param}\"");
 }
@@ -366,15 +378,10 @@ fn version(writer: &mut impl Write) {
     // REUSE-IgnoreStart
     let _ = writeln!(
         writer,
-        r#"t32ls (t32-language-server), version {}{}
+        r#"t32ls (t32-language-server), version {}
 SPDX-FileCopyrightText: 2024 Christoph Sax <c_sax@mailbox.org>
 SPDX-License-Identifier: EUPL-1.2"#,
-        PKG_VERSION,
-        if let Some(hash) = GIT_HEADREF {
-            format!("+{}", hash)
-        } else {
-            "".to_string()
-        }
+        version_str(),
     )
     .expect("Writer must be configured correctly.");
     // REUSE-IgnoreEnd

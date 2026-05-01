@@ -5,6 +5,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    config::version_str,
     protocol::{
         DefinitionOptions, DefinitionProvider, DocumentFilter, FileOperationFilter,
         FileOperationPattern, FileOperationPatternKind, FileOperationPatternOptions,
@@ -192,7 +193,7 @@ impl InitializeResult {
             capabilities,
             server_info: Some(ServerInfo {
                 name: "t32-language-server".to_string(),
-                version: None,
+                version: Some(version_str()),
             }),
         }
     }
