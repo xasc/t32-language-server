@@ -1388,8 +1388,17 @@ pub fn extract_macro_defs(text: &str, cursor: &mut TreeCursor, macros: &mut Vec<
             .contains(&MacroScope::from(&text[cursor.node().byte_range()]))
     );
 
+    let id_macro = NodeKind::Macro.into_id(&def.language());
+
     while cursor.goto_next_sibling() {
         let r#macro = cursor.node();
+        if r#macro.kind_id() != id_macro {
+            debug_assert_eq!(
+                r#macro.kind_id(),
+                NodeKind::Comment.into_id(&r#macro.language())
+            );
+            break;
+        }
 
         debug_assert_eq!(
             r#macro.kind_id(),
@@ -2129,5 +2138,19 @@ mod tests {
                 assert_eq!(decl.r#macro, exp.0);
             }
         }
+    }
+
+    #[test]
+    fn can_extract_macro_from_definition_ending_with_comment() {
+        let text = "LOCAL &a &b // Local macros\n";
+        let tree = t32::parse(text.as_bytes(), None);
+
+        let mut cursor = tree.walk();
+        cursor.goto_first_child();
+
+        let mut defs: Vec<MacroDefinition> = Vec::with_capacity(1);
+        extract_macro_defs(&text, &mut cursor, &mut defs);
+
+        debug_assert_eq!(defs.len(), 2);
     }
 }
