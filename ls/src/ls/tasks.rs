@@ -504,8 +504,8 @@ pub fn recv_completed_tasks(
         let handle = done.get_task_handle();
         let finished = process_completed_task(done, cfg, ts, docs, files, outgoing)?;
 
-        if finished && let Some(handle) = handle {
-            mark_ongoing_task_completed(handle, &mut ts.ongoing);
+        if finished && let Some(h) = handle {
+            mark_ongoing_task_completed(h, &mut ts.ongoing);
         }
     }
     Ok(compl_recv)
@@ -1249,7 +1249,7 @@ fn find_ongoing_task_by_doc(doc: &str, ongoing: &[Option<OngoingTask>]) -> usize
         .position(|t| match t {
             Some(OngoingTask::TextDocUpdate { uri, .. }) => uri == doc,
             None => unreachable!("Not empty slots allowed."),
-            _ => unreachable!("No other tasks can by selected by document."),
+            _ => unreachable!("No other tasks can be selected by document."),
         })
         .expect("Must be a registered task.")
 }

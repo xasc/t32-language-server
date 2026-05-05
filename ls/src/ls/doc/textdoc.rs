@@ -77,11 +77,7 @@ impl TextDoc {
     pub fn update(&mut self, change: Range, new: &str) -> InputEdit {
         let range = make_range_well_formed(change, &self.lines, &self.text);
 
-        let start_byte = self.get_byte_offset_at(&range.start);
-        let end_byte = self.get_byte_offset_at(&range.end);
-
-        self.text.replace_range(start_byte..end_byte, new);
-
+        // Translate to Tree-sitter byte-based file locations.
         let start_pos = Point {
             row: range.start.line as usize,
             column: self.get_column_offset_at(&range.start),
@@ -90,6 +86,11 @@ impl TextDoc {
             row: range.end.line as usize,
             column: self.get_column_offset_at(&range.end),
         };
+
+        let start_byte = self.get_byte_offset_at(&range.start);
+        let end_byte = self.get_byte_offset_at(&range.end);
+
+        self.text.replace_range(start_byte..end_byte, new);
 
         let mut edit = InputEdit {
             start_byte,
@@ -257,6 +258,8 @@ impl TextDoc {
         let mut num_utf16_code_units: usize = 0;
 
         let offset = self.lines.byte_offsets[spot.line as usize];
+        debug_assert!(offset < self.text.len());
+
         for ch in self.text[offset..].chars() {
             if num_utf16_code_units >= spot.character as usize {
                 break;
@@ -272,17 +275,18 @@ impl TextDoc {
         // border and recalculate the line offsets only for this modified section.
         // Afterwards we can create the updated line table by inserting the new
         // segment into the existing one and adjusting the offsets accordingly.
+        // The documents contents have already been updated at this point.
         let start_mod_lines = self.lines.get_line_with_offset(edit.start_byte);
         let start_mod_bytes = self.lines.byte_offsets[start_mod_lines];
 
         let start_unmod_lines = (edit.old_end_position.row + 1).min(self.lines.byte_offsets.len());
-        let cutoff = edit.new_end_byte;
 
         update_line_map_from_text_segment(
             start_mod_bytes,
             start_mod_lines,
             start_unmod_lines,
-            cutoff,
+            edit.new_end_byte,
+            (edit.new_end_byte as isize) - (edit.old_end_byte as isize),
             &self.text,
             &mut self.lines,
         );
@@ -349,12 +353,15 @@ pub fn create_line_map_for_text(text: &str, bias: Option<usize>, cutoff: Option<
     let mut stop_after_eol: bool = false;
     let mut chars = text.char_indices().peekable();
 
+    let mut eof_char: char = '\n';
+
     while let Some((offset, ch)) = chars.next() {
-        /* The character offset can never move past the start of the first
-         * character of the end-of-line sequence.
-         */
+        // The character offset can never move past the start of the first
+        // character of the end-of-line sequence.
         let len = max_utf16_char_offset.len();
         max_utf16_char_offset[len - 1] = Some(num_inline_code_units);
+
+        eof_char = ch;
 
         num_bytes += ch.len_utf8();
 
@@ -392,6 +399,17 @@ pub fn create_line_map_for_text(text: &str, bias: Option<usize>, cutoff: Option<
         }
     }
     debug_assert!(byte_offsets.len() == max_utf16_char_offset.len());
+    debug_assert!(byte_offsets.len() > 0);
+
+    // If the file does not end with a line break, we need to add the length
+    // of the last UTF-16 code point. The cursor location can move past the last
+    // charachter to append text at the end of the file.
+    let num_lines = byte_offsets.len();
+    if !(eof_char == '\n' || eof_char == '\r') {
+        if let Some(num_code_units) = &mut max_utf16_char_offset[num_lines - 1] {
+            *num_code_units += eof_char.len_utf16() as u32;
+        }
+    }
 
     LineMap {
         byte_offsets,
@@ -404,25 +422,39 @@ fn update_line_map_from_text_segment(
     start_byte: usize,
     start_line: usize,
     end_line: usize,
-    cutoff: usize,
+    end_byte: usize,
+    byte_shift: isize,
     text: &str,
     lines: &mut LineMap,
 ) {
-    let mut new_segment =
-        create_line_map_for_text(&text[start_byte..], Some(start_byte), Some(cutoff));
+    debug_assert!(end_line <= lines.byte_offsets.len());
 
-    let mut upper = LineMap {
-        byte_offsets: Vec::with_capacity(lines.byte_offsets.len() - end_line),
-        max_utf16_char_offset: Vec::with_capacity(lines.byte_offsets.len() - end_line),
-        num_bytes: 0,
+    let mut new_segment =
+        create_line_map_for_text(&text[start_byte..], Some(start_byte), Some(end_byte));
+
+    struct Upper {
+        byte_offsets: Vec<usize>,
+        max_utf16_char_offset: Vec<Option<u32>>,
+    }
+
+    let dim = if end_line < lines.byte_offsets.len() {
+        lines.byte_offsets.len() - end_line
+    } else {
+        0
     };
 
-    if upper.num_bytes > 0 {
-        for off in lines.byte_offsets.drain(end_line..) {
-            upper.byte_offsets.push(new_segment.num_bytes + off);
+    let mut upper = Upper {
+        byte_offsets: Vec::with_capacity(dim),
+        max_utf16_char_offset: Vec::with_capacity(dim),
+    };
+
+    if dim > 0 {
+        for byte_offset in lines.byte_offsets.drain(end_line..) {
+            let off = (byte_offset as isize) + byte_shift;
+            upper.byte_offsets.push(off as usize);
         }
-        for off in lines.max_utf16_char_offset[end_line..].into_iter() {
-            upper.max_utf16_char_offset.push(*off);
+        for char_offset in lines.max_utf16_char_offset[end_line..].into_iter() {
+            upper.max_utf16_char_offset.push(*char_offset);
         }
     }
 
@@ -434,7 +466,7 @@ fn update_line_map_from_text_segment(
         .max_utf16_char_offset
         .append(&mut new_segment.max_utf16_char_offset);
 
-    if upper.num_bytes > 0 {
+    if dim > 0 {
         lines.byte_offsets.append(&mut upper.byte_offsets);
         lines
             .max_utf16_char_offset
@@ -534,7 +566,7 @@ mod test {
             map,
             LineMap {
                 byte_offsets: vec![0],
-                max_utf16_char_offset: vec![Some(3)],
+                max_utf16_char_offset: vec![Some(4)],
                 num_bytes: text.len(),
             }
         );
@@ -603,7 +635,7 @@ mod test {
             map,
             LineMap {
                 byte_offsets: vec![0, "Line 1\n".len()],
-                max_utf16_char_offset: vec![Some(6), Some(3)],
+                max_utf16_char_offset: vec![Some(6), Some(4)],
                 num_bytes: text.len(),
             }
         );
@@ -951,6 +983,283 @@ mod test {
             doc.text,
             "Lorem Ipsum#am rem aperiam,\neaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo."
         );
+    }
+
+    #[test]
+    fn can_deal_with_edits_that_delete_empty_lines() {
+        let text = "&a\n\n";
+        let lines = create_line_map_for_text(&text, None, None);
+
+        let mut doc = TextDoc {
+            uri: "file:///C:/doc.rs".to_string(),
+            lang_id: LANGUAGE_ID.to_string(),
+            version: 1,
+            text: text.to_string(),
+            lines,
+        };
+
+        let delta = doc.update(
+            Range {
+                start: Position {
+                    line: 0,
+                    character: 2,
+                },
+                end: Position {
+                    line: 1,
+                    character: 0,
+                },
+            },
+            &"",
+        );
+
+        assert_eq!(
+            delta,
+            InputEdit {
+                start_byte: "&a".len(),
+                old_end_byte: "&a\n".len(),
+                new_end_byte: "&a".len(),
+                start_position: Point::new(0, 2),
+                old_end_position: Point::new(1, 0),
+                new_end_position: Point::new(0, 2),
+            }
+        );
+        assert_eq!(
+            doc.lines,
+            LineMap {
+                byte_offsets: vec![0, 3],
+                max_utf16_char_offset: vec![Some(2), None],
+                num_bytes: 3,
+            }
+        );
+        assert_eq!(doc.text, "&a\n");
+
+        let delta = doc.update(
+            Range {
+                start: Position {
+                    line: 0,
+                    character: 2,
+                },
+                end: Position {
+                    line: 1,
+                    character: 0,
+                },
+            },
+            &"",
+        );
+
+        assert_eq!(
+            delta,
+            InputEdit {
+                start_byte: "&a".len(),
+                old_end_byte: "&a\n".len(),
+                new_end_byte: "&a".len(),
+                start_position: Point::new(0, 2),
+                old_end_position: Point::new(1, 0),
+                new_end_position: Point::new(0, 2),
+            }
+        );
+        assert_eq!(
+            doc.lines,
+            LineMap {
+                byte_offsets: vec![0],
+                max_utf16_char_offset: vec![Some(2)],
+                num_bytes: 2,
+            }
+        );
+        assert_eq!(doc.text, "&a");
+    }
+
+    #[test]
+    fn can_handle_edits_that_clear_the_complete_file() {
+        let text = "&a\n&b\n&c";
+        let lines = create_line_map_for_text(&text, None, None);
+
+        let mut doc = TextDoc {
+            uri: "file:///C:/doc.rs".to_string(),
+            lang_id: LANGUAGE_ID.to_string(),
+            version: 1,
+            text: text.to_string(),
+            lines,
+        };
+
+        let delta = doc.update(
+            Range {
+                start: Position {
+                    line: 0,
+                    character: 0,
+                },
+                end: Position {
+                    line: 2,
+                    character: 2,
+                },
+            },
+            &"",
+        );
+
+        assert_eq!(
+            delta,
+            InputEdit {
+                start_byte: "".len(),
+                old_end_byte: "&a\n&n\n&c".len(),
+                new_end_byte: "".len(),
+                start_position: Point::new(0, 0),
+                old_end_position: Point::new(2, 2),
+                new_end_position: Point::new(0, 0),
+            }
+        );
+        assert_eq!(
+            doc.lines,
+            LineMap {
+                byte_offsets: vec![0],
+                max_utf16_char_offset: vec![None],
+                num_bytes: 0,
+            }
+        );
+        assert_eq!(doc.text, "");
+
+        let text = "&a\n&b\n&c\n";
+        let lines = create_line_map_for_text(&text, None, None);
+
+        let mut doc = TextDoc {
+            uri: "file:///C:/doc.rs".to_string(),
+            lang_id: LANGUAGE_ID.to_string(),
+            version: 1,
+            text: text.to_string(),
+            lines,
+        };
+
+        let delta = doc.update(
+            Range {
+                start: Position {
+                    line: 0,
+                    character: 0,
+                },
+                end: Position {
+                    line: 3,
+                    character: 0,
+                },
+            },
+            &"",
+        );
+
+        assert_eq!(
+            delta,
+            InputEdit {
+                start_byte: "".len(),
+                old_end_byte: "&a\n&n\n&c\n".len(),
+                new_end_byte: "".len(),
+                start_position: Point::new(0, 0),
+                old_end_position: Point::new(3, 0),
+                new_end_position: Point::new(0, 0),
+            }
+        );
+        assert_eq!(
+            doc.lines,
+            LineMap {
+                byte_offsets: vec![0],
+                max_utf16_char_offset: vec![None],
+                num_bytes: 0,
+            }
+        );
+        assert_eq!(doc.text, "");
+    }
+
+    #[test]
+    fn can_process_edits_that_cut_multi_lines() {
+        let text = "&a=1+1\n&b=1+2\n&c=1+3";
+        let lines = create_line_map_for_text(&text, None, None);
+
+        let mut doc = TextDoc {
+            uri: "file:///C:/doc.rs".to_string(),
+            lang_id: LANGUAGE_ID.to_string(),
+            version: 1,
+            text: text.to_string(),
+            lines,
+        };
+
+        let delta = doc.update(
+            Range {
+                start: Position {
+                    line: 0,
+                    character: 4,
+                },
+                end: Position {
+                    line: 2,
+                    character: 4,
+                },
+            },
+            &"",
+        );
+
+        assert_eq!(
+            delta,
+            InputEdit {
+                start_byte: "&a=1".len(),
+                old_end_byte: "&a=1+1\n&b=1+2\n&c=1".len(),
+                new_end_byte: "&a=1".len(),
+                start_position: Point::new(0, 4),
+                old_end_position: Point::new(2, 4),
+                new_end_position: Point::new(0, 4),
+            }
+        );
+        assert_eq!(
+            doc.lines,
+            LineMap {
+                byte_offsets: vec![0],
+                max_utf16_char_offset: vec![Some(6)],
+                num_bytes: 6,
+            }
+        );
+        assert_eq!(doc.text, "&a=1+3");
+    }
+
+    #[test]
+    fn can_process_edits_that_insert_multi_lines() {
+        let text = "&a=1+1\n&c=1+2\n";
+        let lines = create_line_map_for_text(&text, None, None);
+
+        let mut doc = TextDoc {
+            uri: "file:///C:/doc.rs".to_string(),
+            lang_id: LANGUAGE_ID.to_string(),
+            version: 1,
+            text: text.to_string(),
+            lines,
+        };
+
+        let delta = doc.update(
+            Range {
+                start: Position {
+                    line: 0,
+                    character: 5,
+                },
+                end: Position {
+                    line: 0,
+                    character: 5,
+                },
+            },
+            &"3\n&b=4\n&b=&b+",
+        );
+
+        assert_eq!(
+            delta,
+            InputEdit {
+                start_byte: "&a=1+".len(),
+                old_end_byte: "&a=1+".len(),
+                new_end_byte: "&a=1+3\n&b=4\n&b=&b+".len(),
+                start_position: Point::new(0, 5),
+                old_end_position: Point::new(0, 5),
+                new_end_position: Point::new(2, 6),
+            }
+        );
+        assert_eq!(
+            doc.lines,
+            LineMap {
+                byte_offsets: vec![0, 7, 12, 20, 27],
+                max_utf16_char_offset: vec![Some(6), Some(4), Some(7), Some(6), None],
+                num_bytes: "&a=1+3\n&b=4\n&b=&b+1\n&c=1+2\n".len(),
+            }
+        );
+        assert_eq!(doc.text, "&a=1+3\n&b=4\n&b=&b+1\n&c=1+2\n");
     }
 
     #[test]
