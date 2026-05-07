@@ -1206,7 +1206,7 @@ mod test {
             text: text.to_string(),
             lines,
         };
-        let tree = t32::parse(text.as_bytes(), None);
+        let tree = t32::parse_full(text.as_bytes());
 
         let (subroutines, labels) = find_subroutines_and_labels(text, &tree);
         let (commands, parameters) = find_commands_and_parameter_declarations(text, &tree);

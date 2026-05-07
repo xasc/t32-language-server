@@ -6,11 +6,11 @@ mod ast;
 mod cache;
 mod expressions;
 mod macros;
+mod parse;
 mod path;
 mod query;
 
-use tree_sitter::{Language, Parser, Tree, TreeCursor};
-use tree_sitter_t32;
+use tree_sitter::{Language, Tree, TreeCursor};
 
 pub use ast::{NodeKind, id_into_node};
 pub use cache::{get_macro_scope, locate_calls_to_file_target};
@@ -35,6 +35,8 @@ pub use macros::{
     find_any_macro_references, find_external_macro_definition as goto_external_macro_definition,
     find_macro_definition,
 };
+
+pub use parse::{parse_full, parse_incremental};
 
 pub use path::locate_script as resolve_script;
 
@@ -147,18 +149,6 @@ impl From<LangExpressions> for GotoDefLangContext {
 
 pub fn lang_id_supported(lang_id: &str) -> bool {
     lang_id == LANGUAGE_ID
-}
-
-pub fn parse(text: &[u8], incremental: Option<&Tree>) -> Tree {
-    let mut parser = Parser::new();
-
-    parser
-        .set_language(&tree_sitter_t32::LANGUAGE.into())
-        .expect("Cannot load t32 grammar.");
-
-    parser
-        .parse(text, incremental)
-        .expect("TRACE32 script parser must not fail.")
 }
 
 pub fn get_goto_def_ids(lang: &Language) -> [u16; 3] {

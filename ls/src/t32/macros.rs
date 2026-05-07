@@ -2122,7 +2122,7 @@ mod tests {
             .join("params.cmm");
 
         let text = fs::read_to_string(file).expect("File must exist.");
-        let tree = t32::parse(text.as_bytes(), None);
+        let tree = t32::parse_full(text.as_bytes());
 
         let nodes = find_param_decl_nodes(&tree);
 
@@ -2143,7 +2143,7 @@ mod tests {
     #[test]
     fn can_extract_macro_from_definition_ending_with_comment() {
         let text = "LOCAL &a &b // Local macros\n";
-        let tree = t32::parse(text.as_bytes(), None);
+        let tree = t32::parse_full(text.as_bytes());
 
         let mut cursor = tree.walk();
         cursor.goto_first_child();

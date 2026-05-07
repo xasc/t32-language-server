@@ -13,10 +13,10 @@ use crate::{
     ls::workspace::FileIndex,
     protocol::{TextDocumentContentChangeEvent, TextDocumentItem, Uri},
     t32::{
-        self, CallExpression, CallExpressions, CallLocations, LangExpressions, SubscriptCallKind,
+        CallExpression, CallExpressions, CallLocations, LangExpressions, SubscriptCallKind,
         SubscriptCalls, find_any_macro_references, find_call_expressions,
         find_commands_and_parameter_declarations, find_macro_definitions,
-        find_subroutines_and_labels, resolve_subscript_call_targets,
+        find_subroutines_and_labels, parse_full, parse_incremental, resolve_subscript_call_targets,
     },
 };
 
@@ -25,7 +25,7 @@ pub use textdoc::{TextDoc, TextDocStatus};
 
 pub fn import_doc(r#in: TextDocumentItem, files: FileIndex) -> (TextDoc, Tree, LangExpressions) {
     let doc = TextDoc::from(r#in);
-    let tree = t32::parse(doc.text.as_bytes(), None);
+    let tree = parse_full(doc.text.as_bytes());
 
     let (subroutines, labels) = find_subroutines_and_labels(&doc.text, &tree);
     let (commands, parameters) = find_commands_and_parameter_declarations(&doc.text, &tree);
@@ -56,8 +56,7 @@ pub fn update_doc(
     for change in changes {
         let edits = textdoc.doc.update(change.range, &change.text);
 
-        textdoc.tree.edit(&edits);
-        t32::parse(textdoc.doc.text.as_bytes(), Some(&textdoc.tree));
+        textdoc.tree = parse_incremental(textdoc.doc.text.as_bytes(), &edits, &mut textdoc.tree);
     }
     let (doc, tree) = (&textdoc.doc, &textdoc.tree);
 
@@ -88,7 +87,7 @@ pub fn read_doc(r#in: Url, files: FileIndex) -> Result<(TextDoc, Tree, LangExpre
         Ok(text) => text,
         Err(_) => return Err(uri),
     };
-    let tree = t32::parse(doc.text.as_bytes(), None);
+    let tree = parse_full(doc.text.as_bytes());
 
     let (subroutines, labels) = find_subroutines_and_labels(&doc.text, &tree);
     let (commands, parameters) = find_commands_and_parameter_declarations(&doc.text, &tree);

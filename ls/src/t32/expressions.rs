@@ -1285,7 +1285,7 @@ mod tests {
     #[test]
     fn detects_subroutine_call_expressions_with_macro_target() {
         let text = "GOSUB &assert &arg1\n";
-        let tree = t32::parse(text.as_bytes(), None);
+        let tree = t32::parse_full(text.as_bytes());
 
         let mut cursor = tree.walk();
         cursor.goto_first_child();
