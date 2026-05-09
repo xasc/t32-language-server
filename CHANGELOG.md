@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     -  `keyword.control.practice` for control flow keywords and command
        expressions
     -  `keyword.operator.practice` for operators
+    -  `string.other.path.practice` for unquoted paths
 
 ### Changed
 

@@ -17,7 +17,10 @@ impl SemanticTokensLegend {
         mut token_modifiers: Vec<SemanticTokenModifiers>,
     ) -> Self {
         token_types.retain(|t| *t < SemanticTokenTypes::Namespace);
-        token_modifiers.retain(|m| *m == SemanticTokenModifiers::Definition || *m == SemanticTokenModifiers::DefaultLibrary);
+        token_modifiers.retain(|m| *m == SemanticTokenModifiers::Definition
+            || *m == SemanticTokenModifiers::DefaultLibrary
+            || *m == SemanticTokenModifiers::Abstract
+        );
 
         Self {
             token_types,

@@ -20,7 +20,7 @@
 //!   | keyword     | keyword.function    | (identifier)                                  | `SUBROUTINE` command                   |
 //!   | modifier    | constant.builtin    |                                               |                                        |
 //!   | string      | string              |                                               |                                        |
-//!   | string      | string.special      |                                               |                                        |
+//!   | string      | string.special      | (path)                                        |                                        |
 //!   | number      | number              |                                               |                                        |
 //!   | type        | type                | (hll_type_identifier), (hll_type_descriptor)  |                                        |
 //!   | variable    | variable            |                                               |                                        |
@@ -34,10 +34,11 @@
 //!
 //! Tokens can only have a single type.
 //!
-//!   | Token Modifier | Capture  | Nodes                        | Comment                                       |
-//!   | -------------- | -------- | ---------------------------- | --------------------------------------------- |
-//!   | definition     | keyword  | child of (macro_definition)  | Definition with "GLOBAL", "LOCAL", "PRIVATE"  |
-//!   | defaultLibrary | function |                              | PRACTICE functions                            |
+//!   | Token Modifier | Capture        | Nodes                        | Comment                                       |
+//!   | -------------- | -------------- | ---------------------------- | --------------------------------------------- |
+//!   | abstract       | string.special |                              |                                               |
+//!   | definition     | keyword        | child of (macro_definition)  | Definition with "GLOBAL", "LOCAL", "PRIVATE"  |
+//!   | defaultLibrary | function       |                              | PRACTICE functions                            |
 //!
 //! Semantic tokens selectors are created from token types and modifiers.
 //! Selectors map to TextMate scopes according to this table:
@@ -51,6 +52,8 @@
 //!   | macro.definition        | variable.other.macro.definition.practice  |
 //!   | operator                | keyword.operator.practice                 |
 //!   | parameter               | variable.parameter.practice               |
+//!   | string                  | string.quoted.double.practice             |
+//!   | string.abstract         | string.other.path.practice                |
 //!
 //! A language node may match multiple query captures with equal validity. In
 //! such cases we need to use the pattern index for prioritization. The pattern
@@ -316,8 +319,15 @@ impl SemanticTokenQueryCaptures {
                             .expect("Capture name must exist."),
                     );
                 }
-                SemanticTokenModifiers::Abstract
-                | SemanticTokenModifiers::Async
+                SemanticTokenModifiers::Abstract => {
+                    captures.1.push(1usize);
+                    captures.2.push(
+                        query
+                            .capture_index_for_name(CAPTURE_STRING_SPECIAL)
+                            .expect("Capture name must exist."),
+                    );
+                }
+                SemanticTokenModifiers::Async
                 | SemanticTokenModifiers::Declaration
                 | SemanticTokenModifiers::Deprecated
                 | SemanticTokenModifiers::Documentation
@@ -593,6 +603,7 @@ mod tests {
         let modifiers = vec![
             SemanticTokenModifiers::Definition,
             SemanticTokenModifiers::DefaultLibrary,
+            SemanticTokenModifiers::Abstract,
         ];
 
         SemanticTokensLegend {
@@ -1034,6 +1045,76 @@ mod tests {
                 },
                 r#type: 0,
                 modifier: 0,
+            }));
+    }
+
+    #[test]
+    fn captures_strings() {
+        let text = "PRINT \"Hello\"+\", World\"\n";
+
+        let tree = parse_full(&text.as_bytes());
+        let doc = create_doc("file://test.cmm".to_string(), 0, text.to_string());
+        let legend = create_full_legend();
+
+        let tokens = do_syntax_highlighting(legend.clone(), &doc, &tree);
+
+        debug_assert!(tokens.iter().any(|t| *t
+            == SemanticToken {
+                span: LRange {
+                    start: Position {
+                        line: 0,
+                        character: 6,
+                    },
+                    end: Position {
+                        line: 0,
+                        character: 13,
+                    },
+                },
+                r#type: 3,
+                modifier: 0,
+            }));
+
+        debug_assert!(tokens.iter().any(|t| *t
+            == SemanticToken {
+                span: LRange {
+                    start: Position {
+                        line: 0,
+                        character: 14,
+                    },
+                    end: Position {
+                        line: 0,
+                        character: 23,
+                    },
+                },
+                r#type: 3,
+                modifier: 0,
+            }));
+    }
+
+    #[test]
+    fn captures_paths_as_special_strings() {
+        let text = "DO C:\\run.cmm\n";
+
+        let tree = parse_full(&text.as_bytes());
+        let doc = create_doc("file://test.cmm".to_string(), 0, text.to_string());
+        let legend = create_full_legend();
+
+        let tokens = do_syntax_highlighting(legend.clone(), &doc, &tree);
+
+        debug_assert!(tokens.iter().any(|t| *t
+            == SemanticToken {
+                span: LRange {
+                    start: Position {
+                        line: 0,
+                        character: 3,
+                    },
+                    end: Position {
+                        line: 0,
+                        character: 13,
+                    },
+                },
+                r#type: 3,
+                modifier: 4,
             }));
     }
 }
