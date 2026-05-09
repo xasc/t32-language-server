@@ -952,7 +952,7 @@ mod tests {
     }
 
     #[test]
-    fn captures_control_flow_keywords() {
+    fn captures_control_flow_and_commands_keywords() {
         let text = "IF &a\nPRINT \"hello\"\n";
 
         let tree = parse_full(&text.as_bytes());
@@ -990,6 +990,49 @@ mod tests {
                     },
                 },
                 r#type: 1,
+                modifier: 0,
+            }));
+    }
+
+    #[test]
+    fn captures_operator_keywords() {
+        let text = "&a=1+1";
+
+        let tree = parse_full(&text.as_bytes());
+        let doc = create_doc("file://test.cmm".to_string(), 0, text.to_string());
+        let legend = create_full_legend();
+
+        let tokens = do_syntax_highlighting(legend.clone(), &doc, &tree);
+
+        debug_assert!(tokens.iter().any(|t| *t
+            == SemanticToken {
+                span: LRange {
+                    start: Position {
+                        line: 0,
+                        character: 2,
+                    },
+                    end: Position {
+                        line: 0,
+                        character: 3,
+                    },
+                },
+                r#type: 0,
+                modifier: 0,
+            }));
+
+        debug_assert!(tokens.iter().any(|t| *t
+            == SemanticToken {
+                span: LRange {
+                    start: Position {
+                        line: 0,
+                        character: 4,
+                    },
+                    end: Position {
+                        line: 0,
+                        character: 5,
+                    },
+                },
+                r#type: 0,
                 modifier: 0,
             }));
     }

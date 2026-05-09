@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     -  `variable.parameter.practice` for parameter declarations
     -  `keyword.control.practice` for control flow keywords and command
        expressions
+    -  `keyword.operator.practice` for operators
 
 ### Changed
 
