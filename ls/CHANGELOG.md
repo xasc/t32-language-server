@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     -  `function.defaultLibrary` for built-in PRACTICE functions
     -  `variable.other.macro.definition.practice` for macro definitions
     -  `variable.parameter.practice` for parameter declarations
+    -  `keyword.control.practice` for control flow keywords and command
+       expressions
 
 ### Changed
 

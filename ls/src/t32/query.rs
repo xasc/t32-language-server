@@ -44,10 +44,12 @@
 //!
 //!   | Token Selectors         | TextMate scope                            |
 //!   | ----------------------- | ----------------------------------------- |
-//!   | macro                   | variable.other.macro.practice             |
-//!   | macro.definition        | variable.other.macro.definition.practice  |
 //!   | function                | entity.name.function.practice             |
 //!   | function.defaultLibrary | support.function.trace32.practice         |
+//!   | keyword                 | keyword.control.practice                  |
+//!   | macro                   | variable.other.macro.practice             |
+//!   | macro.definition        | variable.other.macro.definition.practice  |
+//!   | operator                | keyword.operator.practice                 |
 //!   | parameter               | variable.parameter.practice               |
 //!
 //! A language node may match multiple query captures with equal validity. In
@@ -414,26 +416,31 @@ fn capture_semantic_tokens<'a, 'b>(
     num_matches: usize,
     matches: QueryCaptures<'a, 'a, &'b [u8], &'b [u8]>,
 ) -> Vec<SemanticToken> {
-    let (operator, id_type, var_builtin) = {
+    let (operator, id_type, var, var_builtin) = {
         let id_operator = query
             .capture_index_for_name(CAPTURE_OPERATOR)
             .expect("Capture name must exist.");
         let id_type = query
             .capture_index_for_name(CAPTURE_TYPE)
             .expect("Capture name must exist.");
+        let id_var = query
+            .capture_index_for_name(CAPTURE_VARIABLE)
+            .expect("Capture name must exist.");
         let id_var_builtin = query
             .capture_index_for_name(CAPTURE_VARIABLE_BUILTIN)
             .expect("Capture name must exist.");
 
-        (id_operator, id_type, id_var_builtin)
+        (id_operator, id_type, id_var, id_var_builtin)
     };
 
-    let (r#macro, macro_definition, hll_type_identifier, hll_type_descriptor) = {
+    let (command_expr, r#macro, macro_definition, hll_type_identifier, hll_type_descriptor) = {
+        let id_command_expr = NodeKind::CommandExpression.into_id(&lang);
         let id_macro = NodeKind::Macro.into_id(&lang);
         let id_macro_definition = NodeKind::MacroDefinition.into_id(&lang);
         let id_hll_type_descriptor = NodeKind::HllTypeDescriptor.into_id(&lang);
         let id_hll_type_identifier = NodeKind::HllTypeIdentifier.into_id(&lang);
         (
+            id_command_expr,
             id_macro,
             id_macro_definition,
             id_hll_type_descriptor,
@@ -449,7 +456,6 @@ fn capture_semantic_tokens<'a, 'b>(
     let mut tokens: Vec<SemanticToken> = Vec::with_capacity(num_matches);
     matches.for_each(|(m, idx)| {
         let capture = m.captures[*idx];
-        dbg!(&capture);
 
         let node = &capture.node;
         let span = BRange::from(node.byte_range());
@@ -459,8 +465,15 @@ fn capture_semantic_tokens<'a, 'b>(
 
         // Macros will always capture the `&` as separate operator.
         if capture.index == operator && let Some(parent) = node.parent() {
-            let id = parent.kind_id();
-            if id == r#macro {
+            if parent.kind_id() == r#macro {
+                return;
+            }
+        }
+
+        // Prevent capture of command expressions as variables. The variable
+        // capture has a higher priority.
+        if capture.index == var && let Some(parent) = node.parent() {
+            if parent.kind_id() == command_expr {
                 return;
             }
         }
@@ -934,6 +947,49 @@ mod tests {
                     },
                 },
                 r#type: 9,
+                modifier: 0,
+            }));
+    }
+
+    #[test]
+    fn captures_control_flow_keywords() {
+        let text = "IF &a\nPRINT \"hello\"\n";
+
+        let tree = parse_full(&text.as_bytes());
+        let doc = create_doc("file://test.cmm".to_string(), 0, text.to_string());
+        let legend = create_full_legend();
+
+        let tokens = do_syntax_highlighting(legend.clone(), &doc, &tree);
+
+        debug_assert!(tokens.iter().any(|t| *t
+            == SemanticToken {
+                span: LRange {
+                    start: Position {
+                        line: 0,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 0,
+                        character: 2,
+                    },
+                },
+                r#type: 1,
+                modifier: 0,
+            }));
+
+        debug_assert!(tokens.iter().any(|t| *t
+            == SemanticToken {
+                span: LRange {
+                    start: Position {
+                        line: 1,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 1,
+                        character: 5,
+                    },
+                },
+                r#type: 1,
                 modifier: 0,
             }));
     }
