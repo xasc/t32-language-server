@@ -23,4 +23,6 @@ SUBROUTINE subA
 label:
     PRINT "LABEL"
 
+PRIVATE &private
+
 ENDDO

@@ -8,46 +8,47 @@
 //! We are using these correspondence tables for mapping semantic token types to
 //! Tree-sitter grammar captures:
 //!
-//!   | Token Type  | Capture             | Nodes                                         | Comment                                 |
-//!   | ----------- | ------------------- | --------------------------------------------- | --------------------------------------- |
-//!   | operator    | operator            |                                               |                                         |
-//!   | keyword     | keyword             |                                               |                                         |
-//!   | keyword     | keyword.operator    |                                               |                                         |
-//!   | keyword     | conditional.ternary |                                               |                                         |
-//!   | keyword     | conditional         |                                               |                                         |
-//!   | keyword     | repeat              |                                               |                                         |
-//!   | keyword     | keyword.return      |                                               |                                         |
-//!   | keyword     | keyword.function    | (identifier)                                  | `SUBROUTINE` command                    |
-//!   | modifier    | constant.builtin    |                                               |                                         |
-//!   | string      | string              |                                               |                                         |
-//!   | string      | string.special      |                                               |                                         |
-//!   | number      | number              |                                               |                                         |
-//!   | type        | type                | (hll_type_identifier), (hll_type_descriptor)  |                                         |
-//!   | variable    | variable            |                                               |                                         |
-//!   | variable    | constant            |                                               |                                         |
-//!   | macro       | variable.builtin    |                                               | Always contains an "operator" capture.  |
-//!   | function    | function            |                                               |                                         |
-//!   | function    | function.builtin    | (identifier)                                  | PRACTICE functions                      |
-//!   | parameter   | variable.parameter  |                                               |                                         |
-//!   | label       | label               |                                               |                                         |
-//!   | comment     | comment             |                                               |                                         |
+//!   | Token Type  | Capture             | Nodes                                         | Comment                                |
+//!   | ----------- | ------------------- | --------------------------------------------- | -------------------------------------- |
+//!   | operator    | operator            |                                               |                                        |
+//!   | keyword     | keyword             |                                               |                                        |
+//!   | keyword     | keyword.operator    |                                               |                                        |
+//!   | keyword     | conditional.ternary |                                               |                                        |
+//!   | keyword     | conditional         |                                               |                                        |
+//!   | keyword     | repeat              |                                               |                                        |
+//!   | keyword     | keyword.return      |                                               |                                        |
+//!   | keyword     | keyword.function    | (identifier)                                  | `SUBROUTINE` command                   |
+//!   | modifier    | constant.builtin    |                                               |                                        |
+//!   | string      | string              |                                               |                                        |
+//!   | string      | string.special      |                                               |                                        |
+//!   | number      | number              |                                               |                                        |
+//!   | type        | type                | (hll_type_identifier), (hll_type_descriptor)  |                                        |
+//!   | variable    | variable            |                                               |                                        |
+//!   | variable    | constant            |                                               |                                        |
+//!   | macro       | variable.builtin    |                                               | Always contains an "operator" capture. |
+//!   | function    | function            |                                               |                                        |
+//!   | function    | function.builtin    | (identifier)                                  | PRACTICE functions                     |
+//!   | parameter   | variable.parameter  | (macro)                                       | Always contains an "operator" capture. |
+//!   | label       | label               |                                               |                                        |
+//!   | comment     | comment             |                                               |                                        |
 //!
 //! Tokens can only have a single type.
 //!
-//!   | Token Modifier | Capture  | Nodes                        | Comment                       |
-//!   | -------------- | -------- | ---------------------------- | ----------------------------- |
-//!   | definition     | keyword  | child of (macro_definition)  | "GLOBAL", "LOCAL", "PRIVATE"  |
-//!   | definition     | function |                              |                               |
-//!   | defaultLibrary | function |                              | Subroutine definitions        |
+//!   | Token Modifier | Capture  | Nodes                        | Comment                                       |
+//!   | -------------- | -------- | ---------------------------- | --------------------------------------------- |
+//!   | definition     | keyword  | child of (macro_definition)  | Definition with "GLOBAL", "LOCAL", "PRIVATE"  |
+//!   | defaultLibrary | function |                              | PRACTICE functions                            |
 //!
-//!  Semantic tokens selectors are created from token types and modifiers.
-//!  Selectors map to TextMate scopes according to this table:
+//! Semantic tokens selectors are created from token types and modifiers.
+//! Selectors map to TextMate scopes according to this table:
 //!
-//!   | Token Selectors         | TextMate scope                     |
-//!   | ----------------------- | ---------------------------------- |
-//!   | macro                   | variable.other.macro.practice      |
-//!   | function                | entity.name.function.practice      |
-//!   | function.defaultLibrary | support.function.trace32.practice  |
+//!   | Token Selectors         | TextMate scope                            |
+//!   | ----------------------- | ----------------------------------------- |
+//!   | macro                   | variable.other.macro.practice             |
+//!   | macro.definition        | variable.other.macro.definition.practice  |
+//!   | function                | entity.name.function.practice             |
+//!   | function.defaultLibrary | support.function.trace32.practice         |
+//!   | parameter               | variable.parameter.practice               |
 //!
 //! A language node may match multiple query captures with equal validity. In
 //! such cases we need to use the pattern index for prioritization. The pattern
@@ -298,16 +299,12 @@ impl SemanticTokenQueryCaptures {
             captures.0.push(captures.2.len());
             match modifier {
                 SemanticTokenModifiers::Definition => {
-                    let ts = [CAPTURE_KEYWORD, CAPTURE_FUNCTION];
-
-                    captures.1.push(ts.len());
-                    for capture in ts {
-                        captures.2.push(
-                            query
-                                .capture_index_for_name(capture)
-                                .expect("Capture name must exist."),
-                        );
-                    }
+                    captures.1.push(1usize);
+                    captures.2.push(
+                        query
+                            .capture_index_for_name(CAPTURE_VARIABLE_BUILTIN)
+                            .expect("Capture name must exist."),
+                    );
                 }
                 SemanticTokenModifiers::DefaultLibrary => {
                     captures.1.push(1usize);
@@ -417,28 +414,27 @@ fn capture_semantic_tokens<'a, 'b>(
     num_matches: usize,
     matches: QueryCaptures<'a, 'a, &'b [u8], &'b [u8]>,
 ) -> Vec<SemanticToken> {
-    let (operator, id_type, keyword, var_builtin) = {
+    let (operator, id_type, var_builtin) = {
         let id_operator = query
             .capture_index_for_name(CAPTURE_OPERATOR)
             .expect("Capture name must exist.");
         let id_type = query
             .capture_index_for_name(CAPTURE_TYPE)
             .expect("Capture name must exist.");
-        let id_keyword = query
-            .capture_index_for_name(CAPTURE_KEYWORD)
-            .expect("Capture name must exist.");
         let id_var_builtin = query
             .capture_index_for_name(CAPTURE_VARIABLE_BUILTIN)
             .expect("Capture name must exist.");
 
-        (id_operator, id_type, id_keyword, id_var_builtin)
+        (id_operator, id_type, id_var_builtin)
     };
 
-    let (macro_definition, hll_type_identifier, hll_type_descriptor) = {
+    let (r#macro, macro_definition, hll_type_identifier, hll_type_descriptor) = {
+        let id_macro = NodeKind::Macro.into_id(&lang);
         let id_macro_definition = NodeKind::MacroDefinition.into_id(&lang);
         let id_hll_type_descriptor = NodeKind::HllTypeDescriptor.into_id(&lang);
         let id_hll_type_identifier = NodeKind::HllTypeIdentifier.into_id(&lang);
         (
+            id_macro,
             id_macro_definition,
             id_hll_type_descriptor,
             id_hll_type_identifier,
@@ -448,14 +444,12 @@ fn capture_semantic_tokens<'a, 'b>(
     let num_patterns = query.pattern_count() as u32;
 
     // No query pattern captures the root node
-    let mut prior_id = num_patterns;
     let mut prior_id_captured = num_patterns;
-
-    let mut prior_span: BRange = BRange::from(0..0);
 
     let mut tokens: Vec<SemanticToken> = Vec::with_capacity(num_matches);
     matches.for_each(|(m, idx)| {
         let capture = m.captures[*idx];
+        dbg!(&capture);
 
         let node = &capture.node;
         let span = BRange::from(node.byte_range());
@@ -464,16 +458,17 @@ fn capture_semantic_tokens<'a, 'b>(
         }
 
         // Macros will always capture the `&` as separate operator.
-        if capture.index == operator && prior_id == var_builtin && span.contained(&prior_span) {
-            prior_id = capture.index;
-            prior_span = span;
-            return;
+        if capture.index == operator && let Some(parent) = node.parent() {
+            let id = parent.kind_id();
+            if id == r#macro {
+                return;
+            }
         }
 
         let mut modifier: u32 = 0;
         for (ii, r#mods) in selection.modifiers.iter().enumerate() {
             if mods.iter().any(|m| *m == capture.index) {
-                if capture.index == keyword {
+                if capture.index == var_builtin {
                     let Some(parent) = node.parent() else {
                         continue;
                     };
@@ -521,8 +516,6 @@ fn capture_semantic_tokens<'a, 'b>(
                 prior_id_captured = capture.index;
             }
         }
-        prior_id = capture.index;
-        prior_span = span;
     });
     debug_assert!(
         tokens
@@ -596,7 +589,7 @@ mod tests {
     }
 
     #[test]
-    fn can_determine_synax_highlights() {
+    fn can_determine_syntax_highlights() {
         let files = create_file_idx();
         let uri_a = Url::from_file_path(
             path::absolute("tests/samples/semantic.cmm").expect("Files must exist."),
@@ -732,22 +725,18 @@ mod tests {
         };
 
         let tokens = do_syntax_highlighting(legend.clone(), &doc, &tree);
+
         debug_assert!(!tokens.is_empty());
-        debug_assert!(!tokens.iter().any(|t| *t
-            == SemanticToken {
-                span: LRange {
-                    start: Position {
-                        line: 12,
-                        character: 0,
-                    },
-                    end: Position {
-                        line: 12,
-                        character: 5,
-                    },
-                },
-                r#type: 0,
-                modifier: 1,
-            }));
+        debug_assert!(!tokens.iter().any(|t| t.span == LRange {
+            start: Position {
+                line: 12,
+                character: 0,
+            },
+            end: Position {
+                line: 12,
+                character: 5,
+            },
+        }));
         debug_assert!(tokens.iter().any(|t| *t
             == SemanticToken {
                 span: LRange {
@@ -761,7 +750,7 @@ mod tests {
                     },
                 },
                 r#type: 0,
-                modifier: 1,
+                modifier: 0,
             }));
     }
 
@@ -903,6 +892,49 @@ mod tests {
                 },
                 r#type: 8,
                 modifier: 2,
+            }));
+    }
+
+    #[test]
+    fn captures_parameter_declarations() {
+        let text = "PARAMETERS &a &b\n";
+
+        let tree = parse_full(&text.as_bytes());
+        let doc = create_doc("file://test.cmm".to_string(), 0, text.to_string());
+        let legend = create_full_legend();
+
+        let tokens = do_syntax_highlighting(legend.clone(), &doc, &tree);
+
+        debug_assert!(tokens.iter().any(|t| *t
+            == SemanticToken {
+                span: LRange {
+                    start: Position {
+                        line: 0,
+                        character: 11,
+                    },
+                    end: Position {
+                        line: 0,
+                        character: 13,
+                    },
+                },
+                r#type: 9,
+                modifier: 0,
+            }));
+
+        debug_assert!(tokens.iter().any(|t| *t
+            == SemanticToken {
+                span: LRange {
+                    start: Position {
+                        line: 0,
+                        character: 14,
+                    },
+                    end: Position {
+                        line: 0,
+                        character: 16,
+                    },
+                },
+                r#type: 9,
+                modifier: 0,
             }));
     }
 }

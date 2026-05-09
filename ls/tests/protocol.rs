@@ -772,7 +772,7 @@ fn can_build_semantic_token_legend() {
             .contains("abstract")
     );
     assert!(
-        !std::str::from_utf8(&output.stdout)
+        std::str::from_utf8(&output.stdout)
             .unwrap()
             .contains("defaultLibrary")
     );
