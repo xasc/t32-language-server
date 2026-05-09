@@ -6,31 +6,31 @@
 //! ==========================================================
 //!
 //! We are using these correspondence tables for mapping semantic token types to
-//! grammar captures:
+//! Tree-sitter grammar captures:
 //!
-//!   | Token Type  | Capture             | Nodes                                         | Comment                                 |
-//!   | ----------- | ------------------- | --------------------------------------------- | --------------------------------------- |
-//!   | operator    | operator            |                                               |                                         |
-//!   | keyword     | keyword             |                                               |                                         |
-//!   | keyword     | keyword.operator    |                                               |                                         |
-//!   | keyword     | conditional.ternary |                                               |                                         |
-//!   | keyword     | conditional         |                                               |                                         |
-//!   | keyword     | repeat              |                                               |                                         |
-//!   | keyword     | keyword.return      |                                               |                                         |
-//!   | keyword     | keyword.function    |                                               |                                         |
-//!   | modifier    | constant.builtin    |                                               |                                         |
-//!   | string      | string              |                                               |                                         |
-//!   | string      | string.special      |                                               |                                         |
-//!   | number      | number              |                                               |                                         |
-//!   | type        | type                | (hll_type_identifier), (hll_type_descriptor)  |                                         |
-//!   | variable    | variable            |                                               |                                         |
-//!   | variable    | constant            |                                               |                                         |
-//!   | macro       | variable.builtin    |                                               | Always contains an "operator" capture.  |
-//!   | function    | function            |                                               |                                         |
-//!   | function    | function.call       |                                               |                                         |
-//!   | parameter   | variable.parameter  |                                               |                                         |
-//!   | label       | label               |                                               |                                         |
-//!   | comment     | comment             |                                               |                                         |
+//!   | Token Type  | Capture             | Nodes                                         | TextMate scope                          | Comment                                 |
+//!   | ----------- | ------------------- | --------------------------------------------- | --------------------------------------- | --------------------------------------- |
+//!   | operator    | operator            |                                               |                                         |                                         |
+//!   | keyword     | keyword             |                                               |                                         |                                         |
+//!   | keyword     | keyword.operator    |                                               |                                         |                                         |
+//!   | keyword     | conditional.ternary |                                               |                                         |                                         |
+//!   | keyword     | conditional         |                                               |                                         |                                         |
+//!   | keyword     | repeat              |                                               |                                         |                                         |
+//!   | keyword     | keyword.return      |                                               |                                         |                                         |
+//!   | keyword     | keyword.function    |                                               |                                         |                                         |
+//!   | modifier    | constant.builtin    |                                               |                                         |                                         |
+//!   | string      | string              |                                               |                                         |                                         |
+//!   | string      | string.special      |                                               |                                         |                                         |
+//!   | number      | number              |                                               |                                         |                                         |
+//!   | type        | type                | (hll_type_identifier), (hll_type_descriptor)  |                                         |                                         |
+//!   | variable    | variable            |                                               |                                         |                                         |
+//!   | variable    | constant            |                                               |                                         |                                         |
+//!   | macro       | variable.builtin    |                                               | variable.other.macro.practice           | Always contains an "operator" capture.  |
+//!   | function    | function            |                                               | entity.name.function.practice           |                                         |
+//!   | function    | function.call       |                                               | entity.name.function.practice           |                                         |
+//!   | parameter   | variable.parameter  |                                               |                                         |                                         |
+//!   | label       | label               |                                               |                                         |                                         |
+//!   | comment     | comment             |                                               |                                         |                                         |
 //!
 //!
 //! Tokens can only have a single type.
@@ -75,7 +75,7 @@ use tree_sitter_t32::HIGHLIGHTS_QUERY;
 use crate::{
     ls::TextDoc,
     protocol::{Range as LRange, SemanticTokenModifiers, SemanticTokenTypes, SemanticTokensLegend},
-    t32::{NodeKind, parse},
+    t32::{parse_full, NodeKind},
     utils::BRange,
 };
 
@@ -109,7 +109,7 @@ struct SemanticTokenQueryCaptureMapIterator<'a> {
 struct SemanticTokenQueryCaptureMap(pub Vec<usize>, pub Vec<usize>, pub Vec<u32>);
 
 pub static QUERY_HIGHLIGHTS_CACHED: LazyLock<Query> = LazyLock::new(|| {
-    let tree = parse(&[], None);
+    let tree = parse_full(&[]);
     Query::new(&tree.language(), HIGHLIGHTS_QUERY).expect("Highlights query must be valid")
 });
 
@@ -433,6 +433,8 @@ fn capture_semantic_tokens<'a, 'b>(
 
     // No query pattern captures the root node
     let mut prior_id = num_patterns;
+    let mut prior_id_captured = num_patterns;
+
     let mut prior_span: BRange = BRange::from(0..0);
 
     let mut tokens: Vec<SemanticToken> = Vec::with_capacity(num_matches);
@@ -441,6 +443,9 @@ fn capture_semantic_tokens<'a, 'b>(
 
         let node = &capture.node;
         let span = BRange::from(node.byte_range());
+        if span.inner().start == span.inner().end {
+            return;
+        }
 
         // Macros will always capture the `&` as separate operator.
         if capture.index == operator && prior_id == var_builtin && span.contained(&prior_span) {
@@ -475,12 +480,29 @@ fn capture_semantic_tokens<'a, 'b>(
                     }
                 }
 
-                let range = capture.node.byte_range();
-                tokens.push(SemanticToken {
-                    span: doc.to_range(range.start, range.end),
+                let bytes = capture.node.byte_range();
+                let span = doc.to_range(bytes.start, bytes.end);
+
+                let token = SemanticToken {
+                    span,
                     r#type: ii as u32,
                     modifier,
-                });
+                };
+
+                if let Some(prior) = tokens.last_mut()
+                    && prior.span == token.span
+                {
+                    // If multiple captures select the same range, then we only
+                    // store the one with the highest capture index.
+                    if capture.index > prior_id_captured {
+                        *prior = token;
+                    } else {
+                        continue;
+                    }
+                } else {
+                    tokens.push(token);
+                }
+                prior_id_captured = capture.index;
             }
         }
         prior_id = capture.index;
@@ -524,7 +546,35 @@ mod tests {
 
     use url::Url;
 
-    use crate::{ls::read_doc, protocol::Position, utils::create_file_idx};
+    use crate::{
+        ls::read_doc,
+        protocol::Position,
+        utils::{create_doc, create_file_idx},
+    };
+
+    fn create_full_legend() -> SemanticTokensLegend {
+        let types = vec![
+            SemanticTokenTypes::Operator,
+            SemanticTokenTypes::Keyword,
+            SemanticTokenTypes::Modifier,
+            SemanticTokenTypes::String,
+            SemanticTokenTypes::Number,
+            SemanticTokenTypes::Type,
+            SemanticTokenTypes::Variable,
+            SemanticTokenTypes::Macro,
+            SemanticTokenTypes::Function,
+            SemanticTokenTypes::Parameter,
+            SemanticTokenTypes::Label,
+            SemanticTokenTypes::Comment,
+        ];
+
+        let modifiers = vec![SemanticTokenModifiers::Definition];
+
+        SemanticTokensLegend {
+            token_types: types,
+            token_modifiers: modifiers,
+        }
+    }
 
     #[test]
     fn can_determine_synax_highlights() {
@@ -724,5 +774,89 @@ mod tests {
         let tokens = do_syntax_highlighting_in_range(legend.clone(), &doc, &tree, &range);
 
         debug_assert_eq!(tokens.iter().count(), 1);
+    }
+
+    #[test]
+    fn selects_capture_with_higher_priority() {
+        let text = "SUBROUTINE abc\n(\n    RETURN \"&a\"\n)";
+        let tree = parse_full(&text.as_bytes());
+        let doc = create_doc("file://test.cmm".to_string(), 0, text.to_string());
+        let legend = create_full_legend();
+
+        let tokens = do_syntax_highlighting(legend.clone(), &doc, &tree);
+
+        debug_assert!(tokens.iter().any(|t| *t
+            == SemanticToken {
+                span: LRange {
+                    start: Position {
+                        line: 0,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 0,
+                        character: 10,
+                    },
+                },
+                r#type: 1,
+                modifier: 0,
+            }));
+        debug_assert!(!tokens.iter().any(|t| *t
+            == SemanticToken {
+                span: LRange {
+                    start: Position {
+                        line: 0,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 0,
+                        character: 10,
+                    },
+                },
+                r#type: 6,
+                modifier: 0,
+            }));
+
+        debug_assert!(tokens.iter().any(|t| *t
+            == SemanticToken {
+                span: LRange {
+                    start: Position {
+                        line: 2,
+                        character: 4,
+                    },
+                    end: Position {
+                        line: 2,
+                        character: 10,
+                    },
+                },
+                r#type: 1,
+                modifier: 0,
+            }));
+        debug_assert!(!tokens.iter().any(|t| *t
+            == SemanticToken {
+                span: LRange {
+                    start: Position {
+                        line: 2,
+                        character: 4,
+                    },
+                    end: Position {
+                        line: 2,
+                        character: 10,
+                    },
+                },
+                r#type: 6,
+                modifier: 0,
+            }));
+    }
+
+    #[test]
+    fn ignores_tokens_with_zero_length() {
+        let text = "abc:\n(\n    RETURN \"&a\"\n)";
+        let tree = parse_full(&text.as_bytes());
+        let doc = create_doc("file://test.cmm".to_string(), 0, text.to_string());
+        let legend = create_full_legend();
+
+        let tokens = do_syntax_highlighting(legend.clone(), &doc, &tree);
+
+        debug_assert!(!tokens.iter().any(|t| t.span.start == t.span.end));
     }
 }

@@ -812,10 +812,10 @@ pub fn capture_semantic_tokens_full_doc(
 ) -> SemanticTokens {
     let mut tokens = do_syntax_highlighting(legend, &textdoc.doc, &textdoc.tree);
     if !tokens.is_empty() {
-        if encoding.multiline_tokens {
+        if !encoding.multiline_tokens {
             tokens = split_multiline_semantic_tokens(&textdoc.doc, tokens);
         }
-        if encoding.overlapping_tokens {
+        if !encoding.overlapping_tokens {
             tokens = flatten_semantic_tokens(tokens);
         }
     }
@@ -837,10 +837,10 @@ pub fn capture_semantic_tokens_doc_range(
 ) -> SemanticTokens {
     let mut tokens = do_syntax_highlighting_in_range(legend, &textdoc.doc, &textdoc.tree, &range);
     if !tokens.is_empty() {
-        if encoding.multiline_tokens {
+        if !encoding.multiline_tokens {
             tokens = split_multiline_semantic_tokens(&textdoc.doc, tokens);
         }
-        if encoding.overlapping_tokens {
+        if !encoding.overlapping_tokens {
             tokens = flatten_semantic_tokens(tokens);
         }
     }

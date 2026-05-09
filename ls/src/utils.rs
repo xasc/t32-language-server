@@ -20,7 +20,8 @@ use crate::protocol::{Location, Range as LRange, Uri};
 #[cfg(test)]
 use crate::{
     ls::{FileIndex, TextDoc, TextDocs, index_files, read_doc},
-    t32::LangExpressions,
+    protocol::TextDocumentItem,
+    t32::{LangExpressions, LANGUAGE_ID},
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -392,4 +393,14 @@ pub fn create_doc_store(files: &Vec<Url>, index: &FileIndex) -> TextDocs {
         members.push((doc, tree, expr));
     }
     TextDocs::from_workspace(members)
+}
+
+#[cfg(test)]
+pub fn create_doc(uri: String, version: i64, text: String) -> TextDoc {
+    TextDoc::from(TextDocumentItem {
+        uri,
+        language_id: LANGUAGE_ID.to_string(),
+        version,
+        text,
+    })
 }

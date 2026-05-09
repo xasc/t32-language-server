@@ -40,6 +40,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 -  Fix parsing of subroutine calls that use a macro target instead of an
    identifier.
 -  Fix detection of macro definitions that end on comment.
+-  Fix update of text document contents.
+-  Fix incremental update of abstract syntax trees.
+-  Fix semantic token detection.
 
 
 [0.7.1] - 2026-04-21
