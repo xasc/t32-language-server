@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
        expressions
     -  `keyword.operator.practice` for operators
     -  `string.other.path.practice` for unquoted paths
+    -  `comment.practice` for comments
 
 ### Changed
 

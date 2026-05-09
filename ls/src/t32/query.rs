@@ -45,6 +45,7 @@
 //!
 //!   | Token Selectors         | TextMate scope                            |
 //!   | ----------------------- | ----------------------------------------- |
+//!   | comment                 | comment.practice                          |
 //!   | function                | entity.name.function.practice             |
 //!   | function.defaultLibrary | support.function.trace32.practice         |
 //!   | keyword                 | keyword.control.practice                  |
@@ -1115,6 +1116,33 @@ mod tests {
                 },
                 r#type: 3,
                 modifier: 4,
+            }));
+    }
+
+    #[test]
+    fn captures_comments() {
+        let text = "&a // Comment\n";
+
+        let tree = parse_full(&text.as_bytes());
+        let doc = create_doc("file://test.cmm".to_string(), 0, text.to_string());
+        let legend = create_full_legend();
+
+        let tokens = do_syntax_highlighting(legend.clone(), &doc, &tree);
+
+        debug_assert!(tokens.iter().any(|t| *t
+            == SemanticToken {
+                span: LRange {
+                    start: Position {
+                        line: 0,
+                        character: 2,
+                    },
+                    end: Position {
+                        line: 1,
+                        character: 0,
+                    },
+                },
+                r#type: 11,
+                modifier: 0,
             }));
     }
 }
