@@ -393,7 +393,6 @@ fn process_initialize_params(
 
             let mut modifiers: Vec<SemanticTokenModifiers> =
                 Vec::with_capacity(SemanticTokenModifiers::num());
-
             {
                 let mut unknown: Vec<&str> = Vec::new();
 

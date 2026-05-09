@@ -8,30 +8,29 @@
 //! We are using these correspondence tables for mapping semantic token types to
 //! Tree-sitter grammar captures:
 //!
-//!   | Token Type  | Capture             | Nodes                                         | TextMate scope                          | Comment                                 |
-//!   | ----------- | ------------------- | --------------------------------------------- | --------------------------------------- | --------------------------------------- |
-//!   | operator    | operator            |                                               |                                         |                                         |
-//!   | keyword     | keyword             |                                               |                                         |                                         |
-//!   | keyword     | keyword.operator    |                                               |                                         |                                         |
-//!   | keyword     | conditional.ternary |                                               |                                         |                                         |
-//!   | keyword     | conditional         |                                               |                                         |                                         |
-//!   | keyword     | repeat              |                                               |                                         |                                         |
-//!   | keyword     | keyword.return      |                                               |                                         |                                         |
-//!   | keyword     | keyword.function    |                                               |                                         |                                         |
-//!   | modifier    | constant.builtin    |                                               |                                         |                                         |
-//!   | string      | string              |                                               |                                         |                                         |
-//!   | string      | string.special      |                                               |                                         |                                         |
-//!   | number      | number              |                                               |                                         |                                         |
-//!   | type        | type                | (hll_type_identifier), (hll_type_descriptor)  |                                         |                                         |
-//!   | variable    | variable            |                                               |                                         |                                         |
-//!   | variable    | constant            |                                               |                                         |                                         |
-//!   | macro       | variable.builtin    |                                               | variable.other.macro.practice           | Always contains an "operator" capture.  |
-//!   | function    | function            |                                               | entity.name.function.practice           |                                         |
-//!   | function    | function.call       |                                               | entity.name.function.practice           |                                         |
-//!   | parameter   | variable.parameter  |                                               |                                         |                                         |
-//!   | label       | label               |                                               |                                         |                                         |
-//!   | comment     | comment             |                                               |                                         |                                         |
-//!
+//!   | Token Type  | Capture             | Nodes                                         | Comment                                 |
+//!   | ----------- | ------------------- | --------------------------------------------- | --------------------------------------- |
+//!   | operator    | operator            |                                               |                                         |
+//!   | keyword     | keyword             |                                               |                                         |
+//!   | keyword     | keyword.operator    |                                               |                                         |
+//!   | keyword     | conditional.ternary |                                               |                                         |
+//!   | keyword     | conditional         |                                               |                                         |
+//!   | keyword     | repeat              |                                               |                                         |
+//!   | keyword     | keyword.return      |                                               |                                         |
+//!   | keyword     | keyword.function    | (identifier)                                  | `SUBROUTINE` command                    |
+//!   | modifier    | constant.builtin    |                                               |                                         |
+//!   | string      | string              |                                               |                                         |
+//!   | string      | string.special      |                                               |                                         |
+//!   | number      | number              |                                               |                                         |
+//!   | type        | type                | (hll_type_identifier), (hll_type_descriptor)  |                                         |
+//!   | variable    | variable            |                                               |                                         |
+//!   | variable    | constant            |                                               |                                         |
+//!   | macro       | variable.builtin    |                                               | Always contains an "operator" capture.  |
+//!   | function    | function            |                                               |                                         |
+//!   | function    | function.builtin    | (identifier)                                  | PRACTICE functions                      |
+//!   | parameter   | variable.parameter  |                                               |                                         |
+//!   | label       | label               |                                               |                                         |
+//!   | comment     | comment             |                                               |                                         |
 //!
 //! Tokens can only have a single type.
 //!
@@ -39,7 +38,16 @@
 //!   | -------------- | -------- | ---------------------------- | ----------------------------- |
 //!   | definition     | keyword  | child of (macro_definition)  | "GLOBAL", "LOCAL", "PRIVATE"  |
 //!   | definition     | function |                              |                               |
+//!   | defaultLibrary | function |                              | Subroutine definitions        |
 //!
+//!  Semantic tokens selectors are created from token types and modifiers.
+//!  Selectors map to TextMate scopes according to this table:
+//!
+//!   | Token Selectors         | TextMate scope                     |
+//!   | ----------------------- | ---------------------------------- |
+//!   | macro                   | variable.other.macro.practice      |
+//!   | function                | entity.name.function.practice      |
+//!   | function.defaultLibrary | support.function.trace32.practice  |
 //!
 //! A language node may match multiple query captures with equal validity. In
 //! such cases we need to use the pattern index for prioritization. The pattern
@@ -81,7 +89,7 @@ use crate::{
 
 use captures::{
     CAPTURE_COMMENT, CAPTURE_CONDITIONAL, CAPTURE_CONDITIONAL_TERNARY, CAPTURE_CONSTANT,
-    CAPTURE_CONSTANT_MODIFIER, CAPTURE_FUNCTION, CAPTURE_FUNCTION_CALL, CAPTURE_KEYWORD,
+    CAPTURE_CONSTANT_MODIFIER, CAPTURE_FUNCTION, CAPTURE_FUNCTION_BUILTIN, CAPTURE_KEYWORD,
     CAPTURE_KEYWORD_FUNCTION, CAPTURE_KEYWORD_OPERATOR, CAPTURE_KEYWORD_RETURN, CAPTURE_LABEL,
     CAPTURE_NUMBER, CAPTURE_OPERATOR, CAPTURE_REPEAT, CAPTURE_STRING, CAPTURE_STRING_SPECIAL,
     CAPTURE_TYPE, CAPTURE_VARIABLE, CAPTURE_VARIABLE_BUILTIN, CAPTURE_VARIABLE_PARAMETER,
@@ -95,6 +103,7 @@ pub struct SemanticToken {
     pub modifier: u32,
 }
 
+#[derive(Debug)]
 struct SemanticTokenQueryCaptures {
     types: SemanticTokenQueryCaptureMap,
     modifiers: SemanticTokenQueryCaptureMap,
@@ -218,7 +227,7 @@ impl SemanticTokenQueryCaptures {
                     );
                 }
                 SemanticTokenTypes::Function => {
-                    let ts = [CAPTURE_FUNCTION, CAPTURE_FUNCTION_CALL];
+                    let ts = [CAPTURE_FUNCTION, CAPTURE_FUNCTION_BUILTIN];
 
                     captures.1.push(ts.len());
                     for capture in ts {
@@ -300,10 +309,17 @@ impl SemanticTokenQueryCaptures {
                         );
                     }
                 }
+                SemanticTokenModifiers::DefaultLibrary => {
+                    captures.1.push(1usize);
+                    captures.2.push(
+                        query
+                            .capture_index_for_name(CAPTURE_FUNCTION_BUILTIN)
+                            .expect("Capture name must exist."),
+                    );
+                }
                 SemanticTokenModifiers::Abstract
                 | SemanticTokenModifiers::Async
                 | SemanticTokenModifiers::Declaration
-                | SemanticTokenModifiers::DefaultLibrary
                 | SemanticTokenModifiers::Deprecated
                 | SemanticTokenModifiers::Documentation
                 | SemanticTokenModifiers::Modification
@@ -568,7 +584,10 @@ mod tests {
             SemanticTokenTypes::Comment,
         ];
 
-        let modifiers = vec![SemanticTokenModifiers::Definition];
+        let modifiers = vec![
+            SemanticTokenModifiers::Definition,
+            SemanticTokenModifiers::DefaultLibrary,
+        ];
 
         SemanticTokensLegend {
             token_types: types,
@@ -698,7 +717,7 @@ mod tests {
     }
 
     #[test]
-    fn does_not_capture_other_keywords_as_modifiers() {
+    fn does_not_capture_other_keywords_with_function_definition() {
         let files = create_file_idx();
         let uri_a = Url::from_file_path(
             path::absolute("tests/samples/semantic.cmm").expect("Files must exist."),
@@ -858,5 +877,32 @@ mod tests {
         let tokens = do_syntax_highlighting(legend.clone(), &doc, &tree);
 
         debug_assert!(!tokens.iter().any(|t| t.span.start == t.span.end));
+    }
+
+    #[test]
+    fn marks_modifier_for_builtin_functions() {
+        let text = "PRINT STATE.RUNNING()\n";
+
+        let tree = parse_full(&text.as_bytes());
+        let doc = create_doc("file://test.cmm".to_string(), 0, text.to_string());
+        let legend = create_full_legend();
+
+        let tokens = do_syntax_highlighting(legend.clone(), &doc, &tree);
+
+        debug_assert!(tokens.iter().any(|t| *t
+            == SemanticToken {
+                span: LRange {
+                    start: Position {
+                        line: 0,
+                        character: 6,
+                    },
+                    end: Position {
+                        line: 0,
+                        character: 19,
+                    },
+                },
+                r#type: 8,
+                modifier: 2,
+            }));
     }
 }
