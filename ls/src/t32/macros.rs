@@ -94,7 +94,7 @@ use std::ops::Range;
 
 use tree_sitter::{Node, Tree, TreeCursor};
 
-use crate::{protocol::Uri, utils::BRange};
+use crate::{protocol::Uri, t32::ast::find_deepest_node, utils::BRange};
 
 use super::{
     FindMacroRefsLangContext, GotoDefLangContext, MacroDefinitionResult,
@@ -112,6 +112,7 @@ use super::{
     },
 };
 
+#[derive(Debug)]
 pub struct MacroReferencesBlockCaptures<'a> {
     pub references: Vec<BRange>,
     pub subroutines: Vec<&'a CallExpression>,
@@ -644,7 +645,7 @@ pub fn find_macro_references_at_offset(
     tree: &Tree,
     t32: &FindMacroRefsLangContext,
     name: &str,
-    scope: MacroScope,
+    lifetime: MacroScope,
     offset: usize,
 ) -> (Vec<BRange>, Vec<Uri>) {
     let Some(mut captures) = find_block_local_macro_references(text, tree, t32, name, offset)
@@ -662,7 +663,7 @@ pub fn find_macro_references_at_offset(
         }
     }
 
-    if scope == MacroScope::Private {
+    if lifetime == MacroScope::Private {
         return (refs, scripts);
     }
 
@@ -719,22 +720,48 @@ pub fn find_block_local_macro_references<'a>(
         return None;
     }
 
-    let mut cursor = tree.walk();
-    if cursor.goto_first_child_for_byte(offset).is_none() {
-        return None;
-    }
-    let lang = tree.language();
+    let (assign, macro_def, params, labeled_expr, script, subroutine) = {
+        let lang = tree.language();
 
-    let macro_def = NodeKind::MacroDefinition.into_id(&lang);
-    let parameters = NodeKind::ParameterDeclaration.into_id(&lang);
+        let assignment = NodeKind::AssignmentExpression.into_id(&lang);
+        let macro_def = NodeKind::MacroDefinition.into_id(&lang);
+        let parameters = NodeKind::ParameterDeclaration.into_id(&lang);
 
-    let labeled_expr = NodeKind::LabeledExpression.into_id(&lang);
-    let script = NodeKind::Script.into_id(&lang);
-    let subroutine = NodeKind::SubroutineBlock.into_id(&lang);
+        let labeled_expr = NodeKind::LabeledExpression.into_id(&lang);
+        let script = NodeKind::Script.into_id(&lang);
+        let subroutine = NodeKind::SubroutineBlock.into_id(&lang);
+        (
+            assignment,
+            macro_def,
+            parameters,
+            labeled_expr,
+            script,
+            subroutine,
+        )
+    };
 
     // Move past entry points
-    let kind = cursor.node().kind_id();
-    if kind == macro_def || kind == parameters {
+    let root = tree.walk();
+    let mut cursor = match find_deepest_node(root, offset, &[assign, macro_def, params, labeled_expr, subroutine, script]) {
+        Some(c) => c,
+        None => {
+            // Offset 0 could either mean the complete script or the macro
+            // definition at the start of the script should be checked.
+            if offset == 0 {
+                let mut cursor = tree.walk();
+                if cursor.goto_first_child_for_byte(offset).is_none() {
+                    return None;
+                }
+                cursor
+            } else {
+                return None;
+            }
+        }
+    };
+    let node = cursor.node();
+    let kind = node.kind_id();
+
+    if kind == macro_def || kind == params {
         if !cursor.goto_next_sibling() {
             return None;
         }
@@ -1602,6 +1629,10 @@ pub fn find_macro_references_and_call_transitions<'a>(
                 break 'outer;
             }
             nest_level -= 1;
+        }
+
+        if nest_level < 0 {
+            break;
         }
     }
     captures

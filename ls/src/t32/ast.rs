@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: EUPL-1.2
 
-use tree_sitter::{Language, Node, Range};
+use tree_sitter::{Language, Node, Range, TreeCursor};
 
 #[derive(Debug, Clone, Copy)]
 pub enum NodeKind {
@@ -285,4 +285,22 @@ pub fn get_string_body<'a>(node: &Node, text: &'a str) -> &'a str {
     let range = node.byte_range();
 
     &text[(range.start + 1)..(range.end - 1)]
+}
+
+pub fn find_deepest_node<'a>(root: TreeCursor<'a>, offset: usize, stop_at: &[u16]) -> Option<TreeCursor<'a>> {
+    let mut sel: Option<TreeCursor> = None;
+
+    let mut cursor = root;
+    while let Some(_) = cursor.goto_first_child_for_byte(offset) {
+        let node = cursor.node();
+        if !node.byte_range().contains(&offset) {
+            break;
+        }
+
+        let id = node.kind_id();
+        if let Some(_) = stop_at.iter().find(|&&k| k == id) {
+            sel = Some( cursor.clone());
+        }
+    }
+    sel
 }

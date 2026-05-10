@@ -307,7 +307,7 @@ pub fn find_macro_definition_references(
     tree: &Tree,
     t32: &FindMacroRefsLangContext,
     name: &str,
-    scope: MacroScope,
+    lifetime: MacroScope,
     range: BRange,
 ) -> (Vec<BRange>, Vec<Uri>) {
     let span = range.to_inner();
@@ -316,13 +316,14 @@ pub fn find_macro_definition_references(
     }
 
     let (mut refs, mut callees) =
-        find_macro_references_at_offset(text, tree, t32, name, scope, span.start);
+        find_macro_references_at_offset(text, tree, t32, name, lifetime, span.start);
 
+    // Include origin in results
     if !refs.iter().any(|r| *r == span) {
         refs.push(BRange::from(span));
     }
 
-    if !callees.is_empty() && scope == MacroScope::Private {
+    if !callees.is_empty() && lifetime == MacroScope::Private {
         callees.clear();
     }
 

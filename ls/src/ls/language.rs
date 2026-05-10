@@ -2563,6 +2563,14 @@ mod tests {
                 },
                 MacroScope::Local,
             ),
+            (
+                "&param",
+                Range {
+                    start: 1715usize,
+                    end: 1721usize,
+                },
+                MacroScope::Local,
+            ),
         ]
         .into_iter()
         .zip(
@@ -2755,6 +2763,41 @@ mod tests {
                             end: Position {
                                 line: 115,
                                 character: 13,
+                            },
+                        },
+                    ],
+                    Vec::new(),
+                ),
+                (
+                    vec![
+                        LRange {
+                            start: Position {
+                                line: 176,
+                                character: 12,
+                            },
+                            end: Position {
+                                line: 176,
+                                character: 18,
+                            },
+                        },
+                        LRange {
+                            start: Position {
+                                line: 177,
+                                character: 15,
+                            },
+                            end: Position {
+                                line: 177,
+                                character: 21,
+                            },
+                        },
+                        LRange {
+                            start: Position {
+                                line: 179,
+                                character: 11,
+                            },
+                            end: Position {
+                                line: 179,
+                                character: 17,
                             },
                         },
                     ],
