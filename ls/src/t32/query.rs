@@ -51,6 +51,7 @@
 //!   | keyword                 | keyword.control.practice                  |
 //!   | macro                   | variable.other.macro.practice             |
 //!   | macro.definition        | variable.other.macro.definition.practice  |
+//!   | number                  | constant.numeric.practice                 |
 //!   | operator                | keyword.operator.practice                 |
 //!   | parameter               | variable.parameter.practice               |
 //!   | string                  | string.quoted.double.practice             |
@@ -894,7 +895,7 @@ mod tests {
     }
 
     #[test]
-    fn marks_modifier_for_builtin_functions() {
+    fn marks_token_modifier_for_builtin_functions() {
         let text = "PRINT STATE.RUNNING()\n";
 
         let tree = parse_full(&text.as_bytes());
@@ -921,7 +922,7 @@ mod tests {
     }
 
     #[test]
-    fn captures_parameter_declarations() {
+    fn captures_semantic_tokens_for_parameter_declarations() {
         let text = "PARAMETERS &a &b\n";
 
         let tree = parse_full(&text.as_bytes());
@@ -964,7 +965,7 @@ mod tests {
     }
 
     #[test]
-    fn captures_control_flow_and_commands_keywords() {
+    fn captures_semantic_tokens_for_control_flow_and_commands_keywords() {
         let text = "IF &a\nPRINT \"hello\"\n";
 
         let tree = parse_full(&text.as_bytes());
@@ -1007,7 +1008,7 @@ mod tests {
     }
 
     #[test]
-    fn captures_operator_keywords() {
+    fn captures_semantic_tokens_for_operator_keywords() {
         let text = "&a=1+1";
 
         let tree = parse_full(&text.as_bytes());
@@ -1050,7 +1051,7 @@ mod tests {
     }
 
     #[test]
-    fn captures_strings() {
+    fn captures_semantic_tokens_for_strings() {
         let text = "PRINT \"Hello\"+\", World\"\n";
 
         let tree = parse_full(&text.as_bytes());
@@ -1093,7 +1094,7 @@ mod tests {
     }
 
     #[test]
-    fn captures_paths_as_special_strings() {
+    fn captures_paths_as_special_string_semantic_tokens() {
         let text = "DO C:\\run.cmm\n";
 
         let tree = parse_full(&text.as_bytes());
@@ -1120,7 +1121,7 @@ mod tests {
     }
 
     #[test]
-    fn captures_comments() {
+    fn captures_semantic_tokens_for_comments() {
         let text = "&a // Comment\n";
 
         let tree = parse_full(&text.as_bytes());
@@ -1142,6 +1143,49 @@ mod tests {
                     },
                 },
                 r#type: 11,
+                modifier: 0,
+            }));
+    }
+
+    #[test]
+    fn captures_semantic_tokens_for_numbers() {
+        let text = "&a=1+2\n";
+
+        let tree = parse_full(&text.as_bytes());
+        let doc = create_doc("file://test.cmm".to_string(), 0, text.to_string());
+        let legend = create_full_legend();
+
+        let tokens = do_syntax_highlighting(legend.clone(), &doc, &tree);
+
+        debug_assert!(tokens.iter().any(|t| *t
+            == SemanticToken {
+                span: LRange {
+                    start: Position {
+                        line: 0,
+                        character: 3,
+                    },
+                    end: Position {
+                        line: 0,
+                        character: 4,
+                    },
+                },
+                r#type: 4,
+                modifier: 0,
+            }));
+
+        debug_assert!(tokens.iter().any(|t| *t
+            == SemanticToken {
+                span: LRange {
+                    start: Position {
+                        line: 0,
+                        character: 5,
+                    },
+                    end: Position {
+                        line: 0,
+                        character: 6,
+                    },
+                },
+                r#type: 4,
                 modifier: 0,
             }));
     }
