@@ -1449,20 +1449,8 @@ pub fn extract_params(
     let lang = command.language();
 
     let id_macro: u16 = NodeKind::Macro.into_id(&lang);
-    let id_string: u16 = NodeKind::String.into_id(&lang);
 
     while cursor.goto_next_sibling() {
-        let mut level: usize = 0;
-
-        let node = cursor.node();
-        if kind == ParameterDeclarationKind::RETURNVALUES && node.kind_id() == id_string {
-            if !cursor.goto_first_child() {
-                break;
-            }
-
-            while cursor.node().kind_id() != id_macro && cursor.goto_next_sibling() {}
-            level += 1;
-        }
         let node = cursor.node();
         let id = node.kind_id();
 
@@ -1486,13 +1474,6 @@ pub fn extract_params(
             kind,
             docstring: None,
         });
-
-        if level > 0 {
-            if !cursor.goto_parent() {
-                break;
-            }
-            debug_assert_eq!(cursor.node().kind_id(), NodeKind::String.into_id(&lang));
-        }
     }
     cursor.goto_parent();
 }

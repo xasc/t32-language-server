@@ -262,6 +262,8 @@ impl MacroDefinitionLocation {
 ///   - Subscript calls return the start of the script file.
 ///   - Subroutine definitions are limited to the current file.
 ///
+/// TODO: Add detection for macros that are nested inside HLL expressions. In
+///       this case the macro are detected as HLL entities.
 pub fn find_definition(
     textdoc: TextDocData,
     t32: GotoDefLangContext,

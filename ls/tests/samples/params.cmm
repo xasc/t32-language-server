@@ -6,4 +6,4 @@ ENTRY %LINE &password
 
 ENTRY &user %line &pw
 
-RETURNVALUES "&user" "&pw"
+RETURNVALUES &user &pw
