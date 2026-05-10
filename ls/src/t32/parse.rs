@@ -72,10 +72,10 @@ mod test {
     fn dump_tree(tree: &Tree) {
         let mut cursor = tree.walk();
         'outer: loop {
-            dbg!(">>>>>>>>>>");
-            dbg!(cursor.node());
-            dbg!(cursor.node().byte_range());
-            dbg!("----------");
+            eprintln!(">>>>>>>>>>");
+            eprintln!("{}", cursor.node());
+            eprintln!("{:#?}", cursor.node().byte_range());
+            eprintln!("----------");
 
             if cursor.goto_first_child() {
                 continue;

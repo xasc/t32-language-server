@@ -977,8 +977,14 @@ fn split_multiline_semantic_tokens(
     for token in tokens {
         let (start, end) = (&token.span.start, &token.span.end);
 
+        // Tokens ending at the end of the line have set their end to character
+        // 0 of the next line. These tokens do not need to be split, because
+        // their length does not take them "past the end of the line" (see
+        // LSP specification).
         debug_assert!(end.line >= start.line);
-        if end.line <= start.line {
+        if end.line <= start.line
+            || (end.character == 0 && end.line == start.line + 1)
+        {
             extra_tokens.push(token);
         } else {
             distribute_multiline_token(doc, &token, &mut segments);
