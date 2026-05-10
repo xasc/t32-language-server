@@ -1057,8 +1057,8 @@ fn extract_subroutine_call(cursor: &mut TreeCursor) -> Option<CallExpression> {
     let span = target.byte_range();
 
     debug_assert!(
-        target.kind_id() == NodeKind::Identifier.into_id(&target.language()) ||
-        target.kind_id() == NodeKind::Macro.into_id(&target.language())
+        target.kind_id() == NodeKind::Identifier.into_id(&target.language())
+            || target.kind_id() == NodeKind::Macro.into_id(&target.language())
     );
     cursor.goto_parent();
 
@@ -1087,8 +1087,8 @@ fn matches_call_to_subroutine(
     let span = target.byte_range();
 
     debug_assert!(
-        target.kind_id() == NodeKind::Identifier.into_id(&target.language()) ||
-        target.kind_id() == NodeKind::Macro.into_id(&target.language())
+        target.kind_id() == NodeKind::Identifier.into_id(&target.language())
+            || target.kind_id() == NodeKind::Macro.into_id(&target.language())
     );
     cursor.goto_parent();
 
@@ -1123,8 +1123,8 @@ fn goto_subroutine_call_target<'a>(cursor: &'a mut TreeCursor) -> Option<Node<'a
     // identifiers are supported.
     let target = cursor.node();
     debug_assert!(
-        target.kind_id() == NodeKind::Identifier.into_id(&target.language()) ||
-        target.kind_id() == NodeKind::Macro.into_id(&target.language())
+        target.kind_id() == NodeKind::Identifier.into_id(&target.language())
+            || target.kind_id() == NodeKind::Macro.into_id(&target.language())
     );
     Some(target)
 }

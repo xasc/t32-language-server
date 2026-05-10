@@ -99,9 +99,33 @@ mod test {
         let arg = "(string (macro))";
         let error = "ERROR";
 
-        assert_eq!(tree.root_node().to_sexp().as_bytes().windows(cmd_expr.len()).filter(|s| *s == cmd_expr.as_bytes()).count(), 1);
-        assert_eq!(tree.root_node().to_sexp().as_bytes().windows(arg.len()).filter(|s| *s == arg.as_bytes()).count(), 1);
-        assert_eq!(tree.root_node().to_sexp().as_bytes().windows(error.len()).filter(|s| *s == error.as_bytes()).count(), 0);
+        assert_eq!(
+            tree.root_node()
+                .to_sexp()
+                .as_bytes()
+                .windows(cmd_expr.len())
+                .filter(|s| *s == cmd_expr.as_bytes())
+                .count(),
+            1
+        );
+        assert_eq!(
+            tree.root_node()
+                .to_sexp()
+                .as_bytes()
+                .windows(arg.len())
+                .filter(|s| *s == arg.as_bytes())
+                .count(),
+            1
+        );
+        assert_eq!(
+            tree.root_node()
+                .to_sexp()
+                .as_bytes()
+                .windows(error.len())
+                .filter(|s| *s == error.as_bytes())
+                .count(),
+            0
+        );
     }
 
     #[test]
@@ -116,18 +140,9 @@ mod test {
             start_byte: 2,
             old_end_byte: 2,
             new_end_byte: 7,
-            start_position: Point {
-                row: 0,
-                column: 1,
-            },
-            old_end_position: Point {
-                row: 0,
-                column: 2,
-            },
-            new_end_position: Point {
-                row: 1,
-                column: 0,
-            },
+            start_position: Point { row: 0, column: 1 },
+            old_end_position: Point { row: 0, column: 2 },
+            new_end_position: Point { row: 1, column: 0 },
         };
 
         let mut old_tree = tree;
@@ -139,9 +154,33 @@ mod test {
         let integer = "(integer)";
         let error = "ERROR";
 
-        assert_eq!(tree.root_node().to_sexp().as_bytes().windows(bin_expr.len()).filter(|s| *s == bin_expr.as_bytes()).count(), 1);
-        assert_eq!(tree.root_node().to_sexp().as_bytes().windows(integer.len()).filter(|s| *s == integer.as_bytes()).count(), 2);
-        assert_eq!(tree.root_node().to_sexp().as_bytes().windows(error.len()).filter(|s| *s == error.as_bytes()).count(), 0);
+        assert_eq!(
+            tree.root_node()
+                .to_sexp()
+                .as_bytes()
+                .windows(bin_expr.len())
+                .filter(|s| *s == bin_expr.as_bytes())
+                .count(),
+            1
+        );
+        assert_eq!(
+            tree.root_node()
+                .to_sexp()
+                .as_bytes()
+                .windows(integer.len())
+                .filter(|s| *s == integer.as_bytes())
+                .count(),
+            2
+        );
+        assert_eq!(
+            tree.root_node()
+                .to_sexp()
+                .as_bytes()
+                .windows(error.len())
+                .filter(|s| *s == error.as_bytes())
+                .count(),
+            0
+        );
 
         let text = "&a=1+1\nPRINT \"&hello\"\n";
 
@@ -149,18 +188,9 @@ mod test {
             start_byte: 2,
             old_end_byte: 7,
             new_end_byte: 22,
-            start_position: Point {
-                row: 1,
-                column: 0,
-            },
-            old_end_position: Point {
-                row: 1,
-                column: 0,
-            },
-            new_end_position: Point {
-                row: 2,
-                column: 0,
-            },
+            start_position: Point { row: 1, column: 0 },
+            old_end_position: Point { row: 1, column: 0 },
+            new_end_position: Point { row: 2, column: 0 },
         };
 
         let mut old_tree = tree;
@@ -168,16 +198,64 @@ mod test {
 
         let tree = parse_incremental(text.as_bytes(), &edits, &mut old_tree);
 
-        assert_eq!(tree.root_node().to_sexp().as_bytes().windows(bin_expr.len()).filter(|s| *s == bin_expr.as_bytes()).count(), 1);
-        assert_eq!(tree.root_node().to_sexp().as_bytes().windows(integer.len()).filter(|s| *s == integer.as_bytes()).count(), 2);
-        assert_eq!(tree.root_node().to_sexp().as_bytes().windows(error.len()).filter(|s| *s == error.as_bytes()).count(), 0);
+        assert_eq!(
+            tree.root_node()
+                .to_sexp()
+                .as_bytes()
+                .windows(bin_expr.len())
+                .filter(|s| *s == bin_expr.as_bytes())
+                .count(),
+            1
+        );
+        assert_eq!(
+            tree.root_node()
+                .to_sexp()
+                .as_bytes()
+                .windows(integer.len())
+                .filter(|s| *s == integer.as_bytes())
+                .count(),
+            2
+        );
+        assert_eq!(
+            tree.root_node()
+                .to_sexp()
+                .as_bytes()
+                .windows(error.len())
+                .filter(|s| *s == error.as_bytes())
+                .count(),
+            0
+        );
 
         let cmd_expr = "(command_expression";
         let arg = "(string (macro))";
 
-        assert_eq!(tree.root_node().to_sexp().as_bytes().windows(cmd_expr.len()).filter(|s| *s == cmd_expr.as_bytes()).count(), 1);
-        assert_eq!(tree.root_node().to_sexp().as_bytes().windows(arg.len()).filter(|s| *s == arg.as_bytes()).count(), 1);
-        assert_eq!(tree.root_node().to_sexp().as_bytes().windows(error.len()).filter(|s| *s == error.as_bytes()).count(), 0);
+        assert_eq!(
+            tree.root_node()
+                .to_sexp()
+                .as_bytes()
+                .windows(cmd_expr.len())
+                .filter(|s| *s == cmd_expr.as_bytes())
+                .count(),
+            1
+        );
+        assert_eq!(
+            tree.root_node()
+                .to_sexp()
+                .as_bytes()
+                .windows(arg.len())
+                .filter(|s| *s == arg.as_bytes())
+                .count(),
+            1
+        );
+        assert_eq!(
+            tree.root_node()
+                .to_sexp()
+                .as_bytes()
+                .windows(error.len())
+                .filter(|s| *s == error.as_bytes())
+                .count(),
+            0
+        );
     }
 
     #[test]
@@ -192,18 +270,9 @@ mod test {
             start_byte: 0,
             old_end_byte: 0,
             new_end_byte: 8,
-            start_position: Point {
-                row: 0,
-                column: 0,
-            },
-            old_end_position: Point {
-                row: 0,
-                column: 0,
-            },
-            new_end_position: Point {
-                row: 0,
-                column: 8,
-            },
+            start_position: Point { row: 0, column: 0 },
+            old_end_position: Point { row: 0, column: 0 },
+            new_end_position: Point { row: 0, column: 8 },
         };
 
         let mut old_tree = tree;
@@ -215,27 +284,42 @@ mod test {
         let r#macro = "(macro)";
         let error = "ERROR";
 
-        assert_eq!(tree.root_node().to_sexp().as_bytes().windows(bin_expr.len()).filter(|s| *s == bin_expr.as_bytes()).count(), 1);
-        assert_eq!(tree.root_node().to_sexp().as_bytes().windows(r#macro.len()).filter(|s| *s == r#macro.as_bytes()).count(), 3);
-        assert_eq!(tree.root_node().to_sexp().as_bytes().windows(error.len()).filter(|s| *s == error.as_bytes()).count(), 0);
+        assert_eq!(
+            tree.root_node()
+                .to_sexp()
+                .as_bytes()
+                .windows(bin_expr.len())
+                .filter(|s| *s == bin_expr.as_bytes())
+                .count(),
+            1
+        );
+        assert_eq!(
+            tree.root_node()
+                .to_sexp()
+                .as_bytes()
+                .windows(r#macro.len())
+                .filter(|s| *s == r#macro.as_bytes())
+                .count(),
+            3
+        );
+        assert_eq!(
+            tree.root_node()
+                .to_sexp()
+                .as_bytes()
+                .windows(error.len())
+                .filter(|s| *s == error.as_bytes())
+                .count(),
+            0
+        );
 
         let text = "PRINT \"&hello\"\n&c=\"&b\"+&a\n";
         let edits = InputEdit {
             start_byte: 0,
             old_end_byte: 0,
             new_end_byte: 15,
-            start_position: Point {
-                row: 0,
-                column: 0,
-            },
-            old_end_position: Point {
-                row: 0,
-                column: 0,
-            },
-            new_end_position: Point {
-                row: 1,
-                column: 0,
-            },
+            start_position: Point { row: 0, column: 0 },
+            old_end_position: Point { row: 0, column: 0 },
+            new_end_position: Point { row: 1, column: 0 },
         };
 
         let mut old_tree = tree;
@@ -243,16 +327,64 @@ mod test {
 
         let tree = parse_incremental(text.as_bytes(), &edits, &mut old_tree);
 
-        assert_eq!(tree.root_node().to_sexp().as_bytes().windows(bin_expr.len()).filter(|s| *s == bin_expr.as_bytes()).count(), 1);
-        assert_eq!(tree.root_node().to_sexp().as_bytes().windows(r#macro.len()).filter(|s| *s == r#macro.as_bytes()).count(), 4);
-        assert_eq!(tree.root_node().to_sexp().as_bytes().windows(error.len()).filter(|s| *s == error.as_bytes()).count(), 0);
+        assert_eq!(
+            tree.root_node()
+                .to_sexp()
+                .as_bytes()
+                .windows(bin_expr.len())
+                .filter(|s| *s == bin_expr.as_bytes())
+                .count(),
+            1
+        );
+        assert_eq!(
+            tree.root_node()
+                .to_sexp()
+                .as_bytes()
+                .windows(r#macro.len())
+                .filter(|s| *s == r#macro.as_bytes())
+                .count(),
+            4
+        );
+        assert_eq!(
+            tree.root_node()
+                .to_sexp()
+                .as_bytes()
+                .windows(error.len())
+                .filter(|s| *s == error.as_bytes())
+                .count(),
+            0
+        );
 
         let cmd_expr = "(command_expression";
         let arg = "(string (macro))";
 
-        assert_eq!(tree.root_node().to_sexp().as_bytes().windows(cmd_expr.len()).filter(|s| *s == cmd_expr.as_bytes()).count(), 1);
-        assert_eq!(tree.root_node().to_sexp().as_bytes().windows(arg.len()).filter(|s| *s == arg.as_bytes()).count(), 2);
-        assert_eq!(tree.root_node().to_sexp().as_bytes().windows(error.len()).filter(|s| *s == error.as_bytes()).count(), 0);
+        assert_eq!(
+            tree.root_node()
+                .to_sexp()
+                .as_bytes()
+                .windows(cmd_expr.len())
+                .filter(|s| *s == cmd_expr.as_bytes())
+                .count(),
+            1
+        );
+        assert_eq!(
+            tree.root_node()
+                .to_sexp()
+                .as_bytes()
+                .windows(arg.len())
+                .filter(|s| *s == arg.as_bytes())
+                .count(),
+            2
+        );
+        assert_eq!(
+            tree.root_node()
+                .to_sexp()
+                .as_bytes()
+                .windows(error.len())
+                .filter(|s| *s == error.as_bytes())
+                .count(),
+            0
+        );
     }
 
     #[test]
@@ -267,18 +399,9 @@ mod test {
             start_byte: 3,
             old_end_byte: 3,
             new_end_byte: 6,
-            start_position: Point {
-                row: 0,
-                column: 3,
-            },
-            old_end_position: Point {
-                row: 0,
-                column: 3,
-            },
-            new_end_position: Point {
-                row: 0,
-                column: 6,
-            },
+            start_position: Point { row: 0, column: 3 },
+            old_end_position: Point { row: 0, column: 3 },
+            new_end_position: Point { row: 0, column: 6 },
         };
 
         let mut old_tree = tree;
@@ -291,10 +414,42 @@ mod test {
         let integer = "(integer)";
         let error = "ERROR";
 
-        assert_eq!(tree.root_node().to_sexp().as_bytes().windows(bin_expr.len()).filter(|s| *s == bin_expr.as_bytes()).count(), 1);
-        assert_eq!(tree.root_node().to_sexp().as_bytes().windows(r#macro.len()).filter(|s| *s == r#macro.as_bytes()).count(), 2);
-        assert_eq!(tree.root_node().to_sexp().as_bytes().windows(integer.len()).filter(|s| *s == integer.as_bytes()).count(), 1);
-        assert_eq!(tree.root_node().to_sexp().as_bytes().windows(error.len()).filter(|s| *s == error.as_bytes()).count(), 0);
+        assert_eq!(
+            tree.root_node()
+                .to_sexp()
+                .as_bytes()
+                .windows(bin_expr.len())
+                .filter(|s| *s == bin_expr.as_bytes())
+                .count(),
+            1
+        );
+        assert_eq!(
+            tree.root_node()
+                .to_sexp()
+                .as_bytes()
+                .windows(r#macro.len())
+                .filter(|s| *s == r#macro.as_bytes())
+                .count(),
+            2
+        );
+        assert_eq!(
+            tree.root_node()
+                .to_sexp()
+                .as_bytes()
+                .windows(integer.len())
+                .filter(|s| *s == integer.as_bytes())
+                .count(),
+            1
+        );
+        assert_eq!(
+            tree.root_node()
+                .to_sexp()
+                .as_bytes()
+                .windows(error.len())
+                .filter(|s| *s == error.as_bytes())
+                .count(),
+            0
+        );
 
         let text = "&a=SYStem.Up()\n&c=&b+1\n";
 
@@ -302,18 +457,9 @@ mod test {
             start_byte: 3,
             old_end_byte: 3,
             new_end_byte: 18,
-            start_position: Point {
-                row: 0,
-                column: 3,
-            },
-            old_end_position: Point {
-                row: 0,
-                column: 3,
-            },
-            new_end_position: Point {
-                row: 0,
-                column: 18,
-            },
+            start_position: Point { row: 0, column: 3 },
+            old_end_position: Point { row: 0, column: 3 },
+            new_end_position: Point { row: 0, column: 18 },
         };
 
         let mut old_tree = tree;
@@ -321,10 +467,42 @@ mod test {
 
         let tree = parse_incremental(text.as_bytes(), &edits, &mut old_tree);
 
-        assert_eq!(tree.root_node().to_sexp().as_bytes().windows(bin_expr.len()).filter(|s| *s == bin_expr.as_bytes()).count(), 1);
-        assert_eq!(tree.root_node().to_sexp().as_bytes().windows(r#macro.len()).filter(|s| *s == r#macro.as_bytes()).count(), 3);
-        assert_eq!(tree.root_node().to_sexp().as_bytes().windows(integer.len()).filter(|s| *s == integer.as_bytes()).count(), 1);
-        assert_eq!(tree.root_node().to_sexp().as_bytes().windows(error.len()).filter(|s| *s == error.as_bytes()).count(), 0);
+        assert_eq!(
+            tree.root_node()
+                .to_sexp()
+                .as_bytes()
+                .windows(bin_expr.len())
+                .filter(|s| *s == bin_expr.as_bytes())
+                .count(),
+            1
+        );
+        assert_eq!(
+            tree.root_node()
+                .to_sexp()
+                .as_bytes()
+                .windows(r#macro.len())
+                .filter(|s| *s == r#macro.as_bytes())
+                .count(),
+            3
+        );
+        assert_eq!(
+            tree.root_node()
+                .to_sexp()
+                .as_bytes()
+                .windows(integer.len())
+                .filter(|s| *s == integer.as_bytes())
+                .count(),
+            1
+        );
+        assert_eq!(
+            tree.root_node()
+                .to_sexp()
+                .as_bytes()
+                .windows(error.len())
+                .filter(|s| *s == error.as_bytes())
+                .count(),
+            0
+        );
     }
 
     #[test]
@@ -339,18 +517,9 @@ mod test {
             start_byte: 25,
             old_end_byte: 30,
             new_end_byte: 25,
-            start_position: Point {
-                row: 0,
-                column: 25,
-            },
-            old_end_position: Point {
-                row: 0,
-                column: 30,
-            },
-            new_end_position: Point {
-                row: 0,
-                column: 25,
-            },
+            start_position: Point { row: 0, column: 25 },
+            old_end_position: Point { row: 0, column: 30 },
+            new_end_position: Point { row: 0, column: 25 },
         };
 
         let mut old_tree = tree;
@@ -363,10 +532,42 @@ mod test {
         let r#macro = "(macro)";
         let error = "ERROR";
 
-        assert_eq!(tree.root_node().to_sexp().as_bytes().windows(bin_expr.len()).filter(|s| *s == bin_expr.as_bytes()).count(), 0);
-        assert_eq!(tree.root_node().to_sexp().as_bytes().windows(call_expr.len()).filter(|s| *s == call_expr.as_bytes()).count(), 2);
-        assert_eq!(tree.root_node().to_sexp().as_bytes().windows(r#macro.len()).filter(|s| *s == r#macro.as_bytes()).count(), 2);
-        assert_eq!(tree.root_node().to_sexp().as_bytes().windows(error.len()).filter(|s| *s == error.as_bytes()).count(), 0);
+        assert_eq!(
+            tree.root_node()
+                .to_sexp()
+                .as_bytes()
+                .windows(bin_expr.len())
+                .filter(|s| *s == bin_expr.as_bytes())
+                .count(),
+            0
+        );
+        assert_eq!(
+            tree.root_node()
+                .to_sexp()
+                .as_bytes()
+                .windows(call_expr.len())
+                .filter(|s| *s == call_expr.as_bytes())
+                .count(),
+            2
+        );
+        assert_eq!(
+            tree.root_node()
+                .to_sexp()
+                .as_bytes()
+                .windows(r#macro.len())
+                .filter(|s| *s == r#macro.as_bytes())
+                .count(),
+            2
+        );
+        assert_eq!(
+            tree.root_node()
+                .to_sexp()
+                .as_bytes()
+                .windows(error.len())
+                .filter(|s| *s == error.as_bytes())
+                .count(),
+            0
+        );
 
         let text = "PRINT STRing.UPpeR(\"up\")\n";
 
@@ -374,18 +575,9 @@ mod test {
             start_byte: 6,
             old_end_byte: 28,
             new_end_byte: 6,
-            start_position: Point {
-                row: 0,
-                column: 6,
-            },
-            old_end_position: Point {
-                row: 1,
-                column: 3,
-            },
-            new_end_position: Point {
-                row: 0,
-                column: 6,
-            },
+            start_position: Point { row: 0, column: 6 },
+            old_end_position: Point { row: 1, column: 3 },
+            new_end_position: Point { row: 0, column: 6 },
         };
 
         let mut old_tree = tree;
@@ -393,9 +585,41 @@ mod test {
 
         let tree = parse_incremental(text.as_bytes(), &edits, &mut old_tree);
 
-        assert_eq!(tree.root_node().to_sexp().as_bytes().windows(bin_expr.len()).filter(|s| *s == bin_expr.as_bytes()).count(), 0);
-        assert_eq!(tree.root_node().to_sexp().as_bytes().windows(call_expr.len()).filter(|s| *s == call_expr.as_bytes()).count(), 1);
-        assert_eq!(tree.root_node().to_sexp().as_bytes().windows(r#macro.len()).filter(|s| *s == r#macro.as_bytes()).count(), 0);
-        assert_eq!(tree.root_node().to_sexp().as_bytes().windows(error.len()).filter(|s| *s == error.as_bytes()).count(), 0);
+        assert_eq!(
+            tree.root_node()
+                .to_sexp()
+                .as_bytes()
+                .windows(bin_expr.len())
+                .filter(|s| *s == bin_expr.as_bytes())
+                .count(),
+            0
+        );
+        assert_eq!(
+            tree.root_node()
+                .to_sexp()
+                .as_bytes()
+                .windows(call_expr.len())
+                .filter(|s| *s == call_expr.as_bytes())
+                .count(),
+            1
+        );
+        assert_eq!(
+            tree.root_node()
+                .to_sexp()
+                .as_bytes()
+                .windows(r#macro.len())
+                .filter(|s| *s == r#macro.as_bytes())
+                .count(),
+            0
+        );
+        assert_eq!(
+            tree.root_node()
+                .to_sexp()
+                .as_bytes()
+                .windows(error.len())
+                .filter(|s| *s == error.as_bytes())
+                .count(),
+            0
+        );
     }
 }

@@ -91,7 +91,7 @@ use tree_sitter_t32::HIGHLIGHTS_QUERY;
 use crate::{
     ls::TextDoc,
     protocol::{Range as LRange, SemanticTokenModifiers, SemanticTokenTypes, SemanticTokensLegend},
-    t32::{parse_full, NodeKind},
+    t32::{NodeKind, parse_full},
     utils::BRange,
 };
 
@@ -476,7 +476,9 @@ fn capture_semantic_tokens<'a, 'b>(
         }
 
         // Macros will always capture the `&` as separate operator.
-        if capture.index == operator && let Some(parent) = node.parent() {
+        if capture.index == operator
+            && let Some(parent) = node.parent()
+        {
             if parent.kind_id() == r#macro {
                 return;
             }
@@ -484,7 +486,9 @@ fn capture_semantic_tokens<'a, 'b>(
 
         // Prevent capture of command expressions as variables. The variable
         // capture has a higher priority.
-        if capture.index == var && let Some(parent) = node.parent() {
+        if capture.index == var
+            && let Some(parent) = node.parent()
+        {
             if parent.kind_id() == command_expr {
                 return;
             }
@@ -753,16 +757,17 @@ mod tests {
         let tokens = do_syntax_highlighting(legend.clone(), &doc, &tree);
 
         debug_assert!(!tokens.is_empty());
-        debug_assert!(!tokens.iter().any(|t| t.span == LRange {
-            start: Position {
-                line: 12,
-                character: 0,
-            },
-            end: Position {
-                line: 12,
-                character: 5,
-            },
-        }));
+        debug_assert!(!tokens.iter().any(|t| t.span
+            == LRange {
+                start: Position {
+                    line: 12,
+                    character: 0,
+                },
+                end: Position {
+                    line: 12,
+                    character: 5,
+                },
+            }));
         debug_assert!(tokens.iter().any(|t| *t
             == SemanticToken {
                 span: LRange {

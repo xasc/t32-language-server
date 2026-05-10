@@ -21,7 +21,7 @@ use crate::protocol::{Location, Range as LRange, Uri};
 use crate::{
     ls::{FileIndex, TextDoc, TextDocs, index_files, read_doc},
     protocol::TextDocumentItem,
-    t32::{LangExpressions, LANGUAGE_ID},
+    t32::{LANGUAGE_ID, LangExpressions},
 };
 
 #[derive(Clone, Debug, PartialEq)]

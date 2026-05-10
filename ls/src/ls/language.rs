@@ -982,9 +982,7 @@ fn split_multiline_semantic_tokens(
         // their length does not take them "past the end of the line" (see
         // LSP specification).
         debug_assert!(end.line >= start.line);
-        if end.line <= start.line
-            || (end.character == 0 && end.line == start.line + 1)
-        {
+        if end.line <= start.line || (end.character == 0 && end.line == start.line + 1) {
             extra_tokens.push(token);
         } else {
             distribute_multiline_token(doc, &token, &mut segments);
