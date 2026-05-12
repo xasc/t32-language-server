@@ -640,23 +640,20 @@ pub fn find_any_macro_references(tree: &Tree) -> Vec<BRange> {
     refs
 }
 
-pub fn find_macro_references_at_offset(
+pub fn find_macro_references_in_file(
     text: &str,
     tree: &Tree,
     t32: &FindMacroRefsLangContext,
     name: &str,
     lifetime: MacroScope,
-    offset: usize,
 ) -> (Vec<BRange>, Vec<Uri>) {
-    let Some(mut captures) = find_block_local_macro_references(text, tree, t32, name, offset)
-    else {
+    let Some(captures) = find_file_local_macro_references(text, tree, t32, name) else {
         return (Vec::new(), Vec::new());
     };
 
-    let mut refs: Vec<BRange> = Vec::new();
+    let mut refs: Vec<BRange> = captures.references;
     let mut scripts: Vec<Uri> = Vec::new();
 
-    refs.append(&mut captures.references);
     for script in captures.scripts {
         if !scripts.contains(script) {
             scripts.push(script.clone());
@@ -666,47 +663,66 @@ pub fn find_macro_references_at_offset(
     if lifetime == MacroScope::Private {
         return (refs, scripts);
     }
-
-    let mut visited: Vec<usize> = Vec::with_capacity(t32.subroutines.len());
-    let mut next: Vec<&CallExpression> = Vec::with_capacity(t32.subroutines.len());
-
-    let mut calls = captures.subroutines;
-    loop {
-        for &call in calls.iter() {
-            let Some(sub) = find_subroutine_for_call(text, call, &t32.subroutines) else {
-                continue;
-            };
-
-            if visited.contains(&sub.definition.start) {
-                continue;
-            }
-
-            if let Some(mut captures) =
-                find_block_local_macro_references(text, tree, t32, name, sub.definition.start)
-            {
-                next.append(&mut captures.subroutines);
-
-                captures.references.retain(|r| !refs.contains(r));
-                if !captures.references.is_empty() {
-                    refs.append(&mut captures.references);
-                }
-
-                for script in captures.scripts {
-                    if !scripts.contains(script) {
-                        scripts.push(script.clone());
-                    }
-                }
-            }
-            visited.push(sub.definition.start);
-        }
-
-        if next.is_empty() {
-            break;
-        }
-        calls.clear();
-        calls.append(&mut next);
-    }
+    find_macro_references_in_called_subroutines(
+        text,
+        tree,
+        t32,
+        name,
+        captures.subroutines,
+        &mut refs,
+        &mut scripts,
+    );
     (refs, scripts)
+}
+pub fn find_macro_references_at_offset(
+    text: &str,
+    tree: &Tree,
+    t32: &FindMacroRefsLangContext,
+    name: &str,
+    lifetime: MacroScope,
+    offset: usize,
+) -> (Vec<BRange>, Vec<Uri>) {
+    let Some(captures) = find_block_local_macro_references(text, tree, t32, name, offset) else {
+        return (Vec::new(), Vec::new());
+    };
+
+    let mut refs: Vec<BRange> = captures.references;
+    let mut scripts: Vec<Uri> = Vec::new();
+
+    for script in captures.scripts {
+        if !scripts.contains(script) {
+            scripts.push(script.clone());
+        }
+    }
+
+    if lifetime == MacroScope::Private {
+        return (refs, scripts);
+    }
+    find_macro_references_in_called_subroutines(
+        text,
+        tree,
+        t32,
+        name,
+        captures.subroutines,
+        &mut refs,
+        &mut scripts,
+    );
+    (refs, scripts)
+}
+pub fn find_file_local_macro_references<'a>(
+    text: &str,
+    tree: &Tree,
+    t32: &'a FindMacroRefsLangContext,
+    name: &str,
+) -> Option<MacroReferencesBlockCaptures<'a>> {
+    // Move past entry points
+    let mut cursor = tree.walk();
+    if !cursor.goto_first_child() {
+        return None;
+    }
+    Some(find_macro_references_and_call_transitions(
+        text, &t32, name, cursor,
+    ))
 }
 
 pub fn find_block_local_macro_references<'a>(
@@ -742,22 +758,12 @@ pub fn find_block_local_macro_references<'a>(
 
     // Move past entry points
     let root = tree.walk();
-    let mut cursor = match find_deepest_node(root, offset, &[assign, macro_def, params, labeled_expr, subroutine, script]) {
-        Some(c) => c,
-        None => {
-            // Offset 0 could either mean the complete script or the macro
-            // definition at the start of the script should be checked.
-            if offset == 0 {
-                let mut cursor = tree.walk();
-                if cursor.goto_first_child_for_byte(offset).is_none() {
-                    return None;
-                }
-                cursor
-            } else {
-                return None;
-            }
-        }
-    };
+    let mut cursor = find_deepest_node(
+        root,
+        offset,
+        &[assign, macro_def, params, labeled_expr, subroutine, script],
+    )?;
+
     let node = cursor.node();
     let kind = node.kind_id();
 
@@ -2020,6 +2026,55 @@ fn find_macro_defs_in_subroutine_call_chain(
     defs.add(defs_subroutines);
 
     defs
+}
+
+fn find_macro_references_in_called_subroutines<'a>(
+    text: &str,
+    tree: &Tree,
+    t32: &'a FindMacroRefsLangContext,
+    name: &str,
+    mut calls: Vec<&'a CallExpression>,
+    refs: &mut Vec<BRange>,
+    scripts: &mut Vec<Uri>,
+) {
+    let mut visited: Vec<usize> = Vec::with_capacity(t32.subroutines.len());
+    let mut next: Vec<&CallExpression> = Vec::with_capacity(t32.subroutines.len());
+
+    loop {
+        for &call in calls.iter() {
+            let Some(sub) = find_subroutine_for_call(text, call, &t32.subroutines) else {
+                continue;
+            };
+
+            if visited.contains(&sub.definition.start) {
+                continue;
+            }
+
+            if let Some(mut captures) =
+                find_block_local_macro_references(text, tree, t32, name, sub.definition.start)
+            {
+                next.append(&mut captures.subroutines);
+
+                captures.references.retain(|r| !refs.contains(r));
+                if !captures.references.is_empty() {
+                    refs.append(&mut captures.references);
+                }
+
+                for script in captures.scripts {
+                    if !scripts.contains(script) {
+                        scripts.push(script.clone());
+                    }
+                }
+            }
+            visited.push(sub.definition.start);
+        }
+
+        if next.is_empty() {
+            break;
+        }
+        calls.clear();
+        calls.append(&mut next);
+    }
 }
 
 fn extract_macro_scope(text: &str, cursor: &mut TreeCursor) -> Option<MacroScope> {

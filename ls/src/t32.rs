@@ -49,7 +49,7 @@ use expressions::{
     find_file_target, find_label, find_subroutine, locate_subscript, locate_subscript_call_target,
 };
 
-use macros::find_macro_references_at_offset;
+use macros::{find_macro_references_at_offset, find_macro_references_in_file};
 
 pub enum MacroDefinitionResult {
     Final(Vec<MacroDefinition>),
@@ -341,7 +341,7 @@ pub fn find_stack_macro_references(
     scope: MacroScope,
     name: &str,
 ) -> (Vec<BRange>, Vec<Uri>) {
-    let (mut refs, callees) = find_macro_references_at_offset(text, tree, t32, name, scope, 0);
+    let (mut refs, callees) = find_macro_references_in_file(text, tree, t32, name, scope);
 
     refs.sort_by_key(|a| {
         let span = a.inner();

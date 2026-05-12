@@ -287,7 +287,11 @@ pub fn get_string_body<'a>(node: &Node, text: &'a str) -> &'a str {
     &text[(range.start + 1)..(range.end - 1)]
 }
 
-pub fn find_deepest_node<'a>(root: TreeCursor<'a>, offset: usize, stop_at: &[u16]) -> Option<TreeCursor<'a>> {
+pub fn find_deepest_node<'a>(
+    root: TreeCursor<'a>,
+    offset: usize,
+    stop_at: &[u16],
+) -> Option<TreeCursor<'a>> {
     let mut sel: Option<TreeCursor> = None;
 
     let mut cursor = root;
@@ -299,7 +303,7 @@ pub fn find_deepest_node<'a>(root: TreeCursor<'a>, offset: usize, stop_at: &[u16
 
         let id = node.kind_id();
         if let Some(_) = stop_at.iter().find(|&&k| k == id) {
-            sel = Some( cursor.clone());
+            sel = Some(cursor.clone());
         }
     }
     sel
