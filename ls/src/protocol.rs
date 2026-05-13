@@ -2132,12 +2132,14 @@ pub struct SemanticTokensOptions {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SemanticTokensLegend {
     pub token_types: Vec<SemanticTokenTypes>,
     pub token_modifiers: Vec<SemanticTokenModifiers>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SemanticTokensRegistrationOptions {
     pub document_selector: Option<DocumentSelector>,
     pub legend: SemanticTokensLegend,
@@ -2300,6 +2302,7 @@ pub struct WorkspaceFoldersServerCapabilities {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WorkspaceFileOperations {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub did_create: Option<FileOperationRegistrationOptions>,
@@ -2352,6 +2355,7 @@ pub struct FileOperationPatternOptions {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InitializeResult {
     pub capabilities: ServerCapabilities,
 
