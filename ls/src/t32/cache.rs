@@ -15,7 +15,7 @@ pub fn find_subroutine_for_call<'a>(
     call: &CallExpression,
     subroutines: &'a [Subroutine],
 ) -> Option<&'a Subroutine> {
-    if call.target.end >= text.len() {
+    if call.target.end > text.len() {
         return None;
     }
 

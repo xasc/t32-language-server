@@ -647,7 +647,7 @@ pub fn find_macro_references_in_file(
     name: &str,
     lifetime: MacroScope,
 ) -> (Vec<BRange>, Vec<Uri>) {
-    let Some(captures) = find_file_local_macro_references(text, tree, t32, name) else {
+    let Some(captures) = find_infile_macro_references(text, tree, t32, name) else {
         return (Vec::new(), Vec::new());
     };
 
@@ -709,7 +709,7 @@ pub fn find_macro_references_at_offset(
     );
     (refs, scripts)
 }
-pub fn find_file_local_macro_references<'a>(
+pub fn find_infile_macro_references<'a>(
     text: &str,
     tree: &Tree,
     t32: &'a FindMacroRefsLangContext,
@@ -850,7 +850,7 @@ pub fn defines_any_macro(
         );
 
         let range = r#macro.byte_range();
-        if range.end >= text.len() {
+        if range.end > text.len() {
             break;
         }
 
@@ -898,7 +898,7 @@ pub fn defines_block_global_macro(
         );
 
         let range = r#macro.byte_range();
-        if range.end >= text.len() {
+        if range.end > text.len() {
             break;
         }
 
@@ -952,7 +952,7 @@ pub fn may_define_macro_implicitly(
         );
 
         let range = r#macro.byte_range();
-        if range.end >= text.len() {
+        if range.end > text.len() {
             break;
         }
 
@@ -1030,6 +1030,7 @@ pub fn find_definition_for_macro_in_subroutine(
         return Some(vec![inner.unwrap()]);
     }
 
+    // TODO: Detect subroutine calls in `ON CoManD` handlders
     let mut outer = find_macro_def_covering_subroutine_call(
         0,
         text,
@@ -1158,7 +1159,11 @@ fn find_macro_def_covering_subroutine_call(
                 subroutines,
                 tree,
             );
-            debug_assert!(macros.len() > 0);
+            if macros.is_empty() {
+                // Topmost subroutine has neither a caller and nor a macro
+                // definition.
+                continue;
+            }
 
             if let Some(MacroDefResolution::Overridable(definition)) = inner {
                 // The subroutine has an `ENTRY` command. We need to check
@@ -1338,15 +1343,24 @@ pub fn defines_global_macro_implicitly(
         return None;
     }
 
+    let id_identifier = NodeKind::Identifier.into_id(&cursor.node().language());
+
     while cursor.goto_next_sibling() {
         let r#macro = cursor.node();
+        if r#macro.kind_id() == id_identifier {
+            debug_assert_eq!(
+                &text[r#macro.byte_range()].to_uppercase(),
+                "%LINE"
+            );
+            continue;
+        }
         debug_assert_eq!(
             r#macro.kind_id(),
             NodeKind::Macro.into_id(&r#macro.language())
         );
 
         let range = r#macro.byte_range();
-        if range.end >= text.len() {
+        if range.end > text.len() {
             break;
         }
 
@@ -1439,7 +1453,7 @@ pub fn extract_macro_defs(text: &str, cursor: &mut TreeCursor, macros: &mut Vec<
         );
 
         let range = r#macro.byte_range();
-        if range.end >= text.len() {
+        if range.end > text.len() {
             break;
         }
         macros.push(MacroDefinition {
@@ -1498,7 +1512,7 @@ pub fn extract_params(
         debug_assert_eq!(id, NodeKind::Macro.into_id(&node.language()));
 
         let range = node.byte_range();
-        if range.end >= text.len() {
+        if range.end > text.len() {
             break;
         }
         declarations.push(ParameterDeclaration {

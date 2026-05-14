@@ -178,7 +178,7 @@ pub fn goto_infile_macro_definition(
         NodeKind::Macro.into_id(&r#macro.node().language()),
     );
 
-    if r#macro.node().end_byte() >= text.len() {
+    if r#macro.node().end_byte() > text.len() {
         return None;
     }
     let node = r#macro.node();
@@ -203,7 +203,7 @@ pub fn goto_subroutine_definition(
         NodeKind::SubroutineCallExpression.into_id(&call.node().language()),
     );
 
-    if call.node().end_byte() >= text.len() {
+    if call.node().end_byte() > text.len() {
         return None;
     }
     find_call_target_definition(text, subroutines, call)
@@ -215,7 +215,7 @@ pub fn goto_file(text: &str, calls: &SubscriptCalls, command: TreeCursor) -> Opt
         NodeKind::CommandExpression.into_id(&command.node().language()),
     );
 
-    if command.node().end_byte() >= text.len() {
+    if command.node().end_byte() > text.len() {
         return None;
     }
     find_file_target(calls, command)
@@ -248,7 +248,7 @@ pub fn find_subroutine_call_references(
         NodeKind::SubroutineCallExpression.into_id(&call.node().language()),
     );
 
-    if call.node().end_byte() >= text.len() {
+    if call.node().end_byte() > text.len() {
         return None;
     }
 
@@ -271,7 +271,7 @@ pub fn find_subroutine_references(
                 == NodeKind::LabeledExpression.into_id(&subroutine.node().language())
     );
 
-    if subroutine.node().end_byte() >= text.len() {
+    if subroutine.node().end_byte() > text.len() {
         return None;
     }
 
@@ -292,7 +292,7 @@ pub fn find_label_references(
         NodeKind::LabeledExpression.into_id(&label.node().language())
     );
 
-    if label.node().end_byte() >= text.len() {
+    if label.node().end_byte() > text.len() {
         return None;
     }
 
@@ -311,7 +311,7 @@ pub fn find_macro_definition_references(
     range: BRange,
 ) -> (Vec<BRange>, Vec<Uri>) {
     let span = range.to_inner();
-    if span.start >= text.len() {
+    if span.start > text.len() {
         return (Vec::new(), Vec::new());
     }
 
