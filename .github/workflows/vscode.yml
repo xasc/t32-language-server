@@ -31,10 +31,10 @@ jobs:
     strategy:
       matrix:
         os: [
-          { img: ubuntu-latest, vsce_target: linux-x64, t32ls_flavor: x86_64, npm_config_arch: x64 },
-          { img: ubuntu-latest, vsce_target: linux-arm64, t32ls_flavor: arm64, npm_config_arch: arm64 },
-          { img: macos-latest, vsce_target: darwin-x64, t32ls_flavor: x86_64, npm_config_arch: x64 },
-          { img: macos-latest, vsce_target: darwin-arm64, t32ls_flavor: arm64, npm_config_arch: arm64 },
+          { img: ubuntu-latest, vsce_target: linux-x64, t32ls_flavor: x86_64 },
+          { img: ubuntu-latest, vsce_target: linux-arm64, t32ls_flavor: arm64 },
+          { img: macos-latest, vsce_target: darwin-x64, t32ls_flavor: x86_64 },
+          { img: macos-latest, vsce_target: darwin-arm64, t32ls_flavor: arm64 },
         ]
     runs-on: ${{ matrix.os.img }}
     steps:
@@ -63,7 +63,6 @@ jobs:
         run: cd vscode && yarn install
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          npm_config_arch: ${{ matrix.os.npm_config_arch }}
 
       - name: Update environment variables
         shell: pwsh
@@ -96,8 +95,8 @@ jobs:
     strategy:
       matrix:
         os: [
-          { img: windows-latest, vsce_target: win32-x64, t32ls_flavor: win64, npm_config_arch: x64 },
-          { img: windows-11-arm, vsce_target: win32-arm64, t32ls_flavor: win-arm64, npm_config_arch: arm },
+          { img: windows-latest, vsce_target: win32-x64, t32ls_flavor: win64 },
+          { img: windows-11-arm, vsce_target: win32-arm64, t32ls_flavor: win-arm64 },
         ]
     runs-on: ${{ matrix.os.img }}
     steps:
@@ -129,7 +128,6 @@ jobs:
         run: cd vscode && yarn install
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          npm_config_arch: ${{ matrix.os.npm_config_arch }}
 
       - name: Update environment variables
         shell: pwsh
