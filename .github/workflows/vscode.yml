@@ -82,7 +82,7 @@ jobs:
           GH_TOKEN: ${{github.token}}
 
       - name: Publish package
-        run: cd vscode && yarn run vsce publish --skip-license --no-yarn --target ${{ env.target }} --packagePath ./t32ls-${{ env.target }}-*.vsix
+        run: cd vscode && yarn run vsce publish --skip-license --no-yarn --target ${{ env.target }}
         env:
           VSCE_PAT: ${{ secrets.VSMARKETPLACE_TOKEN }}
 
@@ -148,6 +148,6 @@ jobs:
           GH_TOKEN: ${{github.token}}
 
       - name: Publish package
-        run: cd vscode && yarn run vsce publish --skip-license --no-yarn --target ${{ env.target }} --packagePath ./t32ls-${{ env.target }}-*.vsix
+        run: cd vscode && yarn run vsce publish --skip-license --no-yarn --target ${{ env.target }}
         env:
           VSCE_PAT: ${{ secrets.VSMARKETPLACE_TOKEN }}
