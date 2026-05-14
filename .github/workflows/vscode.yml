@@ -77,7 +77,7 @@ jobs:
       - name: Create GitHub release
         run: |
           gh release list
-          gh release upload ${{ github.ref_name }} ./vscode/t32ls-${{ env.target }}-*.vsix
+          gh release upload ${{ github.event.inputs.t32ls_version }} ./vscode/t32ls-${{ env.target }}-*.vsix
         env:
           GH_TOKEN: ${{github.token}}
 
@@ -105,7 +105,7 @@ jobs:
           node-version: 24
 
       - name: Install Yarn v2
-        run: npm install -g corepack
+        run: corepack enable
 
       - name: Download t32ls release
         run: |
@@ -140,7 +140,7 @@ jobs:
       - name: Create GitHub release
         run: |
           gh release list
-          gh release upload ${{ github.ref_name }} ./vscode/t32ls-${{ env.target }}-*.vsix
+          gh release upload ${{ github.event.inputs.t32ls_version }} ./vscode/t32ls-${{ env.target }}-*.vsix
         env:
           GH_TOKEN: ${{github.token}}
 
