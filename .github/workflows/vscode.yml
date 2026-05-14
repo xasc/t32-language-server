@@ -168,6 +168,7 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           path: ./vscode
+          merge-multiple: true
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
@@ -183,7 +184,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish package to Visual Studio Marketplace
-        run: cd vscode && yarn run vsce publish --skip-duplicate --skip-license --no-yarn --packagePath $(ls ./*.vsix)
+        run: |
+          ls -R ./vscode
+          ls -l vscode
+          cd vscode && yarn run vsce publish --skip-duplicate --skip-license --no-yarn --packagePath $(ls ./*.vsix)
         env:
           VSCE_PAT: ${{ secrets.VSMARKETPLACE_TOKEN }}
 
