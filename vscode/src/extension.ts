@@ -8,7 +8,7 @@ import { LanguageClient, LanguageClientOptions, ServerOptions} from 'vscode-lang
 let client: LanguageClient;
 
 export async function activate(context: ExtensionContext) {
-  const channel = window.createOutputChannel('t32-language-server', { log: true });
+  const channel = window.createOutputChannel('t32 Language Server', { log: true });
 
   const command = getLanguageServerPath(context, client);
   const serverOptions: ServerOptions = {
@@ -18,7 +18,7 @@ export async function activate(context: ExtensionContext) {
 
   let traceChannel = channel;
   if (process.env.NODE_ENV! === 'development') {
-    traceChannel = window.createOutputChannel('t32-language-server Trace', { log: true });
+    traceChannel = window.createOutputChannel('t32 Language Server Trace', { log: true });
   }
 
   const clientOptions: LanguageClientOptions = {

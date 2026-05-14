@@ -2,7 +2,7 @@
   "name": "t32ls-vsc",
   "displayName": "t32 Language Server",
   "description": "Language server for the Lauterbach TRACE32® script language.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "Christoph Sax <c_sax@mailbox.org>",
   "publisher": "xasc",
   "license": "EUPL-1.2",
@@ -50,7 +50,7 @@
     ],
     "configuration": [
       {
-        "title": "t32-language-server",
+        "title": "t32 Language Server",
         "properties": {
           "t32ls.trace.server": {
             "scope": "window",
@@ -137,6 +137,7 @@
     "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^3.9.1",
     "eslint": "^10.3.0",
+    "ovsx": "^0.10.12",
     "ts-loader": "^9.5.7",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.59.2",

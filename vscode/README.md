@@ -22,6 +22,12 @@ Features
 Extension settings
 ------------------
 
+This extension contributes the following language:
+
+*  `practice`: Lauterbach TRACE32® script language
+    *  Display name: `PRACTICE`
+    *  File extensions: `cmm`, `cmmt`
+
 This extension contributes the following settings:
 
 *  `t32ls.trace.server`: Trace server communication with VS Code.
