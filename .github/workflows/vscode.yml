@@ -70,6 +70,12 @@ jobs:
       - name: Build package
         run: cd vscode && yarn run vsce package --skip-license --no-yarn --target ${{ env.target }}
 
+      - name: Generate artifact attestations
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            ./vscode/${{ github.event.inputs.extension_name }}-${{ env.target }}-*.vsix
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:
@@ -130,6 +136,12 @@ jobs:
       - name: Build package
         run: cd vscode && yarn run vsce package --skip-license --no-yarn --target ${{ env.target }}
 
+      - name: Generate artifact attestations
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            ./vscode/${{ github.event.inputs.extension_name }}-${{ env.target }}-*.vsix
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:
@@ -164,6 +176,11 @@ jobs:
 
       - name: Install Yarn v2
         run: corepack enable
+
+      - name: Install Node.js dependencies
+        run: cd vscode && yarn install
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish package to Visual Studio Marketplace
         run: cd vscode && yarn run vsce publish --skip-duplicate --skip-license --no-yarn --packagePath $(find . -iname *.vsix)
