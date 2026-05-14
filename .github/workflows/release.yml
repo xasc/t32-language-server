@@ -93,7 +93,7 @@ jobs:
       - name: Create GitHub release
         run: |
           gh release list
-          gh release upload ${{ github.ref_name }} ./t32ls-${{ matrix.os.flavor }}.zip
+          gh release upload ${{ github.ref_name }} ./t32ls-macos-${{ matrix.os.flavor }}.tar.gz
         env:
           GH_TOKEN: ${{ github.token }}
 
@@ -144,7 +144,7 @@ jobs:
     needs: release_t32ls_bin_linux_primary
     strategy:
       matrix:
-        os: [ {img: windows-latest, flavor: win64 }, {img: windows-11-arm, flavor: arm64} ]
+        os: [ {img: windows-latest, flavor: win64 }, {img: windows-11-arm, flavor: win-arm64} ]
     runs-on: ${{ matrix.os.img }}
     steps:
       - name: Set up repository
