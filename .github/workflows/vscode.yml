@@ -61,7 +61,6 @@ jobs:
           npm_config_arch: ${{ matrix.os.npm_config_arch }}
 
       - name: Update environment variables
-        shell: pwsh
         run: echo "target=${{ matrix.os.vsce_target }}" >> $env:GITHUB_ENV
 
       - name: Build package
@@ -82,7 +81,7 @@ jobs:
           GH_TOKEN: ${{github.token}}
 
       - name: Publish package
-        run: cd vscode && yarn run vsce publish --skip-license --no-yarn --packagePath ./vscode/t32ls-${{ env.target }}-*.vsix
+        run: cd vscode && yarn run vsce publish --skip-license --no-yarn --packagePath ./t32ls-${{ env.target }}-*.vsix
         env:
           VSCE_PAT: ${{ secrets.VSMARKETPLACE_TOKEN }}
 
@@ -107,6 +106,9 @@ jobs:
       - name: Install Yarn v2
         run: corepack enable
 
+      - name: Install wget
+        run: choco install wget --no-progress
+
       - name: Download t32ls release
         run: |
           wget https://github.com/xasc/t32-language-server/releases/download/${{ github.event.inputs.t32ls_version }}/t32ls-${{ matrix.os.t32ls_flavor }}.zip
@@ -124,7 +126,6 @@ jobs:
           npm_config_arch: ${{ matrix.os.npm_config_arch }}
 
       - name: Update environment variables
-        shell: pwsh
         run: echo "target=${{ matrix.os.vsce_target }}" >> $env:GITHUB_ENV
 
       - name: Build package
@@ -145,6 +146,6 @@ jobs:
           GH_TOKEN: ${{github.token}}
 
       - name: Publish package
-        run: cd vscode && yarn run vsce publish --skip-license --no-yarn --packagePath ./vscode/t32ls-${{ env.target }}-*.vsix
+        run: cd vscode && yarn run vsce publish --skip-license --no-yarn --packagePath ./t32ls-${{ env.target }}-*.vsix
         env:
           VSCE_PAT: ${{ secrets.VSMARKETPLACE_TOKEN }}
