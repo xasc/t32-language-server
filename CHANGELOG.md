@@ -56,6 +56,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 -  Fix semantic token detection.
 -  Fix semantic token conversion if client has no support for multi-line tokens.
 -  Fix macro reference retrieval in subroutines.
+-  Fix host architecture for macOS release artifacts. They are built for
+   `AArch64`.
 
 
 [0.7.1] - 2026-04-21

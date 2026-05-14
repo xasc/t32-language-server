@@ -67,27 +67,27 @@ jobs:
 
       - name: Bundle release artifacts
         run: |
-          mkdir -p ./t32ls-macos-x86_64/
-          cp ./target/release/t32ls ./t32ls-macos-x86_64/
-          tar cvfz t32ls-macos-x86_64.tar.gz t32ls-macos-x86_64/
+          mkdir -p ./t32ls-macos-arm64/
+          cp ./target/release/t32ls ./t32ls-macos-arm64/
+          tar cvfz t32ls-macos-arm64.tar.gz t32ls-macos-arm64/
 
       - name: Generate artifact attestations
         uses: actions/attest@v4
         with:
           subject-path: |
-            ./t32ls-macos-x86_64.tar.gz
+            ./t32ls-macos-arm64.tar.gz
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:
-          path: ./t32ls-macos-x86_64.tar.gz
+          path: ./t32ls-macos-arm64.tar.gz
           archive: false
           retention-days: 1
 
       - name: Create GitHub release
         run: |
           gh release list
-          gh release upload ${{ github.ref_name }} ./t32ls-macos-x86_64.tar.gz
+          gh release upload ${{ github.ref_name }} ./t32ls-macos-arm64.tar.gz
         env:
           GH_TOKEN: ${{ github.token }}
 
