@@ -62,7 +62,7 @@ jobs:
         run: echo "target=${{ matrix.os.vsce_target }}" >> $env:GITHUB_ENV
 
       - name: Build package
-        run: cd vscode && npx vsce package --skip-license --target ${{ env.target }}
+        run: cd vscode && npx vsce package --skip-license --no-yarn --target ${{ env.target }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
@@ -79,7 +79,7 @@ jobs:
           GH_TOKEN: ${{github.token}}
 
       - name: Publish package
-        run: cd vscode && npx vsce publish --skip-license --packagePath ./vscode/t32ls-${{ env.target }}-*.vsix
+        run: cd vscode && npx vsce publish --skip-license --no-yarn --packagePath ./vscode/t32ls-${{ env.target }}-*.vsix
         env:
           VSCE_PAT: ${{ secrets.VSMARKETPLACE_TOKEN }}
 
@@ -122,7 +122,7 @@ jobs:
         run: echo "target=${{ matrix.os.vsce_target }}" >> $env:GITHUB_ENV
 
       - name: Build package
-        run: cd vscode && npx vsce package --skip-license --target ${{ env.target }}
+        run: cd vscode && npx vsce package --skip-license --no-yarn --target ${{ env.target }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
@@ -139,6 +139,6 @@ jobs:
           GH_TOKEN: ${{github.token}}
 
       - name: Publish package
-        run: cd vscode && npx vsce publish --skip-license --packagePath ./vscode/t32ls-${{ env.target }}-*.vsix
+        run: cd vscode && npx vsce publish --skip-license --no-yarn --packagePath ./vscode/t32ls-${{ env.target }}-*.vsix
         env:
           VSCE_PAT: ${{ secrets.VSMARKETPLACE_TOKEN }}
