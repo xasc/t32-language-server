@@ -82,7 +82,7 @@ jobs:
           GH_TOKEN: ${{github.token}}
 
       - name: Publish package
-        run: cd vscode && yarn run vsce publish --skip-license --no-yarn --packagePath ./t32ls-${{ env.target }}-*.vsix
+        run: cd vscode && yarn run vsce publish --skip-license --no-yarn --target ${{ env.target }} --packagePath ./t32ls-${{ env.target }}-*.vsix
         env:
           VSCE_PAT: ${{ secrets.VSMARKETPLACE_TOKEN }}
 
@@ -92,7 +92,7 @@ jobs:
       matrix:
         os: [
           { img: windows-latest, vsce_target: win32-x64, t32ls_flavor: win64, npm_config_arch: x64 },
-          { img: windows-latest, vsce_target: win32-arm64, t32ls_flavor: win-arm64, npm_config_arch: arm },
+          { img: windows-11-arm, vsce_target: win32-arm64, t32ls_flavor: win-arm64, npm_config_arch: arm },
         ]
     runs-on: ${{ matrix.os.img }}
     steps:
@@ -148,6 +148,6 @@ jobs:
           GH_TOKEN: ${{github.token}}
 
       - name: Publish package
-        run: cd vscode && yarn run vsce publish --skip-license --no-yarn --packagePath ./t32ls-${{ env.target }}-*.vsix
+        run: cd vscode && yarn run vsce publish --skip-license --no-yarn --target ${{ env.target }} --packagePath ./t32ls-${{ env.target }}-*.vsix
         env:
           VSCE_PAT: ${{ secrets.VSMARKETPLACE_TOKEN }}
