@@ -61,6 +61,7 @@ jobs:
           npm_config_arch: ${{ matrix.os.npm_config_arch }}
 
       - name: Update environment variables
+        shell: pwsh
         run: echo "target=${{ matrix.os.vsce_target }}" >> $env:GITHUB_ENV
 
       - name: Build package
@@ -115,7 +116,7 @@ jobs:
           7z x t32ls-${{ matrix.os.t32ls_flavor }}.zip
 
           mkdir vscode/bin
-          copy t32ls-linux-${{ matrix.os.t32ls_flavor }}/* vscode/bin/
+          copy t32ls-${{ matrix.os.t32ls_flavor }}/* vscode/bin/
         env:
           GH_TOKEN: ${{ github.token }}
 
@@ -126,6 +127,7 @@ jobs:
           npm_config_arch: ${{ matrix.os.npm_config_arch }}
 
       - name: Update environment variables
+        shell: pwsh
         run: echo "target=${{ matrix.os.vsce_target }}" >> $env:GITHUB_ENV
 
       - name: Build package
