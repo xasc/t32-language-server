@@ -24,10 +24,9 @@ permissions:
   id-token: write
   attestations: write
 
-
 jobs:
-  publish_unix:
-    name: Build and publish Unix variants
+  build_unix:
+    name: Build Unix variants
     strategy:
       matrix:
         os: [
@@ -49,6 +48,11 @@ jobs:
       - name: Install Yarn v2
         run: npm install -g corepack
 
+      - name: Install Node.js dependencies
+        run: cd vscode && yarn install
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Download t32ls release
         run: |
           wget https://github.com/xasc/t32-language-server/releases/download/${{ github.event.inputs.t32ls_version }}/t32ls-linux-${{ matrix.os.t32ls_flavor }}.tar.gz
@@ -58,11 +62,6 @@ jobs:
           cp t32ls-linux-${{ matrix.os.t32ls_flavor }}/* vscode/bin/
         env:
           GH_TOKEN: ${{ github.token }}
-
-      - name: Install Node.js dependencies
-        run: cd vscode && yarn install
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Update environment variables
         shell: pwsh
@@ -85,16 +84,8 @@ jobs:
         env:
           GH_TOKEN: ${{github.token}}
 
-      - name: Publish package to Visual Studio Marketplace
-        run: cd vscode && yarn run vsce publish --skip-duplicate --skip-license --no-yarn --target ${{ env.target }}
-        env:
-          VSCE_PAT: ${{ secrets.VSMARKETPLACE_TOKEN }}
-
-      - name: Publish package to Open VSX Registry
-        run: cd vscode && yarn run ovsx publish --skip-duplicate --pat ${{ secrets.OPENVSX_TOKEN }} --target ${{ env.target }} --packagePath ${{ github.event.inputs.extension_name }}-${{ env.target }}-*.vsix
-
-  publish_windows:
-    name: Build and publish Windows variants
+  build_windows:
+    name: Build Windows variants
     strategy:
       matrix:
         os: [
@@ -114,6 +105,11 @@ jobs:
       - name: Install Yarn v2
         run: corepack enable
 
+      - name: Install Node.js dependencies
+        run: cd vscode && yarn install
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Install wget
         run: choco install wget --no-progress
 
@@ -126,11 +122,6 @@ jobs:
           copy t32ls-${{ matrix.os.t32ls_flavor }}/* vscode/bin/
         env:
           GH_TOKEN: ${{ github.token }}
-
-      - name: Install Node.js dependencies
-        run: cd vscode && yarn install
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Update environment variables
         shell: pwsh
@@ -153,10 +144,31 @@ jobs:
         env:
           GH_TOKEN: ${{github.token}}
 
+  publish:
+    name: Publish extension to registries
+    needs: [build_unix, build_windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v6
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: ./vscode
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Install Yarn v2
+        run: corepack enable
+
       - name: Publish package to Visual Studio Marketplace
-        run: cd vscode && yarn run vsce publish --skip-duplicate --skip-license --no-yarn --target ${{ env.target }}
+        run: cd vscode && yarn run vsce publish --skip-duplicate --skip-license --no-yarn --packagePath $(find . -iname *.vsix)
         env:
           VSCE_PAT: ${{ secrets.VSMARKETPLACE_TOKEN }}
 
       - name: Publish package to Open VSX Registry
-        run: cd vscode && yarn run ovsx publish --skip-duplicate --pat ${{ secrets.OPENVSX_TOKEN }} --target ${{ env.target }} --packagePath ${{ github.event.inputs.extension_name }}-${{ env.target }}-*.vsix
+        run: cd vscode && yarn run ovsx publish --skip-duplicate --pat ${{ secrets.OPENVSX_TOKEN }} --packagePath $(find . -iname *.vsix)
