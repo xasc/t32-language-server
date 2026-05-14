@@ -183,9 +183,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish package to Visual Studio Marketplace
-        run: cd vscode && yarn run vsce publish --skip-duplicate --skip-license --no-yarn --packagePath $(find . -iname *.vsix)
+        run: cd vscode && yarn run vsce publish --skip-duplicate --skip-license --no-yarn --packagePath $(find . -iname "*.vsix")
         env:
           VSCE_PAT: ${{ secrets.VSMARKETPLACE_TOKEN }}
 
       - name: Publish package to Open VSX Registry
-        run: cd vscode && yarn run ovsx publish --skip-duplicate --pat ${{ secrets.OPENVSX_TOKEN }} --packagePath $(find . -iname *.vsix)
+        run: cd vscode && yarn run ovsx publish --skip-duplicate --pat ${{ secrets.OPENVSX_TOKEN }} --packagePath $(find . -iname "*.vsix")
