@@ -13,6 +13,11 @@ on:
         required: true
         default: 'v0.9.0'
         type: string
+      extension_name:
+        description: 'Name of the VS Code extension'
+        required: true
+        default: 't32ls-vsc'
+        type: string
 
 permissions:
   contents: write
@@ -70,14 +75,14 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:
-          path: ./vscode/t32ls-${{ env.target }}-*.vsix
+          path: ./vscode/${{ github.event.inputs.extension_name }}-${{ env.target }}-*.vsix
           archive: false
           retention-days: 1
 
       - name: Create GitHub release
         run: |
           gh release list
-          gh release upload ${{ github.event.inputs.t32ls_version }} ./vscode/t32ls-${{ env.target }}-*.vsix
+          gh release upload ${{ github.event.inputs.t32ls_version }} ./vscode/${{ github.event.inputs.extension_name }}-${{ env.target }}-*.vsix
         env:
           GH_TOKEN: ${{github.token}}
 
@@ -136,14 +141,14 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:
-          path: ./vscode/t32ls-${{ env.target }}-*.vsix
+          path: ./vscode/${{ github.event.inputs.extension_name }}-${{ env.target }}-*.vsix
           archive: false
           retention-days: 1
 
       - name: Create GitHub release
         run: |
           gh release list
-          gh release upload ${{ github.event.inputs.t32ls_version }} ./vscode/t32ls-${{ env.target }}-*.vsix
+          gh release upload ${{ github.event.inputs.t32ls_version }} ./vscode/${{ github.event.inputs.extension_name }}-${{ env.target }}-*.vsix
         env:
           GH_TOKEN: ${{github.token}}
 

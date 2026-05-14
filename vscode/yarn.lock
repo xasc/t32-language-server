@@ -4666,9 +4666,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"t32ls@workspace:.":
+"t32ls-vsc@workspace:.":
   version: 0.0.0-use.local
-  resolution: "t32ls@workspace:."
+  resolution: "t32ls-vsc@workspace:."
   dependencies:
     "@types/mocha": "npm:^10.0.10"
     "@types/node": "npm:^22.19.18"

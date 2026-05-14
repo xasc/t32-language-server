@@ -1,5 +1,5 @@
 {
-  "name": "t32ls",
+  "name": "t32ls-vsc",
   "displayName": "t32-language-server",
   "description": "Language server for the Lauterbach TRACE32® script language.",
   "version": "0.1.0",
