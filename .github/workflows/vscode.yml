@@ -85,10 +85,13 @@ jobs:
         env:
           GH_TOKEN: ${{github.token}}
 
-      - name: Publish package
-        run: cd vscode && yarn run vsce publish --skip-license --no-yarn --target ${{ env.target }}
+      - name: Publish package to Visual Studio Marketplace
+        run: cd vscode && yarn run vsce publish --skip-duplicate --skip-license --no-yarn --target ${{ env.target }}
         env:
           VSCE_PAT: ${{ secrets.VSMARKETPLACE_TOKEN }}
+
+      - name: Publish package to Open VSX Registry
+        run: cd vscode && yarn run ovsx publish --skip-duplicate --pat ${{ secrets.OPENVSX_TOKEN }} --target ${{ env.target }} --packagePath ${{ github.event.inputs.extension_name }}-${{ env.target }}-*.vsix
 
   publish_windows:
     name: Build and publish Windows variants
@@ -150,7 +153,10 @@ jobs:
         env:
           GH_TOKEN: ${{github.token}}
 
-      - name: Publish package
-        run: cd vscode && yarn run vsce publish --skip-license --no-yarn --target ${{ env.target }}
+      - name: Publish package to Visual Studio Marketplace
+        run: cd vscode && yarn run vsce publish --skip-duplicate --skip-license --no-yarn --target ${{ env.target }}
         env:
           VSCE_PAT: ${{ secrets.VSMARKETPLACE_TOKEN }}
+
+      - name: Publish package to Open VSX Registry
+        run: cd vscode && yarn run ovsx publish --skip-duplicate --pat ${{ secrets.OPENVSX_TOKEN }} --target ${{ env.target }} --packagePath ${{ github.event.inputs.extension_name }}-${{ env.target }}-*.vsix
