@@ -21,7 +21,7 @@ jobs:
     name: Build and test OS binary
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [macos-latest, macos-latest-large, ubuntu-latest, ubuntu-24.04-arm, windows-latest, windows-11-arm]
     uses: ./.github/workflows/build_os.yml
     with:
       runner: ${{ matrix.os }}

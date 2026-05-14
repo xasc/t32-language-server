@@ -16,7 +16,10 @@ permissions:
 jobs:
   release_t32ls_bin_linux:
     name: Create Linux release
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ {img: ubuntu-latest, flavor: x86_64 }, {img: ubuntu-24.04-arm, flavor: arm64} ]
+    runs-on: ${{ matrix.os.img }}
     steps:
       - name: Set up repository
         uses: actions/checkout@v6
@@ -28,26 +31,26 @@ jobs:
 
       - name: Bundle release artifacts
         run: |
-          mkdir --parents ./t32ls-linux-x86_64/
-          cp --verbose ./target/release/t32ls ./t32ls-linux-x86_64/
-          tar cvfz t32ls-linux-x86_64.tar.gz t32ls-linux-x86_64/
+          mkdir --parents ./t32ls-linux-${{ matrix.os.flavor }}/
+          cp --verbose ./target/release/t32ls ./t32ls-linux-${{ matrix.os.flavor }}/
+          tar cvfz t32ls-linux-${{ matrix.os.flavor }}.tar.gz t32ls-linux-${{ matrix.os.flavor }}/
 
       - name: Generate artifact attestations
         uses: actions/attest@v4
         with:
           subject-path: |
-            ./t32ls-linux-x86_64.tar.gz
+            ./t32ls-linux-${{ matrix.os.flavor }}.tar.gz
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:
-          path: ./t32ls-linux-x86_64.tar.gz
+          path: ./t32ls-linux-${{ matrix.os.flavor }}.tar.gz
           archive: false
           retention-days: 1
 
       - name: Create GitHub release
         run: |
-          gh release create ${{ github.ref_name }} --notes-from-tag --verify-tag ./t32ls-linux-x86_64.tar.gz
+          gh release create ${{ github.ref_name }} --notes-from-tag --verify-tag ./t32ls-linux-${{ matrix.os.flavor }}.tar.gz
           gh release list
         env:
           GH_TOKEN: ${{ github.token }}
@@ -55,7 +58,10 @@ jobs:
   release_t32ls_bin_macos:
     name: Create macOS release
     needs: release_t32ls_bin_linux
-    runs-on: macos-latest
+    strategy:
+      matrix:
+        os: [ {img: macos-latest-large, flavor: x86_64 }, {img: macos-latest, flavor: arm64} ]
+    runs-on: ${{ matrix.os.img }}
     steps:
       - name: Set up repository
         uses: actions/checkout@v6
@@ -67,34 +73,37 @@ jobs:
 
       - name: Bundle release artifacts
         run: |
-          mkdir -p ./t32ls-macos-arm64/
-          cp ./target/release/t32ls ./t32ls-macos-arm64/
-          tar cvfz t32ls-macos-arm64.tar.gz t32ls-macos-arm64/
+          mkdir -p ./t32ls-macos-${{ matrix.os.flavor }}/
+          cp ./target/release/t32ls ./t32ls-macos-${{ matrix.os.flavor }}/
+          tar cvfz t32ls-macos-${{ matrix.os.flavor }}.tar.gz t32ls-macos-${{ matrix.os.flavor }}/
 
       - name: Generate artifact attestations
         uses: actions/attest@v4
         with:
           subject-path: |
-            ./t32ls-macos-arm64.tar.gz
+            ./t32ls-macos-${{ matrix.os.flavor }}.tar.gz
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:
-          path: ./t32ls-macos-arm64.tar.gz
+          path: ./t32ls-macos-${{ matrix.os.flavor }}.tar.gz
           archive: false
           retention-days: 1
 
       - name: Create GitHub release
         run: |
           gh release list
-          gh release upload ${{ github.ref_name }} ./t32ls-macos-arm64.tar.gz
+          gh release upload ${{ github.ref_name }} ./t32ls-macos-${{ matrix.os.flavor }}.tar.gz
         env:
           GH_TOKEN: ${{ github.token }}
 
   release_t32ls_bin_win:
     name: Create Windows release
     needs: release_t32ls_bin_linux
-    runs-on: windows-latest
+    strategy:
+      matrix:
+        os: [ {img: windows-latest, flavor: win64 }, {img: windows-11-arm, flavor: arm64} ]
+    runs-on: ${{ matrix.os.img }}
     steps:
       - name: Set up repository
         uses: actions/checkout@v6
@@ -106,9 +115,9 @@ jobs:
 
       - name: Bundle release artifacts
         run: |
-          mkdir ./t32ls-win64/
-          copy ./target/release/t32ls.exe ./t32ls-win64/
-          7z a -r t32ls-win64.zip ./t32ls-win64
+          mkdir ./t32ls-${{ matrix.os.flavor }}/
+          copy ./target/release/t32ls.exe ./t32ls-${{ matrix.os.flavor }}/
+          7z a -r t32ls-${{ matrix.os.flavor }}.zip ./t32ls-${{ matrix.os.flavor }}
 
       - name: Generate artifact attestations
         uses: actions/attest@v4
@@ -119,14 +128,14 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:
-          path: ./t32ls-win64.zip
+          path: ./t32ls-${{ matrix.os.flavor }}.zip
           archive: false
           retention-days: 1
 
       - name: Create GitHub release
         run: |
           gh release list
-          gh release upload ${{ github.ref_name }} ./t32ls-win64.zip
+          gh release upload ${{ github.ref_name }} ./t32ls-${{ matrix.os.flavor }}.zip
         env:
           GH_TOKEN: ${{github.token}}
 
