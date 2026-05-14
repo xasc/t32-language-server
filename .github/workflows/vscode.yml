@@ -41,6 +41,9 @@ jobs:
         with:
           node-version: 24
 
+      - name: Install Yarn v2
+        run: npm install -g corepack
+
       - name: Download t32ls release
         run: |
           wget https://github.com/xasc/t32-language-server/releases/download/${{ github.event.inputs.t32ls_version }}/t32ls-linux-${{ matrix.os.t32ls_flavor }}.tar.gz
@@ -52,9 +55,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
 
       - name: Install Node.js dependencies
-        run: |
-          cd vscode && npm install
-          npm install -g corepack
+        run: cd vscode && npm install
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           npm_config_arch: ${{ matrix.os.npm_config_arch }}
@@ -103,6 +104,9 @@ jobs:
         with:
           node-version: 24
 
+      - name: Install Yarn v2
+        run: npm install -g corepack
+
       - name: Download t32ls release
         run: |
           wget https://github.com/xasc/t32-language-server/releases/download/${{ github.event.inputs.t32ls_version }}/t32ls-${{ matrix.os.t32ls_flavor }}.zip
@@ -114,9 +118,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
 
       - name: Install Node.js dependencies
-        run: |
-          cd vscode && npm install
-          npm install -g corepack
+        run: cd vscode && npm install
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           npm_config_arch: ${{ matrix.os.npm_config_arch }}
