@@ -44,10 +44,10 @@ jobs:
       - name: Download t32ls release
         run: |
           wget https://github.com/xasc/t32-language-server/releases/download/${{ github.event.inputs.t32ls_version }}/t32ls-linux-${{ matrix.os.t32ls_flavor }}.tar.gz
-          tar xvf t32ls-linux-${{ matrix.os.flavor }}.tar.gz
+          tar xvf t32ls-linux-${{ matrix.os.t32ls_flavor }}.tar.gz
 
           mkdir vscode/bin
-          cp t32ls-linux-${{ matrix.os.flavor }}/* vscode/bin/
+          cp t32ls-linux-${{ matrix.os.t32ls_flavor }}/* vscode/bin/
         env:
           GH_TOKEN: ${{ github.token }}
 
@@ -107,7 +107,7 @@ jobs:
           7z x t32ls-${{ matrix.os.t32ls_flavor }}.zip
 
           mkdir vscode/bin
-          copy t32ls-linux-${{ matrix.os.flavor }}/* vscode/bin/
+          copy t32ls-linux-${{ matrix.os.t32ls_flavor }}/* vscode/bin/
         env:
           GH_TOKEN: ${{ github.token }}
 
