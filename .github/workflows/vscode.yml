@@ -52,7 +52,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
 
       - name: Install Node.js dependencies
-        run: cd vscode && npm install
+        run: |
+          cd vscode && npm install
+          npm install -g corepack
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           npm_config_arch: ${{ matrix.os.npm_config_arch }}
@@ -112,7 +114,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
 
       - name: Install Node.js dependencies
-        run: cd vscode && npm install
+        run: |
+          cd vscode && npm install
+          npm install -g corepack
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           npm_config_arch: ${{ matrix.os.npm_config_arch }}
