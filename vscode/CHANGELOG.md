@@ -13,6 +13,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+[0.2.1] - 2026-05-15
+--------------------
+
+### Added
+
+-  Add `SUPPORT.md` and `LICENSE` file to extension.
+-  Add link to Codeberg issue tracker.
+
+### Changed
+
+-  The extension repository is now pointing to GitHub where the extension is
+   packaged.
+
+
 [0.2.0] - 2026-05-14
 --------------------
 
