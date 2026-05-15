@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 -  Publish extension for VS Code.
 -  Update readme
+-  Capture subroutine calls with semantic token scope
+   `entity.name.function.practice`.
 
 
 [0.9.0] - 2026-05-14
