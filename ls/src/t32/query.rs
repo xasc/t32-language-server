@@ -8,38 +8,44 @@
 //! We are using these correspondence tables for mapping semantic token types to
 //! Tree-sitter grammar captures:
 //!
-//!   | Token Type  | Capture             | Nodes                                        | Comment                                |
-//!   | ----------- | ------------------- | -------------------------------------------- | -------------------------------------- |
-//!   | operator    | operator            |                                              |                                        |
-//!   | keyword     | keyword             |                                              |                                        |
-//!   | keyword     | keyword.operator    |                                              |                                        |
-//!   | keyword     | conditional.ternary |                                              |                                        |
-//!   | keyword     | conditional         |                                              |                                        |
-//!   | keyword     | repeat              |                                              |                                        |
-//!   | keyword     | keyword.return      |                                              |                                        |
-//!   | keyword     | keyword.function    | (identifier)                                 | `SUBROUTINE` command                   |
-//!   | modifier    | constant.builtin    |                                              |                                        |
-//!   | string      | string              |                                              |                                        |
-//!   | string      | string.special      | (path)                                       |                                        |
-//!   | number      | number              |                                              |                                        |
-//!   | type        | type                | (hll_type_identifier), (hll_type_descriptor) |                                        |
-//!   | variable    | variable            |                                              |                                        |
-//!   | variable    | constant            |                                              |                                        |
-//!   | macro       | variable.builtin    |                                              | Always contains an "operator" capture. |
-//!   | function    | function            |                                              |                                        |
-//!   | function    | function.builtin    | (identifier)                                 | PRACTICE functions                     |
-//!   | function    | function.call       | child of (subroutine_call_expression)        | Subroutine calls                       |
-//!   | parameter   | variable.parameter  | (macro)                                      | Always contains an "operator" capture. |
-//!   | label       | label               |                                              |                                        |
-//!   | comment     | comment             |                                              |                                        |
+//!   | Token Type  | Capture              | Nodes                                        | Comment                                   |
+//!   | ----------- | -------------------- | -------------------------------------------- | ----------------------------------------- |
+//!   | comment     | @comment             |                                              |                                           |
+//!   | enum        | @constant.builtin    | child of (format_expression)                 |                                           |
+//!   | function    | @function            |                                              |                                           |
+//!   | function    | @function.builtin    | (identifier)                                 | PRACTICE functions                        |
+//!   | function    | @function.call       | child of (subroutine_call_expression)        | Subroutine calls                          |
+//!   | keyword     | @keyword             |                                              |                                           |
+//!   | keyword     | @keyword.operator    |                                              |                                           |
+//!   | keyword     | @conditional.ternary |                                              |                                           |
+//!   | keyword     | @conditional         |                                              |                                           |
+//!   | keyword     | @repeat              |                                              |                                           |
+//!   | keyword     | @keyword.return      |                                              |                                           |
+//!   | keyword     | @keyword.function    | (identifier)                                 | `SUBROUTINE` command                      |
+//!   | label       | @label               |                                              |                                           |
+//!   | macro       | @variable.builtin    |                                              | Always contains an "operator" capture.    |
+//!   | modifier    | @constant.builtin    | child of (option_expression)                 |                                           |
+//!   | number      | @number              |                                              |                                           |
+//!   | parameter   | @variable.parameter  | (macro)                                      | Always contains an "operator" capture.    |
+//!   | storage     | @keyword             | child of (macro_definition)                  | `GLOBAL`, `LOCAL`, and `PRIVATE` commands |
+//!   | string      | @string              |                                              |                                           |
+//!   | string      | @string.special      | (path)                                       |                                           |
+//!   | type        | @type                | (hll_type_identifier), (hll_type_descriptor) |                                           |
+//!   | variable    | @variable            |                                              |                                           |
+//!   | variable    | @constant            |                                              |                                           |
+//!   | operator    | @operator            |                                              |                                           |
+//!
+//!   (macro_definition)
 //!
 //! Tokens can only have a single type.
 //!
-//!   | Token Modifier | Capture        | Nodes                        | Comment                                       |
-//!   | -------------- | -------------- | ---------------------------- | --------------------------------------------- |
-//!   | abstract       | string.special |                              |                                               |
-//!   | definition     | keyword        | child of (macro_definition)  | Definition with "GLOBAL", "LOCAL", "PRIVATE"  |
-//!   | defaultLibrary | function       |                              | PRACTICE functions                            |
+//!   | Token Modifier | Capture           | Nodes                                               | Comment                                       |
+//!   | -------------- | ----------------- | --------------------------------------------------- | --------------------------------------------- |
+//!   | abstract       | @string.special   |                                                     |                                               |
+//!   | definition     | @keyword          | child of (macro_definition)                         | Definition with "GLOBAL", "LOCAL", "PRIVATE"  |
+//!   | defaultLibrary | @constant.builtin | child of (format_expression) or (option_expression) |                                               |
+//!   | defaultLibrary | @function         |                                                     | PRACTICE functions                            |
+//!   | modification   | @keyword          | child of (macro_definition)                         | `GLOBAL`, `LOCAL`, and `PRIVATE` commands     |
 //!
 //! Semantic tokens selectors are created from token types and modifiers.
 //! Selectors map to TextMate scopes according to this table:
@@ -47,11 +53,14 @@
 //!   | Token Selectors         | TextMate scope                            | Comment                                                                    |
 //!   | ----------------------- | ----------------------------------------- | -------------------------------------------------------------------------- |
 //!   | comment                 | comment.practice                          |                                                                            |
+//!   | enum.defaultLibrary     | constant.language.format.practice         | Command format parameters                                                  |
 //!   | function                | entity.name.function.practice             | Function calls would normally map to `entity.name.function.call.practice`. |
 //!   | function.defaultLibrary | support.function.trace32.practice         |                                                                            |
 //!   | keyword                 | keyword.control.practice                  |                                                                            |
+//!   | keyword.modification    | storage.modifier.macro.practice           | `GLOBAL`, `LOCAL`, and `PRIVATE` commands                                  |
 //!   | macro                   | variable.other.macro.practice             |                                                                            |
 //!   | macro.definition        | variable.other.macro.definition.practice  |                                                                            |
+//!   | modifier.defaultLibrary | constant.language.option.practice         | Command option parameters                                                  |
 //!   | number                  | constant.numeric.practice                 |                                                                            |
 //!   | operator                | keyword.operator.practice                 |                                                                            |
 //!   | parameter               | variable.parameter.practice               |                                                                            |
@@ -98,10 +107,11 @@ use crate::{
 
 use captures::{
     CAPTURE_COMMENT, CAPTURE_CONDITIONAL, CAPTURE_CONDITIONAL_TERNARY, CAPTURE_CONSTANT,
-    CAPTURE_CONSTANT_MODIFIER, CAPTURE_FUNCTION, CAPTURE_FUNCTION_BUILTIN, CAPTURE_FUNCTION_CALL,
+    CAPTURE_CONSTANT_BUILTIN, CAPTURE_FUNCTION, CAPTURE_FUNCTION_BUILTIN, CAPTURE_FUNCTION_CALL,
     CAPTURE_KEYWORD, CAPTURE_KEYWORD_FUNCTION, CAPTURE_KEYWORD_OPERATOR, CAPTURE_KEYWORD_RETURN,
-    CAPTURE_LABEL, CAPTURE_NUMBER, CAPTURE_OPERATOR, CAPTURE_REPEAT, CAPTURE_STRING, CAPTURE_STRING_SPECIAL,
-    CAPTURE_TYPE, CAPTURE_VARIABLE, CAPTURE_VARIABLE_BUILTIN, CAPTURE_VARIABLE_PARAMETER,
+    CAPTURE_LABEL, CAPTURE_NUMBER, CAPTURE_OPERATOR, CAPTURE_REPEAT, CAPTURE_STRING,
+    CAPTURE_STRING_SPECIAL, CAPTURE_TYPE, CAPTURE_VARIABLE, CAPTURE_VARIABLE_BUILTIN,
+    CAPTURE_VARIABLE_PARAMETER,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -183,7 +193,7 @@ impl SemanticTokenQueryCaptures {
                     captures.1.push(1usize);
                     captures.2.push(
                         query
-                            .capture_index_for_name(CAPTURE_CONSTANT_MODIFIER)
+                            .capture_index_for_name(CAPTURE_CONSTANT_BUILTIN)
                             .expect("Capture name must exist."),
                     );
                 }
@@ -236,7 +246,11 @@ impl SemanticTokenQueryCaptures {
                     );
                 }
                 SemanticTokenTypes::Function => {
-                    let ts = [CAPTURE_FUNCTION, CAPTURE_FUNCTION_BUILTIN, CAPTURE_FUNCTION_CALL];
+                    let ts = [
+                        CAPTURE_FUNCTION,
+                        CAPTURE_FUNCTION_BUILTIN,
+                        CAPTURE_FUNCTION_CALL,
+                    ];
 
                     captures.1.push(ts.len());
                     for capture in ts {
@@ -271,9 +285,16 @@ impl SemanticTokenQueryCaptures {
                             .expect("Capture name must exist."),
                     );
                 }
+                SemanticTokenTypes::Enum => {
+                    captures.1.push(1usize);
+                    captures.2.push(
+                        query
+                            .capture_index_for_name(CAPTURE_CONSTANT_BUILTIN)
+                            .expect("Capture name must exist."),
+                    );
+                }
                 SemanticTokenTypes::Class
                 | SemanticTokenTypes::Decorator
-                | SemanticTokenTypes::Enum
                 | SemanticTokenTypes::EnumMember
                 | SemanticTokenTypes::Event
                 | SemanticTokenTypes::Interface
@@ -306,22 +327,6 @@ impl SemanticTokenQueryCaptures {
         for modifier in modifiers {
             captures.0.push(captures.2.len());
             match modifier {
-                SemanticTokenModifiers::Definition => {
-                    captures.1.push(1usize);
-                    captures.2.push(
-                        query
-                            .capture_index_for_name(CAPTURE_VARIABLE_BUILTIN)
-                            .expect("Capture name must exist."),
-                    );
-                }
-                SemanticTokenModifiers::DefaultLibrary => {
-                    captures.1.push(1usize);
-                    captures.2.push(
-                        query
-                            .capture_index_for_name(CAPTURE_FUNCTION_BUILTIN)
-                            .expect("Capture name must exist."),
-                    );
-                }
                 SemanticTokenModifiers::Abstract => {
                     captures.1.push(1usize);
                     captures.2.push(
@@ -330,11 +335,38 @@ impl SemanticTokenQueryCaptures {
                             .expect("Capture name must exist."),
                     );
                 }
+                SemanticTokenModifiers::DefaultLibrary => {
+                    let ts = [CAPTURE_FUNCTION_BUILTIN, CAPTURE_CONSTANT_BUILTIN];
+
+                    captures.1.push(ts.len());
+                    for capture in ts {
+                        captures.2.push(
+                            query
+                                .capture_index_for_name(capture)
+                                .expect("Capture name must exist."),
+                        );
+                    }
+                }
+                SemanticTokenModifiers::Definition => {
+                    captures.1.push(1usize);
+                    captures.2.push(
+                        query
+                            .capture_index_for_name(CAPTURE_VARIABLE_BUILTIN)
+                            .expect("Capture name must exist."),
+                    );
+                }
+                SemanticTokenModifiers::Modification => {
+                    captures.1.push(1usize);
+                    captures.2.push(
+                        query
+                            .capture_index_for_name(CAPTURE_KEYWORD)
+                            .expect("Capture name must exist."),
+                    );
+                }
                 SemanticTokenModifiers::Async
                 | SemanticTokenModifiers::Declaration
                 | SemanticTokenModifiers::Deprecated
                 | SemanticTokenModifiers::Documentation
-                | SemanticTokenModifiers::Modification
                 | SemanticTokenModifiers::Readonly
                 | SemanticTokenModifiers::Static => {
                     unreachable!("Semantic token modifier not available for language.")
@@ -395,7 +427,15 @@ pub fn do_syntax_highlighting(
     };
     let captures = SemanticTokenQueryCaptures::new(&legend, &query);
 
-    capture_semantic_tokens(&doc, &tree.language(), &query, &captures, num, r#matches)
+    capture_semantic_tokens(
+        &doc,
+        &tree.language(),
+        &legend,
+        &query,
+        &captures,
+        num,
+        r#matches,
+    )
 }
 
 pub fn do_syntax_highlighting_in_range(
@@ -418,20 +458,35 @@ pub fn do_syntax_highlighting_in_range(
     };
     let captures = SemanticTokenQueryCaptures::new(&legend, &query);
 
-    capture_semantic_tokens(&doc, &tree.language(), &query, &captures, num, r#matches)
+    capture_semantic_tokens(
+        &doc,
+        &tree.language(),
+        &legend,
+        &query,
+        &captures,
+        num,
+        r#matches,
+    )
 }
 
 fn capture_semantic_tokens<'a, 'b>(
     doc: &'b TextDoc,
     lang: &LanguageRef,
+    legend: &SemanticTokensLegend,
     query: &Query,
     selection: &SemanticTokenQueryCaptures,
     num_matches: usize,
     matches: QueryCaptures<'a, 'a, &'b [u8], &'b [u8]>,
 ) -> Vec<SemanticToken> {
-    let (operator, id_type, var, var_builtin) = {
+    let (const_builtin, operator, id_type, keyword, var, var_builtin) = {
+        let id_constant_builtin = query
+            .capture_index_for_name(CAPTURE_CONSTANT_BUILTIN)
+            .expect("Capture name must exist.");
         let id_operator = query
             .capture_index_for_name(CAPTURE_OPERATOR)
+            .expect("Capture name must exist.");
+        let id_keyword = query
+            .capture_index_for_name(CAPTURE_KEYWORD)
             .expect("Capture name must exist.");
         let id_type = query
             .capture_index_for_name(CAPTURE_TYPE)
@@ -443,21 +498,46 @@ fn capture_semantic_tokens<'a, 'b>(
             .capture_index_for_name(CAPTURE_VARIABLE_BUILTIN)
             .expect("Capture name must exist.");
 
-        (id_operator, id_type, id_var, id_var_builtin)
+        (
+            id_constant_builtin,
+            id_operator,
+            id_type,
+            id_keyword,
+            id_var,
+            id_var_builtin,
+        )
     };
 
-    let (command_expr, r#macro, macro_definition, hll_type_identifier, hll_type_descriptor) = {
+    let (
+        command_expr,
+        format_expr,
+        hll_type_identifier,
+        hll_type_descriptor,
+        r#macro,
+        macro_definition,
+        option_expr,
+        param_decl,
+        subroutine_call_expr,
+    ) = {
         let id_command_expr = NodeKind::CommandExpression.into_id(&lang);
-        let id_macro = NodeKind::Macro.into_id(&lang);
-        let id_macro_definition = NodeKind::MacroDefinition.into_id(&lang);
+        let id_format_expr = NodeKind::FormatExpression.into_id(&lang);
         let id_hll_type_descriptor = NodeKind::HllTypeDescriptor.into_id(&lang);
         let id_hll_type_identifier = NodeKind::HllTypeIdentifier.into_id(&lang);
+        let id_macro = NodeKind::Macro.into_id(&lang);
+        let id_macro_definition = NodeKind::MacroDefinition.into_id(&lang);
+        let id_option_expr = NodeKind::OptionExpression.into_id(&lang);
+        let id_param_decl = NodeKind::ParameterDeclaration.into_id(&lang);
+        let id_subroutine_call_expr = NodeKind::SubroutineCallExpression.into_id(&lang);
         (
             id_command_expr,
-            id_macro,
-            id_macro_definition,
+            id_format_expr,
             id_hll_type_descriptor,
             id_hll_type_identifier,
+            id_macro,
+            id_macro_definition,
+            id_option_expr,
+            id_param_decl,
+            id_subroutine_call_expr,
         )
     };
 
@@ -465,6 +545,12 @@ fn capture_semantic_tokens<'a, 'b>(
 
     // No query pattern captures the root node
     let mut prior_id_captured = num_patterns;
+
+    let legend_modifier = legend
+        .token_types
+        .iter()
+        .position(|t| *t == SemanticTokenTypes::Modifier)
+        .unwrap_or(usize::MAX);
 
     let mut tokens: Vec<SemanticToken> = Vec::with_capacity(num_matches);
     matches.for_each(|(m, idx)| {
@@ -490,7 +576,16 @@ fn capture_semantic_tokens<'a, 'b>(
         if capture.index == var
             && let Some(parent) = node.parent()
         {
-            if parent.kind_id() == command_expr {
+            if [
+                command_expr,
+                macro_definition,
+                subroutine_call_expr,
+                param_decl,
+                option_expr,
+                format_expr,
+            ]
+            .contains(&parent.kind_id())
+            {
                 return;
             }
         }
@@ -498,7 +593,7 @@ fn capture_semantic_tokens<'a, 'b>(
         let mut modifier: u32 = 0;
         for (ii, r#mods) in selection.modifiers.iter().enumerate() {
             if mods.iter().any(|m| *m == capture.index) {
-                if capture.index == var_builtin {
+                if [var_builtin, keyword].contains(&capture.index) {
                     let Some(parent) = node.parent() else {
                         continue;
                     };
@@ -517,6 +612,12 @@ fn capture_semantic_tokens<'a, 'b>(
                 if capture.index == id_type {
                     let kind = capture.node.kind_id();
                     if !(kind == hll_type_descriptor || kind == hll_type_identifier) {
+                        continue;
+                    }
+                } else if capture.index == const_builtin
+                    && let Some(parent) = node.parent()
+                {
+                    if parent.kind_id() == format_expr && ii == legend_modifier {
                         continue;
                     }
                 }
@@ -605,12 +706,14 @@ mod tests {
             SemanticTokenTypes::Parameter,
             SemanticTokenTypes::Label,
             SemanticTokenTypes::Comment,
+            SemanticTokenTypes::Enum,
         ];
 
         let modifiers = vec![
             SemanticTokenModifiers::Definition,
             SemanticTokenModifiers::DefaultLibrary,
             SemanticTokenModifiers::Abstract,
+            SemanticTokenModifiers::Modification,
         ];
 
         SemanticTokensLegend {
@@ -636,7 +739,6 @@ mod tests {
             SemanticTokenTypes::String,
             SemanticTokenTypes::Number,
             SemanticTokenTypes::Type,
-            SemanticTokenTypes::Variable,
             SemanticTokenTypes::Macro,
             SemanticTokenTypes::Function,
             SemanticTokenTypes::Parameter,
@@ -901,7 +1003,7 @@ mod tests {
     }
 
     #[test]
-    fn marks_token_modifier_for_builtin_functions() {
+    fn sets_token_modifier_for_builtin_functions() {
         let text = "PRINT STATE.RUNNING()\n";
 
         let tree = parse_full(&text.as_bytes());
@@ -936,6 +1038,22 @@ mod tests {
         let legend = create_full_legend();
 
         let tokens = do_syntax_highlighting(legend.clone(), &doc, &tree);
+
+        debug_assert!(tokens.iter().any(|t| *t
+            == SemanticToken {
+                span: LRange {
+                    start: Position {
+                        line: 0,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 0,
+                        character: 10,
+                    },
+                },
+                r#type: 1,
+                modifier: 0,
+            }));
 
         debug_assert!(tokens.iter().any(|t| *t
             == SemanticToken {
@@ -1211,6 +1329,22 @@ mod tests {
                 span: LRange {
                     start: Position {
                         line: 0,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 0,
+                        character: 5,
+                    },
+                },
+                r#type: 1,
+                modifier: 0,
+            }));
+
+        debug_assert!(tokens.iter().any(|t| *t
+            == SemanticToken {
+                span: LRange {
+                    start: Position {
+                        line: 0,
                         character: 6,
                     },
                     end: Position {
@@ -1220,6 +1354,119 @@ mod tests {
                 },
                 r#type: 8,
                 modifier: 0,
+            }));
+    }
+
+    #[test]
+    fn sets_token_modifier_for_macro_definitions() {
+        let text = "PRIVATE &a\nLOCAL &b\nGLOBAL &c\n";
+
+        let tree = parse_full(&text.as_bytes());
+        let doc = create_doc("file://test.cmm".to_string(), 0, text.to_string());
+        let legend = create_full_legend();
+
+        let tokens = do_syntax_highlighting(legend.clone(), &doc, &tree);
+
+        debug_assert!(tokens.iter().any(|t| *t
+            == SemanticToken {
+                span: LRange {
+                    start: Position {
+                        line: 0,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 0,
+                        character: 7,
+                    },
+                },
+                r#type: 1,
+                modifier: 1 << 3,
+            }));
+
+        debug_assert!(tokens.iter().any(|t| *t
+            == SemanticToken {
+                span: LRange {
+                    start: Position {
+                        line: 1,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 1,
+                        character: 5,
+                    },
+                },
+                r#type: 1,
+                modifier: 1 << 3,
+            }));
+
+        debug_assert!(tokens.iter().any(|t| *t
+            == SemanticToken {
+                span: LRange {
+                    start: Position {
+                        line: 2,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 2,
+                        character: 6,
+                    },
+                },
+                r#type: 1,
+                modifier: 1 << 3,
+            }));
+    }
+
+    #[test]
+    fn captures_semantic_tokens_for_format_parameters() {
+        let text = "Data.Set %Byte\n";
+
+        let tree = parse_full(&text.as_bytes());
+        let doc = create_doc("file://test.cmm".to_string(), 0, text.to_string());
+        let legend = create_full_legend();
+
+        let tokens = do_syntax_highlighting(legend.clone(), &doc, &tree);
+
+        debug_assert!(tokens.iter().any(|t| *t
+            == SemanticToken {
+                span: LRange {
+                    start: Position {
+                        line: 0,
+                        character: 10,
+                    },
+                    end: Position {
+                        line: 0,
+                        character: 14,
+                    },
+                },
+                r#type: 12,
+                modifier: 2,
+            }));
+    }
+
+    #[test]
+    fn captures_semantic_tokens_for_option_parameters() {
+        let text = "Data.View /Track\n";
+
+        let tree = parse_full(&text.as_bytes());
+        let doc = create_doc("file://test.cmm".to_string(), 0, text.to_string());
+        let legend = create_full_legend();
+
+        let tokens = do_syntax_highlighting(legend.clone(), &doc, &tree);
+
+        debug_assert!(tokens.iter().any(|t| *t
+            == SemanticToken {
+                span: LRange {
+                    start: Position {
+                        line: 0,
+                        character: 11,
+                    },
+                    end: Position {
+                        line: 0,
+                        character: 16,
+                    },
+                },
+                r#type: 2,
+                modifier: 2,
             }));
     }
 }

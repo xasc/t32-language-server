@@ -7,9 +7,7 @@ pub const CAPTURE_CONDITIONAL: &'static str = "conditional";
 pub const CAPTURE_CONDITIONAL_TERNARY: &'static str = "conditional.ternary";
 pub const CAPTURE_CONSTANT: &'static str = "constant";
 
-#[expect(unused)]
 pub const CAPTURE_CONSTANT_BUILTIN: &'static str = "constant.builtin";
-pub const CAPTURE_CONSTANT_MODIFIER: &'static str = "constant.builtin";
 pub const CAPTURE_FUNCTION: &'static str = "function";
 pub const CAPTURE_FUNCTION_BUILTIN: &'static str = "function.builtin";
 

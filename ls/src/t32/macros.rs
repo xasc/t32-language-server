@@ -1348,10 +1348,7 @@ pub fn defines_global_macro_implicitly(
     while cursor.goto_next_sibling() {
         let r#macro = cursor.node();
         if r#macro.kind_id() == id_identifier {
-            debug_assert_eq!(
-                &text[r#macro.byte_range()].to_uppercase(),
-                "%LINE"
-            );
+            debug_assert_eq!(&text[r#macro.byte_range()].to_uppercase(), "%LINE");
             continue;
         }
         debug_assert_eq!(

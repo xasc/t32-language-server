@@ -20,8 +20,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 -  Publish extension for VS Code.
 -  Update readme
--  Capture subroutine calls with semantic token scope
-   `entity.name.function.practice`.
+-  Set new semantic token scopes:
+    -  `entity.name.function.practice` for subroutine calls
+    -  `storage.modifier.macro.practice` for `PRIVATE`, `LOCAL`, and `GLOBAL`
+       commands.
+    -  `constant.language.format.practice` for command format parameters.
+    -  `constant.language.option.practice` for command options parameters.
+
+### Fixed
+
+-  Fix semantic tokens for `GOSUB`, `ENTRY`, `PARAMETERS`, and `RETURNVALUES`
+   commands.
+   They were displayed as variables.
 
 
 [0.9.0] - 2026-05-14
@@ -40,7 +50,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 -  Switch to *tree-sitter-t32* v9.0.0.
 -  On serialization errors the complete path to the node that triggers the
-   error is printed. Only active for debug builds.
+   error is printed.
+   Only active for debug builds.
 -  Trigger server shutdown if any of the task queue workers aborts.
 -  Set new semantic token scopes:
     -  `function.defaultLibrary` for built-in PRACTICE functions
@@ -63,8 +74,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 -  Fix type definitions for initialization request.
--  Fix handling of LSP messages with large payload. The read loop ended up in a
-   deadlock.
+-  Fix handling of LSP messages with large payload.
+   The read loop ended up in a deadlock.
 -  Fix aborts when parsing scripts containing a `RETURNVALUES` command.
 -  Fix support of `ENTRY` commands with `%LINE%` directive in the parameter
    list.
@@ -76,8 +87,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 -  Fix semantic token detection.
 -  Fix semantic token conversion if client has no support for multi-line tokens.
 -  Fix macro reference retrieval in subroutines.
--  Fix host architecture for macOS release artifacts. They are built for
-   `AArch64`.
+-  Fix host architecture for macOS release artifacts.
+   They are built for `AArch64`.
 
 
 [0.7.1] - 2026-04-21
@@ -98,8 +109,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 -  Fix parent process status detection for Windows builds.
--  Fix test execution on Windows machines. EOL conversion to CRLF was breaking
-   tests that are checking byte offsets.
+-  Fix test execution on Windows machines.
+   EOL conversion to CRLF was breaking tests that are checking byte offsets.
 -  Accept alternative exit status if parent process ID does not exist.
 
 
@@ -108,7 +119,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
--  Readme and changelog were missing in published crate. They are now included.
+-  Readme and changelog were missing in published crate.
+   They are now included.
 
 
 [0.6.0] - 2026-04-18
