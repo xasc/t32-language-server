@@ -88,6 +88,17 @@ These additional dependencies are required:
 
 [crates.io]: https://crates.io/crates/t32-language-server
 
+#### VS Code & VSCodium
+
+Install the extension "*t32 Language Server*" from
+  -  [Visual Studio Marketplace], or
+  -  [Open VSX Registry].
+
+Check the extension's readme for additional setup instructions.
+
+[Visual Studio Marketplace]: https://marketplace.visualstudio.com/items?itemName=xasc.t32ls-vsc
+[Open VSX Registry]: https://open-vsx.org/extension/xasc/t32ls-vsc
+
 #### Precompiled binaries
 
 Binary releases for Linux, Windows, macOS, and WebAssembly are available on the
@@ -135,16 +146,22 @@ t32ls --clientProcessId=42 -t messages
 Roadmap
 -------
 
-1.  Extension for VSCode
-2.  Support for autocompletions
+1.  Support for autocompletions
+2.  Hover and inlay hints
 
 
 Packages
 --------
 
-| Registry      | Package                                                              | Download                                                                             |
-| ------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| crates.io     | [t32-language-server](https://crates.io/crates/t32-language-server)  | https://crates.io/api/v1/crates/t32-language-server/`major`.`minor`.`patch`/download |
+All packages are published from the [GitHub mirror] repository.
+
+| Registry                  | Package                                                                                   | Download                                                                             |
+| ------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| crates.io                 | [t32-language-server](https://crates.io/crates/t32-language-server)                       | https://crates.io/api/v1/crates/t32-language-server/`major`.`minor`.`patch`/download |
+| Visual Studio Marketplace | [t32 Language Server](https://marketplace.visualstudio.com/items?itemName=xasc.t32ls-vsc) | https://github.com/xasc/t32-language-server/releases/tag/v`major`.`minor`.`patch`    |
+| Open VSX Registry         | [t32 Language Server](https://open-vsx.org/extension/xasc/t32ls-vsc)                      | https://github.com/xasc/t32-language-server/releases/tag/v`major`.`minor`.`patch`    |
+
+[GitHub mirror]: https://github.com/xasc/t32-language-server
 
 
 Mirrors
