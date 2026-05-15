@@ -8,6 +8,8 @@ on:
   push:
     branches:
       - main
+    paths:
+      - 'ls/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
