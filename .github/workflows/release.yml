@@ -24,9 +24,9 @@ jobs:
     steps:
       - name: Set up repository
         uses: actions/checkout@v6
-        run: >-
-            git status
-          || git config --system --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Apply workaround for permission errors
+        run: git status || git config --system --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Install GitHub CLI
         run: |
@@ -61,9 +61,6 @@ jobs:
 
       - name: Create GitHub release
         run: |
-          id
-          ls -lh .
-          git config --global --add safe.directory .
           gh release create ${{ github.ref_name }} --notes-from-tag --verify-tag ./t32ls-linux-${{ matrix.os.flavor }}.tar.gz
           gh release list
         env:
@@ -80,9 +77,9 @@ jobs:
     steps:
       - name: Set up repository
         uses: actions/checkout@v6
-        run: >-
-            git status
-          || git config --system --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Apply workaround for permission errors
+        run: git status || git config --system --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Install GitHub CLI
         run: |
