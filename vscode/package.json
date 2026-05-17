@@ -2,7 +2,7 @@
   "name": "t32ls-vsc",
   "displayName": "t32 Language Server",
   "description": "Language server for the Lauterbach TRACE32® script language.",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "author": "Christoph Sax <c_sax@mailbox.org>",
   "publisher": "xasc",
   "license": "EUPL-1.2",
@@ -81,6 +81,9 @@
           "comment": [
             "comment.practice"
           ],
+          "enum.defaultLibrary": [
+            "constant.language.format.practice"
+          ],
           "function": [
             "entity.name.function.practice"
           ],
@@ -88,6 +91,12 @@
             "support.function.trace32.practice"
           ],
           "keyword": [
+            "keyword.other.practice"
+          ],
+          "keyword.modification": [
+            "storage.modifier.macro.practice"
+          ],
+          "keyword.static": [
             "keyword.control.practice"
           ],
           "macro": [
@@ -95,6 +104,9 @@
           ],
           "macro.definition": [
             "variable.other.macro.definition.practice"
+          ],
+          "modifier.defaultLibrary": [
+            "constant.language.option.practice"
           ],
           "number": [
             "constant.numeric.practice"

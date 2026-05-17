@@ -11,7 +11,7 @@ on:
       t32ls_version:
         description: 'Included server version'
         required: true
-        default: 'v0.9.0'
+        default: 'v0.10.0'
         type: string
       extension_name:
         description: 'Name of the VS Code extension'
