@@ -58,6 +58,8 @@ jobs:
 
       - name: Create GitHub release
         run: |
+          id
+          ls -lh .
           gh release create ${{ github.ref_name }} --notes-from-tag --verify-tag ./t32ls-linux-${{ matrix.os.flavor }}.tar.gz
           gh release list
         env:
