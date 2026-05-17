@@ -27,8 +27,8 @@ jobs:
 
       - name: Install GitHub CLI
         run: |
-          dnf install dnf5-plugins
-          dnf config-manager addrepo --from-repofile=https://cli.github.com/packages/rpm/gh-cli.repo
+          dnf install 'dnf-command(config-manager)'
+          dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo
           dnf install gh --repo gh-cli
 
       - name: Build release binary
@@ -76,8 +76,8 @@ jobs:
 
       - name: Install GitHub CLI
         run: |
-          dnf install dnf5-plugins
-          dnf config-manager addrepo --from-repofile=https://cli.github.com/packages/rpm/gh-cli.repo
+          dnf install 'dnf-command(config-manager)'
+          dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo
           dnf install gh --repo gh-cli
 
       - name: Build release binary
