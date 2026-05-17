@@ -24,7 +24,7 @@ Features
 "Go to Definition" and "Find All References" locates macro, subroutines, and
 scripts in your project.
 
-![Sample screenshot for cross-references](images/sample_xrefs.png)
+![Sample screenshot for cross-references](https://raw.githubusercontent.com/xasc/t32-language-server/main/vscode/images/sample_xrefs.png)
 
 ### Semantic tokens
 
