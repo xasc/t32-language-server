@@ -27,9 +27,9 @@ jobs:
 
       - name: Install GitHub CLI
         run: |
-          sudo dnf install dnf5-plugins
-          sudo dnf config-manager addrepo --from-repofile=https://cli.github.com/packages/rpm/gh-cli.repo
-          sudo dnf install gh --repo gh-cli
+          dnf install dnf5-plugins
+          dnf config-manager addrepo --from-repofile=https://cli.github.com/packages/rpm/gh-cli.repo
+          dnf install gh --repo gh-cli
 
       - name: Build release binary
         uses: ./.github/actions/build_steps_os
@@ -76,9 +76,9 @@ jobs:
 
       - name: Install GitHub CLI
         run: |
-          sudo dnf install dnf5-plugins
-          sudo dnf config-manager addrepo --from-repofile=https://cli.github.com/packages/rpm/gh-cli.repo
-          sudo dnf install gh --repo gh-cli
+          dnf install dnf5-plugins
+          dnf config-manager addrepo --from-repofile=https://cli.github.com/packages/rpm/gh-cli.repo
+          dnf install gh --repo gh-cli
 
       - name: Build release binary
         uses: ./.github/actions/build_steps_os
