@@ -26,7 +26,10 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Install GitHub CLI
-        uses: actions4gh/setup-gh@10aaae734648c536041e1bce50fc8c5541806255
+        run: |
+          sudo dnf install dnf5-plugins
+          sudo dnf config-manager addrepo --from-repofile=https://cli.github.com/packages/rpm/gh-cli.repo
+          sudo dnf install gh --repo gh-cli
 
       - name: Build release binary
         uses: ./.github/actions/build_steps_os
@@ -72,7 +75,10 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Install GitHub CLI
-        uses: actions4gh/setup-gh@10aaae734648c536041e1bce50fc8c5541806255
+        run: |
+          sudo dnf install dnf5-plugins
+          sudo dnf config-manager addrepo --from-repofile=https://cli.github.com/packages/rpm/gh-cli.repo
+          sudo dnf install gh --repo gh-cli
 
       - name: Build release binary
         uses: ./.github/actions/build_steps_os
