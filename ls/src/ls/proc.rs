@@ -96,7 +96,11 @@ mod tests {
 
     #[test]
     fn detects_pid_alive() {
+        #[cfg(unix)]
         let mut child = Command::new("sleep").arg("2").spawn().unwrap();
+
+        #[cfg(windows)]
+        let mut child = Command::new("timeout").arg("2").spawn().unwrap();
 
         assert_eq!(proc_alive(child.id()), ProcState::Alive);
 
@@ -105,7 +109,11 @@ mod tests {
 
     #[test]
     fn detects_pid_dead() {
+        #[cfg(unix)]
         let mut child = Command::new("sleep").arg("0.1").spawn().unwrap();
+
+        #[cfg(windows)]
+        let mut child = Command::new("timeout").arg("1").spawn().unwrap();
 
         let pid = child.id();
         child.wait().unwrap();
