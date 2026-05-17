@@ -20,7 +20,7 @@ jobs:
       matrix:
         os: [ {img: ubuntu-latest, flavor: x86_64 } ]
     runs-on: ${{ matrix.os.img }}
-    container: quay.io/pypa/manylinux2014_x86_64
+    container: quay.io/pypa/manylinux_2_28_x86_64
     steps:
       - name: Set up repository
         uses: actions/checkout@v6
@@ -63,7 +63,7 @@ jobs:
       matrix:
         os: [ {img: ubuntu-24.04-arm, flavor: arm64} ]
     runs-on: ${{ matrix.os.img }}
-    container: quay.io/pypa/manylinux2014_aarch64
+    container: quay.io/pypa/manylinux_2_28_aarch64
     steps:
       - name: Set up repository
         uses: actions/checkout@v6
