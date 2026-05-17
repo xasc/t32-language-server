@@ -23,6 +23,7 @@ impl SemanticTokensLegend {
                 || *m == SemanticTokenModifiers::DefaultLibrary
                 || *m == SemanticTokenModifiers::Abstract
                 || *m == SemanticTokenModifiers::Modification
+                || *m == SemanticTokenModifiers::Static
         });
 
         Self {

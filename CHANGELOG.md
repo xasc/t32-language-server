@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
        commands.
     -  `constant.language.format.practice` for command format parameters.
     -  `constant.language.option.practice` for command options parameters.
+    -  `keyword.control.practice` for if-then, loops, and return keywords.
 
 ### Fixed
 

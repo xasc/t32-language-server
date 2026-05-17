@@ -8,64 +8,68 @@
 //! We are using these correspondence tables for mapping semantic token types to
 //! Tree-sitter grammar captures:
 //!
-//!   | Token Type  | Capture              | Nodes                                        | Comment                                   |
-//!   | ----------- | -------------------- | -------------------------------------------- | ----------------------------------------- |
-//!   | comment     | @comment             |                                              |                                           |
-//!   | enum        | @constant.builtin    | child of (format_expression)                 |                                           |
-//!   | function    | @function            |                                              |                                           |
-//!   | function    | @function.builtin    | (identifier)                                 | PRACTICE functions                        |
-//!   | function    | @function.call       | child of (subroutine_call_expression)        | Subroutine calls                          |
-//!   | keyword     | @keyword             |                                              |                                           |
-//!   | keyword     | @keyword.operator    |                                              |                                           |
-//!   | keyword     | @conditional.ternary |                                              |                                           |
-//!   | keyword     | @conditional         |                                              |                                           |
-//!   | keyword     | @repeat              |                                              |                                           |
-//!   | keyword     | @keyword.return      |                                              |                                           |
-//!   | keyword     | @keyword.function    | (identifier)                                 | `SUBROUTINE` command                      |
-//!   | label       | @label               |                                              |                                           |
-//!   | macro       | @variable.builtin    |                                              | Always contains an "operator" capture.    |
-//!   | modifier    | @constant.builtin    | child of (option_expression)                 |                                           |
-//!   | number      | @number              |                                              |                                           |
-//!   | parameter   | @variable.parameter  | (macro)                                      | Always contains an "operator" capture.    |
-//!   | storage     | @keyword             | child of (macro_definition)                  | `GLOBAL`, `LOCAL`, and `PRIVATE` commands |
-//!   | string      | @string              |                                              |                                           |
-//!   | string      | @string.special      | (path)                                       |                                           |
-//!   | type        | @type                | (hll_type_identifier), (hll_type_descriptor) |                                           |
-//!   | variable    | @variable            |                                              |                                           |
-//!   | variable    | @constant            |                                              |                                           |
-//!   | operator    | @operator            |                                              |                                           |
+//!   | Token Type  | Capture              | Nodes                                              | Comment                                   |
+//!   | ----------- | -------------------- | -------------------------------------------------- | ----------------------------------------- |
+//!   | comment     | @comment             |                                                    |                                           |
+//!   | enum        | @constant.builtin    | child of (format_expression)                       |                                           |
+//!   | function    | @function            |                                                    |                                           |
+//!   | function    | @function.builtin    | (identifier)                                       | PRACTICE functions                        |
+//!   | function    | @function.call       | child of (subroutine_call_expression)              | Subroutine calls                          |
+//!   | keyword     | @keyword             |                                                    |                                           |
+//!   | keyword     | @conditional.ternary |                                                    |                                           |
+//!   | keyword     | @conditional         | child of (if_block), (elif_block), or (else_block) | `IF` and `ELSE` commands                  |
+//!   | keyword     | @keyword.return      | child of (command_expression)                      | `RETURN`, `END`, and `ENDDO` commands     |
+//!   | keyword     | @keyword.function    | (identifier)                                       | `SUBROUTINE` command                      |
+//!   | keyword     | @keyword.operator    |                                                    |                                           |
+//!   | keyword     | @repeat              | child of (while_block) or (repeat_block)           | `WHILE` and `RePeaT` commands             |
+//!   | label       | @label               |                                                    |                                           |
+//!   | macro       | @variable.builtin    |                                                    | Always contains an "operator" capture.    |
+//!   | modifier    | @constant.builtin    | child of (option_expression)                       |                                           |
+//!   | number      | @number              |                                                    |                                           |
+//!   | parameter   | @variable.parameter  | (macro)                                            | Always contains an "operator" capture.    |
+//!   | storage     | @keyword             | child of (macro_definition)                        | `GLOBAL`, `LOCAL`, and `PRIVATE` commands |
+//!   | string      | @string              |                                                    |                                           |
+//!   | string      | @string.special      | (path)                                             |                                           |
+//!   | type        | @type                | (hll_type_identifier), (hll_type_descriptor)       |                                           |
+//!   | variable    | @variable            |                                                    |                                           |
+//!   | variable    | @constant            |                                                    |                                           |
+//!   | operator    | @operator            |                                                    |                                           |
 //!
 //!   (macro_definition)
 //!
 //! Tokens can only have a single type.
 //!
-//!   | Token Modifier | Capture           | Nodes                                               | Comment                                       |
-//!   | -------------- | ----------------- | --------------------------------------------------- | --------------------------------------------- |
-//!   | abstract       | @string.special   |                                                     |                                               |
-//!   | definition     | @keyword          | child of (macro_definition)                         | Definition with "GLOBAL", "LOCAL", "PRIVATE"  |
-//!   | defaultLibrary | @constant.builtin | child of (format_expression) or (option_expression) |                                               |
-//!   | defaultLibrary | @function         |                                                     | PRACTICE functions                            |
-//!   | modification   | @keyword          | child of (macro_definition)                         | `GLOBAL`, `LOCAL`, and `PRIVATE` commands     |
+//!   | Token Modifier | Capture           | Nodes                                               | Comment                                      |
+//!   | -------------- | ----------------- | --------------------------------------------------- | -------------------------------------------- |
+//!   | abstract       | @string.special   |                                                     |                                              |
+//!   | definition     | @keyword          | child of (macro_definition)                         | Definition with "GLOBAL", "LOCAL", "PRIVATE" |
+//!   | defaultLibrary | @constant.builtin | child of (format_expression) or (option_expression) |                                              |
+//!   | defaultLibrary | @function         |                                                     | PRACTICE functions                           |
+//!   | modification   | @keyword          | child of (macro_definition)                         | `GLOBAL`, `LOCAL`, and `PRIVATE` commands    |
+//!   | static         | @conditional      | child of (if_block), (elif_block), or (else_block)  | `IF` and `ELSE` commands                     |
+//!   | static         | @keyword.return   |                                                     | `RETURN`, `END`, and `ENDDO` commands        |
+//!   | static         | @repeat           | child of (while_block) or (repeat_block)            | `WHILE` and `RePeaT` commands                |
 //!
 //! Semantic tokens selectors are created from token types and modifiers.
 //! Selectors map to TextMate scopes according to this table:
 //!
-//!   | Token Selectors         | TextMate scope                            | Comment                                                                    |
-//!   | ----------------------- | ----------------------------------------- | -------------------------------------------------------------------------- |
-//!   | comment                 | comment.practice                          |                                                                            |
-//!   | enum.defaultLibrary     | constant.language.format.practice         | Command format parameters                                                  |
-//!   | function                | entity.name.function.practice             | Function calls would normally map to `entity.name.function.call.practice`. |
-//!   | function.defaultLibrary | support.function.trace32.practice         |                                                                            |
-//!   | keyword                 | keyword.control.practice                  |                                                                            |
-//!   | keyword.modification    | storage.modifier.macro.practice           | `GLOBAL`, `LOCAL`, and `PRIVATE` commands                                  |
-//!   | macro                   | variable.other.macro.practice             |                                                                            |
-//!   | macro.definition        | variable.other.macro.definition.practice  |                                                                            |
-//!   | modifier.defaultLibrary | constant.language.option.practice         | Command option parameters                                                  |
-//!   | number                  | constant.numeric.practice                 |                                                                            |
-//!   | operator                | keyword.operator.practice                 |                                                                            |
-//!   | parameter               | variable.parameter.practice               |                                                                            |
-//!   | string                  | string.quoted.double.practice             |                                                                            |
-//!   | string.abstract         | string.other.path.practice                |                                                                            |
+//!   | Token Selectors         | TextMate scope                           | Comment                                                                    |
+//!   | ----------------------- | ---------------------------------------- | -------------------------------------------------------------------------- |
+//!   | comment                 | comment.practice                         |                                                                            |
+//!   | enum.defaultLibrary     | constant.language.format.practice        | Command format parameters                                                  |
+//!   | function                | entity.name.function.practice            | Function calls would normally map to `entity.name.function.call.practice`. |
+//!   | function.defaultLibrary | support.function.trace32.practice        |                                                                            |
+//!   | keyword                 | keyword.other.practice                   |                                                                            |
+//!   | keyword.modification    | storage.modifier.macro.practice          | `GLOBAL`, `LOCAL`, and `PRIVATE` commands                                  |
+//!   | keyword.static          | keyword.control.practice                 | `IF`, `ELSE`, `WHILE`, `RePeaT`, `RETURN`, `END`, and `ENDDO` commands     |
+//!   | macro                   | variable.other.macro.practice            |                                                                            |
+//!   | macro.definition        | variable.other.macro.definition.practice |                                                                            |
+//!   | modifier.defaultLibrary | constant.language.option.practice        | Command option parameters                                                  |
+//!   | number                  | constant.numeric.practice                |                                                                            |
+//!   | operator                | keyword.operator.practice                |                                                                            |
+//!   | parameter               | variable.parameter.practice              |                                                                            |
+//!   | string                  | string.quoted.double.practice            |                                                                            |
+//!   | string.abstract         | string.other.path.practice               |                                                                            |
 //!
 //! A language node may match multiple query captures with equal validity. In
 //! such cases we need to use the pattern index for prioritization. The pattern
@@ -327,11 +331,43 @@ impl SemanticTokenQueryCaptures {
         for modifier in modifiers {
             captures.0.push(captures.2.len());
             match modifier {
+                SemanticTokenModifiers::Definition => {
+                    captures.1.push(1usize);
+                    captures.2.push(
+                        query
+                            .capture_index_for_name(CAPTURE_VARIABLE_BUILTIN)
+                            .expect("Capture name must exist."),
+                    );
+                }
+                SemanticTokenModifiers::Static => {
+                    let ts = [
+                        CAPTURE_CONDITIONAL,
+                        CAPTURE_REPEAT,
+                        CAPTURE_KEYWORD_RETURN,
+                    ];
+
+                    captures.1.push(ts.len());
+                    for capture in ts {
+                        captures.2.push(
+                            query
+                                .capture_index_for_name(capture)
+                                .expect("Capture name must exist."),
+                        );
+                    }
+                },
                 SemanticTokenModifiers::Abstract => {
                     captures.1.push(1usize);
                     captures.2.push(
                         query
                             .capture_index_for_name(CAPTURE_STRING_SPECIAL)
+                            .expect("Capture name must exist."),
+                    );
+                }
+                SemanticTokenModifiers::Modification => {
+                    captures.1.push(1usize);
+                    captures.2.push(
+                        query
+                            .capture_index_for_name(CAPTURE_KEYWORD)
                             .expect("Capture name must exist."),
                     );
                 }
@@ -347,28 +383,11 @@ impl SemanticTokenQueryCaptures {
                         );
                     }
                 }
-                SemanticTokenModifiers::Definition => {
-                    captures.1.push(1usize);
-                    captures.2.push(
-                        query
-                            .capture_index_for_name(CAPTURE_VARIABLE_BUILTIN)
-                            .expect("Capture name must exist."),
-                    );
-                }
-                SemanticTokenModifiers::Modification => {
-                    captures.1.push(1usize);
-                    captures.2.push(
-                        query
-                            .capture_index_for_name(CAPTURE_KEYWORD)
-                            .expect("Capture name must exist."),
-                    );
-                }
                 SemanticTokenModifiers::Async
                 | SemanticTokenModifiers::Declaration
                 | SemanticTokenModifiers::Deprecated
                 | SemanticTokenModifiers::Documentation
-                | SemanticTokenModifiers::Readonly
-                | SemanticTokenModifiers::Static => {
+                | SemanticTokenModifiers::Readonly => {
                     unreachable!("Semantic token modifier not available for language.")
                 }
             };
@@ -714,6 +733,7 @@ mod tests {
             SemanticTokenModifiers::DefaultLibrary,
             SemanticTokenModifiers::Abstract,
             SemanticTokenModifiers::Modification,
+            SemanticTokenModifiers::Static,
         ];
 
         SemanticTokensLegend {
@@ -971,7 +991,7 @@ mod tests {
                     },
                 },
                 r#type: 1,
-                modifier: 0,
+                modifier: 1 << 4,
             }));
         debug_assert!(!tokens.iter().any(|t| *t
             == SemanticToken {
@@ -1111,7 +1131,7 @@ mod tests {
                     },
                 },
                 r#type: 1,
-                modifier: 0,
+                modifier: 1 << 4,
             }));
 
         debug_assert!(tokens.iter().any(|t| *t
@@ -1467,6 +1487,175 @@ mod tests {
                 },
                 r#type: 2,
                 modifier: 2,
+            }));
+    }
+
+    #[test]
+    fn sets_token_modifier_for_if_then_keywords() {
+        let text = "IF &a\n(\n  PRINT \"hello\"\n)\nELSE\n  PRINT \", world!\"\n";
+
+        let tree = parse_full(&text.as_bytes());
+        let doc = create_doc("file://test.cmm".to_string(), 0, text.to_string());
+        let legend = create_full_legend();
+
+        let tokens = do_syntax_highlighting(legend.clone(), &doc, &tree);
+
+        debug_assert!(tokens.iter().any(|t| *t
+            == SemanticToken {
+                span: LRange {
+                    start: Position {
+                        line: 0,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 0,
+                        character: 2,
+                    },
+                },
+                r#type: 1,
+                modifier: 1 << 4,
+            }));
+
+        debug_assert!(tokens.iter().any(|t| *t
+            == SemanticToken {
+                span: LRange {
+                    start: Position {
+                        line: 4,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 4,
+                        character: 4,
+                    },
+                },
+                r#type: 1,
+                modifier: 1 << 4,
+            }));
+    }
+
+    #[test]
+    fn sets_token_modifier_for_loop_keywords() {
+        let text = "WHILE &a\n(\n  PRINT \"hello\"\n)\n";
+
+        let tree = parse_full(&text.as_bytes());
+        let doc = create_doc("file://test.cmm".to_string(), 0, text.to_string());
+        let legend = create_full_legend();
+
+        let tokens = do_syntax_highlighting(legend.clone(), &doc, &tree);
+
+        debug_assert!(tokens.iter().any(|t| *t
+            == SemanticToken {
+                span: LRange {
+                    start: Position {
+                        line: 0,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 0,
+                        character: 5,
+                    },
+                },
+                r#type: 1,
+                modifier: 1 << 4,
+            }));
+
+        let text = "RePeaT &a\n(\n  PRINT \", world!\"\n)\n";
+
+        let tree = parse_full(&text.as_bytes());
+        let doc = create_doc("file://test.cmm".to_string(), 0, text.to_string());
+        let legend = create_full_legend();
+
+        let tokens = do_syntax_highlighting(legend.clone(), &doc, &tree);
+
+        debug_assert!(tokens.iter().any(|t| *t
+            == SemanticToken {
+                span: LRange {
+                    start: Position {
+                        line: 0,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 0,
+                        character: 6,
+                    },
+                },
+                r#type: 1,
+                modifier: 1 << 4,
+            }));
+    }
+
+    #[test]
+    fn sets_token_modifier_for_return_keywords() {
+        let text = "RETURN\n";
+
+        let tree = parse_full(&text.as_bytes());
+        let doc = create_doc("file://test.cmm".to_string(), 0, text.to_string());
+        let legend = create_full_legend();
+
+        let tokens = do_syntax_highlighting(legend.clone(), &doc, &tree);
+
+        debug_assert!(tokens.iter().any(|t| *t
+            == SemanticToken {
+                span: LRange {
+                    start: Position {
+                        line: 0,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 0,
+                        character: 6,
+                    },
+                },
+                r#type: 1,
+                modifier: 1 << 4,
+            }));
+
+        let text = "END TRUE()\n";
+
+        let tree = parse_full(&text.as_bytes());
+        let doc = create_doc("file://test.cmm".to_string(), 0, text.to_string());
+        let legend = create_full_legend();
+
+        let tokens = do_syntax_highlighting(legend.clone(), &doc, &tree);
+
+        debug_assert!(tokens.iter().any(|t| *t
+            == SemanticToken {
+                span: LRange {
+                    start: Position {
+                        line: 0,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 0,
+                        character: 3,
+                    },
+                },
+                r#type: 1,
+                modifier: 1 << 4,
+            }));
+
+        let text = "ENDDO \"&a\"\n";
+
+        let tree = parse_full(&text.as_bytes());
+        let doc = create_doc("file://test.cmm".to_string(), 0, text.to_string());
+        let legend = create_full_legend();
+
+        let tokens = do_syntax_highlighting(legend.clone(), &doc, &tree);
+
+        debug_assert!(tokens.iter().any(|t| *t
+            == SemanticToken {
+                span: LRange {
+                    start: Position {
+                        line: 0,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 0,
+                        character: 5,
+                    },
+                },
+                r#type: 1,
+                modifier: 1 << 4,
             }));
     }
 }
