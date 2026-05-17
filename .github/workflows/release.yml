@@ -25,6 +25,9 @@ jobs:
       - name: Set up repository
         uses: actions/checkout@v6
 
+      - name: Install GitHub CLI
+        uses: actions4gh/setup-gh@10aaae734648c536041e1bce50fc8c5541806255
+
       - name: Build release binary
         uses: ./.github/actions/build_steps_os
         with:
@@ -67,6 +70,9 @@ jobs:
     steps:
       - name: Set up repository
         uses: actions/checkout@v6
+
+      - name: Install GitHub CLI
+        uses: actions4gh/setup-gh@10aaae734648c536041e1bce50fc8c5541806255
 
       - name: Build release binary
         uses: ./.github/actions/build_steps_os
