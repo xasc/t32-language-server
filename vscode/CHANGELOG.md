@@ -13,6 +13,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+[Unreleased]
+------------
+
+### Added
+
+-  Switch to *t32-language-server* v0.10.0.
+
+
 [0.2.1] - 2026-05-15
 --------------------
 
@@ -41,4 +49,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
--  Initial release with `t32ls` v0.9.0.
+-  Initial release with *t32-language-server* v0.9.0.

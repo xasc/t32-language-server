@@ -25,6 +25,8 @@ jobs:
       - name: Set up repository
         uses: actions/checkout@v6
 
+      # Prevents error for git operations:
+      #   "fatal: detected dubious ownership in repository"
       - name: Apply workaround for permission errors
         run: git status || git config --system --add safe.directory "$GITHUB_WORKSPACE"
 

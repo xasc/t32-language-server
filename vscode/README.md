@@ -4,19 +4,31 @@ SPDX-FileCopyrightText: 2024 Christoph Sax <c_sax@mailbox.org>
 SPDX-License-Identifier: EUPL-1.2
 -->
 
-t32-language-server
+t32 Language Server
 ===================
 
 Language server for the Lauterbach TRACE32® script language.
 It is available for Linux, Windows, and macOS.
 
+The extension packages [t32-language-server] to make LSP features available in
+VS Code and VSCodium.
+
+[t32-language-server]: https://codeberg.org/xasc/t32-language-server
+
 
 Features
 --------
 
--  Go to definition for PRACTICE macros and subroutines.
--  Locates PRACTICE macros and file references across all scripts in a project.
--  Semantic token detection for improved syntax highlighting.
+### Cross-references
+
+"Go to Definition" and "Find All References" locates macro, subroutines, and
+scripts in your project.
+
+![Sample screenshot for cross-references](images/sample_xrefs.png)
+
+### Semantic tokens
+
+Semantic tokens augment the editor syntax highlighting.
 
 
 Extension settings
