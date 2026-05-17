@@ -30,7 +30,7 @@ jobs:
           dnf install 'dnf-command(config-manager)'
           dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo
           dnf install git -y
-          dnf install gh --repo gh-cli
+          dnf install gh --repo gh-cli -y
 
       - name: Build release binary
         uses: ./.github/actions/build_steps_os
@@ -80,7 +80,7 @@ jobs:
           dnf install 'dnf-command(config-manager)'
           dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo
           dnf install git -y
-          dnf install gh --repo gh-cli
+          dnf install gh --repo gh-cli -y
 
       - name: Build release binary
         uses: ./.github/actions/build_steps_os
