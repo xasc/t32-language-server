@@ -13,8 +13,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
-[Unreleased]
-------------
+[0.10.0] - 2026-05-17
+---------------------
 
 ### Added
 
@@ -27,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     -  `constant.language.format.practice` for command format parameters.
     -  `constant.language.option.practice` for command options parameters.
     -  `keyword.control.practice` for if-then, loops, and return keywords.
+
+### Changed
+
+-  Build release binaries using older OS images for better compatibility.
 
 ### Fixed
 

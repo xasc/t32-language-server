@@ -20,6 +20,7 @@ jobs:
       matrix:
         os: [ {img: ubuntu-latest, flavor: x86_64 } ]
     runs-on: ${{ matrix.os.img }}
+    container: quay.io/pypa/manylinux2014_x86_64
     steps:
       - name: Set up repository
         uses: actions/checkout@v6
@@ -62,6 +63,7 @@ jobs:
       matrix:
         os: [ {img: ubuntu-24.04-arm, flavor: arm64} ]
     runs-on: ${{ matrix.os.img }}
+    container: quay.io/pypa/manylinux2014_aarch64
     steps:
       - name: Set up repository
         uses: actions/checkout@v6
@@ -102,7 +104,7 @@ jobs:
     needs: release_t32ls_bin_linux_primary
     strategy:
       matrix:
-        os: [ {img: macos-26-intel, flavor: x86_64 }, {img: macos-latest, flavor: arm64} ]
+        os: [ {img: macos-15-intel, flavor: x86_64 }, {img: macos-15, flavor: arm64} ]
     runs-on: ${{ matrix.os.img }}
     steps:
       - name: Set up repository
@@ -144,7 +146,7 @@ jobs:
     needs: release_t32ls_bin_linux_primary
     strategy:
       matrix:
-        os: [ {img: windows-latest, flavor: win64 }, {img: windows-11-arm, flavor: win-arm64} ]
+        os: [ {img: windows-2022, flavor: win64 }, {img: windows-11-arm, flavor: win-arm64} ]
     runs-on: ${{ matrix.os.img }}
     steps:
       - name: Set up repository
