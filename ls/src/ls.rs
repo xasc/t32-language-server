@@ -146,7 +146,13 @@ impl ProcHeartbeat {
 
     fn check(&mut self, now: &Instant) -> bool {
         self.last_beat = *now;
-        ProcState::Alive == proc_alive(self.pid.expect("PID must be specified."))
+
+        let pid = self.pid.expect("PID must be specified if check is executed.");
+        if pid > 0 {
+            ProcState::Alive == proc_alive(self.pid.expect("PID must be specified."))
+        } else {
+            true
+        }
     }
 }
 
