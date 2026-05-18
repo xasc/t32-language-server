@@ -2,7 +2,7 @@
   "name": "t32ls-vsc",
   "displayName": "t32 Language Server",
   "description": "Language server for the Lauterbach TRACE32® script language.",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "author": "Christoph Sax <c_sax@mailbox.org>",
   "publisher": "xasc",
   "license": "EUPL-1.2",
