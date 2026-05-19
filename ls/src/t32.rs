@@ -222,12 +222,13 @@ pub fn goto_file(text: &str, calls: &SubscriptCalls, command: TreeCursor) -> Opt
 }
 
 pub fn resolve_subscript_call_targets(
+    uri: &Uri,
     text: &str,
     tree: &Tree,
-    target: usize,
+    offset: usize,
     files: &FileIndex,
 ) -> Option<Vec<Uri>> {
-    if let Some(calls) = locate_subscript(text, tree, target, files) {
+    if let Some(calls) = locate_subscript(uri, text, tree, offset, files) {
         let mut scripts: Vec<Uri> = Vec::with_capacity(1);
 
         calls.into_iter().for_each(|c| scripts.push(c));

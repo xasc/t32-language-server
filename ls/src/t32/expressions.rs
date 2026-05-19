@@ -486,9 +486,10 @@ pub fn find_all_commands_and_parameter_declarations(
 }
 
 pub fn locate_subscript(
+    origin: &Uri,
     text: &str,
     tree: &Tree,
-    target: usize,
+    offset: usize,
     files: &FileIndex,
 ) -> Option<Vec<Uri>> {
     let mut cursor = tree.walk();
@@ -497,9 +498,9 @@ pub fn locate_subscript(
     let cmd = NodeKind::CommandExpression.into_id(&lang);
 
     let block_openers = get_block_opener_ids(&lang);
-    while cursor.goto_first_child_for_byte(target).is_some() {
+    while cursor.goto_first_child_for_byte(offset).is_some() {
         let node = cursor.node();
-        if !node.byte_range().contains(&target) {
+        if !node.byte_range().contains(&offset) {
             return None;
         }
 
@@ -512,11 +513,11 @@ pub fn locate_subscript(
     }
     debug_assert_eq!(cursor.node().kind_id(), cmd);
 
-    if cursor.goto_first_child_for_byte(target).is_none() {
+    if cursor.goto_first_child_for_byte(offset).is_none() {
         return None;
     }
     let path = extract_script_call_command_arguments(text, &mut cursor)?;
-    locate_script(path, &files)
+    locate_script(origin, path, &files)
 }
 
 pub fn locate_subscript_call_target<'a>(text: &'a str, cursor: &mut TreeCursor) -> Option<&'a str> {
@@ -1280,7 +1281,9 @@ pub fn skip_comments(cursor: &mut TreeCursor) {
 mod tests {
     use super::*;
 
-    use crate::t32;
+    use url::Url;
+
+    use crate::{ls, t32, utils};
 
     #[test]
     fn detects_subroutine_call_expressions_with_macro_target() {
@@ -1292,5 +1295,53 @@ mod tests {
 
         let call = extract_subroutine_call(&mut cursor);
         debug_assert!(call.is_some());
+    }
+
+    #[test]
+    fn can_resolve_ambiguous_path_with_current_script_dir_prefix() {
+        let file_idx = utils::create_file_idx();
+
+        let origin = utils::to_file_uri("tests/samples/paths.cmm");
+        let origin_uri = Url::parse(&origin).expect("Must not fail.");
+
+        let (doc, tree, _) = ls::read_doc(origin_uri.clone(), &file_idx).expect("Must not fail.");
+
+        // → ~~~~/same.cmm
+        let res = locate_subscript(&origin_uri.to_string(), &doc.text, &tree, 8, &file_idx)
+            .expect("Must yield a result.");
+
+        assert_eq!(res.len(), 1);
+        assert!(res.contains(&utils::to_file_uri("tests/samples/same.cmm")));
+
+        // → ~~~~/a/same.cmm
+        let res = locate_subscript(&origin_uri.to_string(), &doc.text, &tree, 25, &file_idx)
+            .expect("Must yield a result.");
+
+        assert_eq!(res.len(), 1);
+        assert!(res.contains(&utils::to_file_uri("tests/samples/a/same.cmm")));
+
+        // → ~~~~/b/same.cmm
+        let res = locate_subscript(&origin_uri.to_string(), &doc.text, &tree, 47, &file_idx)
+            .expect("Must yield a result.");
+
+        assert_eq!(res.len(), 1);
+        assert!(res.contains(&utils::to_file_uri("tests/samples/b/same.cmm")));
+    }
+
+    #[test]
+    fn can_resolve_non_conflicting_path_with_current_script_dir_prefix() {
+        let file_idx = utils::create_file_idx();
+
+        let origin = utils::to_file_uri("tests/samples/paths.cmm");
+        let origin_uri = Url::parse(&origin).expect("Must not fail.");
+
+        let (doc, tree, _) = ls::read_doc(origin_uri.clone(), &file_idx).expect("Must not fail.");
+
+        // → ~~~~/a/d/d.cmm
+        let res = locate_subscript(&origin_uri.to_string(), &doc.text, &tree, 70, &file_idx)
+            .expect("Must yield a result.");
+
+        assert_eq!(res.len(), 1);
+        assert!(res.contains(&utils::to_file_uri("tests/samples/a/d/d.cmm")));
     }
 }

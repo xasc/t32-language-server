@@ -29,7 +29,7 @@ pub fn import_doc(r#in: TextDocumentItem, files: FileIndex) -> (TextDoc, Tree, L
 
     let (subroutines, labels) = find_subroutines_and_labels(&doc.text, &tree);
     let (commands, parameters) = find_commands_and_parameter_declarations(&doc.text, &tree);
-    let calls = resolve_call_expressions(&doc.text, &tree, &files);
+    let calls = resolve_call_expressions(&doc.uri, &doc.text, &tree, &files);
     let macro_refs = find_any_macro_references(&tree);
     let macros = find_macro_definitions(&doc.text, &subroutines, &calls.subroutines, &tree);
 
@@ -62,7 +62,7 @@ pub fn update_doc(
 
     let (subroutines, labels) = find_subroutines_and_labels(&doc.text, tree);
     let (commands, parameters) = find_commands_and_parameter_declarations(&doc.text, tree);
-    let calls = resolve_call_expressions(&doc.text, tree, &files);
+    let calls = resolve_call_expressions(&doc.uri, &doc.text, tree, &files);
     let macro_refs = find_any_macro_references(&tree);
     let macros = find_macro_definitions(&doc.text, &subroutines, &calls.subroutines, tree);
 
@@ -81,17 +81,16 @@ pub fn update_doc(
     )
 }
 
-pub fn read_doc(r#in: Url, files: FileIndex) -> Result<(TextDoc, Tree, LangExpressions), Uri> {
-    let uri = r#in.to_string();
-    let doc = match TextDoc::try_from(r#in) {
+pub fn read_doc(uri: Url, files: &FileIndex) -> Result<(TextDoc, Tree, LangExpressions), Uri> {
+    let doc = match TextDoc::try_from(uri.clone()) {
         Ok(text) => text,
-        Err(_) => return Err(uri),
+        Err(_) => return Err(uri.to_string()),
     };
     let tree = parse_full(doc.text.as_bytes());
 
     let (subroutines, labels) = find_subroutines_and_labels(&doc.text, &tree);
     let (commands, parameters) = find_commands_and_parameter_declarations(&doc.text, &tree);
-    let calls = resolve_call_expressions(&doc.text, &tree, &files);
+    let calls = resolve_call_expressions(&doc.uri, &doc.text, &tree, files);
     let macro_refs = find_any_macro_references(&tree);
     let macros = find_macro_definitions(&doc.text, &subroutines, &calls.subroutines, &tree);
 
@@ -110,7 +109,12 @@ pub fn read_doc(r#in: Url, files: FileIndex) -> Result<(TextDoc, Tree, LangExpre
     ))
 }
 
-pub fn resolve_call_expressions(text: &str, tree: &Tree, files: &FileIndex) -> CallExpressions {
+pub fn resolve_call_expressions(
+    uri: &Uri,
+    text: &str,
+    tree: &Tree,
+    files: &FileIndex,
+) -> CallExpressions {
     let CallLocations {
         subroutines,
         scripts,
@@ -124,7 +128,7 @@ pub fn resolve_call_expressions(text: &str, tree: &Tree, files: &FileIndex) -> C
 
         for (expr, kind) in scripts.into_iter() {
             if let Some(calls) =
-                resolve_subscript_call_targets(text, &tree, expr.target.start, files)
+                resolve_subscript_call_targets(uri, text, &tree, expr.target.start, files)
             {
                 for call in calls.into_iter() {
                     locations.push(expr.clone());
@@ -223,7 +227,7 @@ mod test {
                 .unwrap();
 
         let (doc, _, LangExpressions { subroutines, .. }) =
-            read_doc(file, file_idx).expect("Must not fail.");
+            read_doc(file, &file_idx).expect("Must not fail.");
 
         assert!(!subroutines.clone().is_empty());
 
@@ -246,7 +250,7 @@ mod test {
                 .unwrap();
 
         let (doc, _, LangExpressions { subroutines, .. }) =
-            read_doc(file, file_idx).expect("Must not fail.");
+            read_doc(file, &file_idx).expect("Must not fail.");
 
         assert!(!subroutines.clone().is_empty());
 
@@ -275,7 +279,7 @@ mod test {
                 macros: MacroDefinitions { globals, .. },
                 ..
             },
-        ) = read_doc(file, file_idx).expect("Must not fail.");
+        ) = read_doc(file, &file_idx).expect("Must not fail.");
 
         assert!(!globals.is_empty());
         assert!(
@@ -305,7 +309,7 @@ mod test {
                     },
                 ..
             },
-        ) = read_doc(file, file_idx).expect("Must not fail.");
+        ) = read_doc(file, &file_idx).expect("Must not fail.");
 
         for def in [
             BRange::from(447usize..449usize),
@@ -339,7 +343,7 @@ mod test {
                 macros: MacroDefinitions { privates, .. },
                 ..
             },
-        ) = read_doc(file, file_idx).expect("Must not fail.");
+        ) = read_doc(file, &file_idx).expect("Must not fail.");
 
         for def in [MacroDefinition {
             cmd: 1707usize..1722usize,
@@ -365,7 +369,7 @@ mod test {
                 macros: MacroDefinitions { locals, .. },
                 ..
             },
-        ) = read_doc(file, file_idx).expect("Must not fail.");
+        ) = read_doc(file, &file_idx).expect("Must not fail.");
 
         assert!(!locals.is_empty());
         assert!(
@@ -391,7 +395,7 @@ mod test {
                 macros: MacroDefinitions { privates, .. },
                 ..
             },
-        ) = read_doc(file, file_idx).expect("Must not fail.");
+        ) = read_doc(file, &file_idx).expect("Must not fail.");
 
         assert!(!privates.is_empty());
         assert!(
@@ -411,7 +415,7 @@ mod test {
                 .unwrap();
 
         let (doc, _, LangExpressions { parameters, .. }) =
-            read_doc(file, file_idx).expect("Must not fail.");
+            read_doc(file, &file_idx).expect("Must not fail.");
 
         assert!(!parameters.is_empty());
         assert!(
@@ -443,7 +447,7 @@ mod test {
                 calls: CallExpressions { subroutines, .. },
                 ..
             },
-        ) = read_doc(file, file_idx).expect("Must not fail.");
+        ) = read_doc(file, &file_idx).expect("Must not fail.");
 
         assert!(subroutines.len() > 0);
         assert!(
@@ -478,7 +482,7 @@ mod test {
                 calls: CallExpressions { scripts, .. },
                 ..
             },
-        ) = read_doc(file, file_idx).expect("Must not fail.");
+        ) = read_doc(file, &file_idx).expect("Must not fail.");
 
         assert!(!scripts.clone().is_none_or(|s| s.locations.is_empty()));
         assert!(
@@ -527,7 +531,7 @@ mod test {
                 calls: CallExpressions { scripts, .. },
                 ..
             },
-        ) = read_doc(file, file_idx).expect("Must not fail.");
+        ) = read_doc(file, &file_idx).expect("Must not fail.");
 
         assert!(scripts.is_some());
 
@@ -568,7 +572,7 @@ mod test {
                 calls: CallExpressions { scripts, .. },
                 ..
             },
-        ) = read_doc(file, file_idx).expect("Must not fail.");
+        ) = read_doc(file, &file_idx).expect("Must not fail.");
 
         assert!(scripts.is_some());
 
@@ -611,7 +615,7 @@ mod test {
                 calls: CallExpressions { scripts, .. },
                 ..
             },
-        ) = read_doc(file, file_idx).expect("Must not fail.");
+        ) = read_doc(file, &file_idx).expect("Must not fail.");
 
         assert!(scripts.is_some());
 
@@ -634,7 +638,7 @@ mod test {
                 calls: CallExpressions { scripts, .. },
                 ..
             },
-        ) = read_doc(file, file_idx).expect("Must not fail.");
+        ) = read_doc(file, &file_idx).expect("Must not fail.");
 
         assert!(scripts.is_some());
 
@@ -664,7 +668,7 @@ mod test {
                 .unwrap();
 
         let (doc, _, LangExpressions { macro_refs, .. }) =
-            read_doc(file, file_idx).expect("Must not fail.");
+            read_doc(file, &file_idx).expect("Must not fail.");
 
         assert!(
             macro_refs
@@ -692,7 +696,7 @@ mod test {
                 .unwrap();
 
         let (doc, _, LangExpressions { commands, .. }) =
-            read_doc(file, file_idx).expect("Must not fail.");
+            read_doc(file, &file_idx).expect("Must not fail.");
 
         assert!(!commands.is_empty());
         assert!(

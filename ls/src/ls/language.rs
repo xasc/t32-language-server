@@ -51,7 +51,10 @@ pub enum FindReferencesPartialResult {
         origin: MacroReferenceOrigin,
         definitions: Vec<(FileLocation, Option<MacroScope>)>,
     },
-    FileTarget(String),
+    FileTarget {
+        origin_uri: Uri,
+        target: String,
+    },
 }
 
 // TODO: Use dedicated types for GoToExternalMacroDef results. The first two
@@ -512,7 +515,10 @@ pub fn find_references(
                     NodeKind::CommandExpression.into_id(&lang)
                 );
                 Some(FindReferencesResult::Partial(
-                    FindReferencesPartialResult::FileTarget(target),
+                    FindReferencesPartialResult::FileTarget {
+                        origin_uri: textdoc.doc.uri,
+                        target,
+                    },
                 ))
             } else {
                 Some(FindReferencesResult::Partial(
@@ -1225,7 +1231,7 @@ mod tests {
         let uri = Url::from_file_path(path::absolute(file).expect("File must exist.")).unwrap();
 
         let file_idx = workspace::index_files(files());
-        let (doc, tree, t32) = read_doc(uri, file_idx).unwrap();
+        let (doc, tree, t32) = read_doc(uri, &file_idx).unwrap();
 
         find_definition(
             TextDocData { doc, tree },
@@ -1238,7 +1244,7 @@ mod tests {
         let uri = Url::from_file_path(path::absolute(file).expect("File must exist.")).unwrap();
 
         let file_idx = workspace::index_files(files());
-        let (doc, tree, t32) = read_doc(uri, file_idx).unwrap();
+        let (doc, tree, t32) = read_doc(uri, &file_idx).unwrap();
 
         find_references(
             TextDocData { doc, tree },
@@ -1256,7 +1262,7 @@ mod tests {
         let uri = Url::from_file_path(path::absolute(file).expect("File must exist.")).unwrap();
 
         let file_idx = workspace::index_files(files());
-        let (doc, tree, t32) = read_doc(uri, file_idx).unwrap();
+        let (doc, tree, t32) = read_doc(uri, &file_idx).unwrap();
 
         find_external_macro_definition(
             TextDocData { doc, tree },
@@ -2256,8 +2262,7 @@ mod tests {
         let mut members: Vec<(TextDoc, Tree, LangExpressions)> = Vec::new();
 
         for uri in files {
-            let (doc, tree, expr) =
-                read_doc(uri.clone(), file_idx.clone()).expect("Must not fail.");
+            let (doc, tree, expr) = read_doc(uri.clone(), &file_idx).expect("Must not fail.");
             members.push((doc, tree, expr));
         }
 
@@ -2528,7 +2533,7 @@ mod tests {
         let uri =
             Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
                 .unwrap();
-        let (doc, tree, t32) = read_doc(uri, file_idx).unwrap();
+        let (doc, tree, t32) = read_doc(uri, &file_idx).unwrap();
 
         for ((name, range, scope), (refs, scripts)) in [
             (
@@ -2838,7 +2843,7 @@ mod tests {
         let uri =
             Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
                 .unwrap();
-        let (doc, tree, t32) = read_doc(uri, file_idx).unwrap();
+        let (doc, tree, t32) = read_doc(uri, &file_idx).unwrap();
 
         let result = find_infile_macro_references(
             TextDocData { doc, tree },
@@ -2960,7 +2965,7 @@ mod tests {
         ]) {
             let file_idx = create_file_idx();
 
-            let (doc, tree, t32) = read_doc(uri, file_idx).unwrap();
+            let (doc, tree, t32) = read_doc(uri, &file_idx).unwrap();
 
             let defs = find_external_definitions_for_macro_ref(
                 TextDocData { doc, tree },
@@ -2975,17 +2980,20 @@ mod tests {
 
     #[test]
     fn can_return_subscript_call_file_target_for_find_reference_req() {
+        let file = "tests/samples/a/a.cmm";
         let refs = find_refs(
-            "tests/samples/a/a.cmm",
+            &file,
             Position {
                 line: 49,
                 character: 6,
             },
         );
+
         assert!(refs.is_some_and(|r| r
-            == FindReferencesResult::Partial(FindReferencesPartialResult::FileTarget(
-                "../b/b.cmm".to_string()
-            ))));
+            == FindReferencesResult::Partial(FindReferencesPartialResult::FileTarget {
+                origin_uri: to_file_uri(file),
+                target: "../b/b.cmm".to_string()
+            })));
     }
 
     #[test]

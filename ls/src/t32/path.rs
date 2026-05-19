@@ -7,16 +7,40 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use url::Url;
+
 use crate::{ls::FileIndex, protocol::Uri, t32::SUFFIXES};
 
-pub fn locate_script(script: &str, files: &FileIndex) -> Option<Vec<Uri>> {
-    let path = split_call_path(script);
+#[derive(Debug, PartialEq)]
+enum PathPrefixDir {
+    HomeDir,
+    SystemDir,
+    TempDir,
+    ScriptDir,
+}
+
+pub fn locate_script(origin: &Uri, subscript: &str, files: &FileIndex) -> Option<Vec<Uri>> {
+    let path = split_call_path(subscript);
     let filename = path.file_name()?.to_str()?;
 
     if let Some(uri) = matches_script_name(filename, files) {
         return Some(vec![uri]);
     }
-    matches_conflict(&path, files)
+
+    let prefix = detect_path_prefix(&path);
+    if prefix.is_some_and(|p| p == PathPrefixDir::ScriptDir) {
+        let script_file = Url::parse(origin)
+            .expect("Uri must be well-formed.")
+            .to_file_path()
+            .expect("Input must convert to path.");
+        let script_dir = script_file.parent()?;
+
+        let complemented_path = resolve_path_prefix(&path, script_dir);
+
+        matches_conflict(&complemented_path, files)
+    } else {
+        matches_conflict(&path, files)
+    }
 }
 
 fn split_call_path(script: &str) -> PathBuf {
@@ -85,5 +109,35 @@ where
             }
         }
         valid
+    }
+}
+
+fn resolve_path_prefix(path: &Path, replacement: &Path) -> PathBuf {
+    let mut parts = path.components();
+
+    // Drop first segment
+    parts.next();
+    replacement.join(parts.as_path())
+}
+
+fn detect_path_prefix(path: &Path) -> Option<PathPrefixDir> {
+    let mut num_tildes: u32 = 0;
+
+    let path_str = path.to_string_lossy();
+
+    for ch in path_str.chars() {
+        if ch != '~' {
+            break;
+        }
+        num_tildes += 1;
+    }
+    debug_assert!(num_tildes <= 4);
+
+    match num_tildes {
+        4 => Some(PathPrefixDir::ScriptDir),
+        2 => Some(PathPrefixDir::SystemDir),
+        1 => Some(PathPrefixDir::HomeDir),
+        3 => Some(PathPrefixDir::TempDir),
+        _ => None,
     }
 }

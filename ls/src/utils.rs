@@ -389,7 +389,7 @@ pub fn create_file_idx() -> FileIndex {
 pub fn create_doc_store(files: &Vec<Url>, index: &FileIndex) -> TextDocs {
     let mut members: Vec<(TextDoc, Tree, LangExpressions)> = Vec::new();
     for uri in files {
-        let (doc, tree, expr) = read_doc(uri.clone(), index.clone()).expect("Must not fail.");
+        let (doc, tree, expr) = read_doc(uri.clone(), &index).expect("Must not fail.");
         members.push((doc, tree, expr));
     }
     TextDocs::from_workspace(members)

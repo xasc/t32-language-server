@@ -186,8 +186,8 @@ pub fn process_find_references_result(
                 }])
             }
             // TODO: Include the script itself, if request asked to include declarations?
-            FindReferencesPartialResult::FileTarget(target) => {
-                if let Some(scripts) = resolve_script(&target, files) {
+            FindReferencesPartialResult::FileTarget { origin_uri, target } => {
+                if let Some(scripts) = resolve_script(&origin_uri, &target, files) {
                     let mut locations: Vec<Location> = Vec::new();
                     for script in scripts {
                         if let Some(locs) = docs.get_all_target_file_refs(&script) {
@@ -1955,7 +1955,10 @@ mod tests {
         };
 
         let find_refs_res = Some(FindReferencesResult::Partial(
-            FindReferencesPartialResult::FileTarget(to_file_uri("tests/samples/b/b.cmm")),
+            FindReferencesPartialResult::FileTarget {
+                origin_uri: to_file_uri("tests/samples/a/a.cmm"),
+                target: to_file_uri("tests/samples/b/b.cmm"),
+            },
         ));
 
         let mut outgoing: Vec<Option<Message>> = Vec::new();

@@ -340,11 +340,7 @@ impl SemanticTokenQueryCaptures {
                     );
                 }
                 SemanticTokenModifiers::Static => {
-                    let ts = [
-                        CAPTURE_CONDITIONAL,
-                        CAPTURE_REPEAT,
-                        CAPTURE_KEYWORD_RETURN,
-                    ];
+                    let ts = [CAPTURE_CONDITIONAL, CAPTURE_REPEAT, CAPTURE_KEYWORD_RETURN];
 
                     captures.1.push(ts.len());
                     for capture in ts {
@@ -354,7 +350,7 @@ impl SemanticTokenQueryCaptures {
                                 .expect("Capture name must exist."),
                         );
                     }
-                },
+                }
                 SemanticTokenModifiers::Abstract => {
                     captures.1.push(1usize);
                     captures.2.push(
@@ -750,7 +746,7 @@ mod tests {
         )
         .unwrap();
 
-        let (doc, tree, _) = read_doc(uri_a, files).expect("Must not fail.");
+        let (doc, tree, _) = read_doc(uri_a, &files).expect("Must not fail.");
 
         let types = vec![
             SemanticTokenTypes::Operator,
@@ -813,7 +809,7 @@ mod tests {
         )
         .unwrap();
 
-        let (doc, tree, _) = read_doc(uri_a, files).expect("Must not fail.");
+        let (doc, tree, _) = read_doc(uri_a, &files).expect("Must not fail.");
 
         let legend = SemanticTokensLegend {
             token_types: vec![SemanticTokenTypes::Operator],
@@ -870,7 +866,7 @@ mod tests {
         )
         .unwrap();
 
-        let (doc, tree, _) = read_doc(uri_a, files).expect("Must not fail.");
+        let (doc, tree, _) = read_doc(uri_a, &files).expect("Must not fail.");
 
         let legend = SemanticTokensLegend {
             token_types: vec![SemanticTokenTypes::Function],
@@ -916,7 +912,7 @@ mod tests {
         )
         .unwrap();
 
-        let (doc, tree, _) = read_doc(uri_a, files).expect("Must not fail.");
+        let (doc, tree, _) = read_doc(uri_a, &files).expect("Must not fail.");
 
         let legend = SemanticTokensLegend {
             token_types: vec![SemanticTokenTypes::Macro],

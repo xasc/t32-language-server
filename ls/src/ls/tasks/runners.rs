@@ -152,7 +152,7 @@ pub enum Task {
     WorkspaceFileScan(
         Url,
         FileIndex,
-        fn(Url, FileIndex) -> Result<(TextDoc, Tree, LangExpressions), Uri>,
+        fn(Url, &FileIndex) -> Result<(TextDoc, Tree, LangExpressions), Uri>,
     ),
     WorkspaceFileIndexNew(Vec<Url>, fn(Vec<Url>) -> FileIndex),
 }
@@ -425,7 +425,7 @@ impl TaskSystem {
                 TaskDone::WorkspaceFileDiscovery(locate(&workspace, suffixes))
             }
             Task::WorkspaceFileScan(uri, files, scan) => {
-                TaskDone::WorkspaceFileScan(scan(uri, files))
+                TaskDone::WorkspaceFileScan(scan(uri, &files))
             }
             Task::WorkspaceFileIndexNew(files, index) => {
                 TaskDone::WorkspaceFileIndexNew(index(files))

@@ -1187,7 +1187,7 @@ mod test {
     fn create_doc_store(files: &Vec<Url>, index: &FileIndex) -> TextDocs {
         let mut members: Vec<(TextDoc, Tree, LangExpressions)> = Vec::new();
         for uri in files {
-            let (doc, tree, expr) = read_doc(uri.clone(), index.clone()).expect("Must not fail.");
+            let (doc, tree, expr) = read_doc(uri.clone(), &index).expect("Must not fail.");
             members.push((doc, tree, expr));
         }
         TextDocs::from_workspace(members)
@@ -1212,7 +1212,7 @@ mod test {
         let (commands, parameters) = find_commands_and_parameter_declarations(text, &tree);
 
         let calls = if let Some(file_idx) = files {
-            resolve_call_expressions(text, &tree, &file_idx)
+            resolve_call_expressions(&uri.to_string(), text, &tree, &file_idx)
         } else {
             CallExpressions {
                 subroutines: Vec::new(),
@@ -1370,14 +1370,14 @@ mod test {
             Url::from_file_path(path::absolute("tests/samples/c.cmm").expect("File must exist."))
                 .unwrap();
 
-        let (doc, tree, expr) = read_doc(uri.clone(), file_idx.clone()).expect("Must not fail.");
+        let (doc, tree, expr) = read_doc(uri.clone(), &file_idx).expect("Must not fail.");
 
         docs.add(doc, tree, expr, TextDocStatus::Open);
 
         let caller =
             Url::from_file_path(path::absolute("tests/samples/c.cmm").expect("File must exist."))
                 .unwrap();
-        let (doc, tree, expr) = read_doc(caller.clone(), file_idx.clone()).expect("Must not fail.");
+        let (doc, tree, expr) = read_doc(caller.clone(), &file_idx).expect("Must not fail.");
 
         docs.add(doc, tree, expr, TextDocStatus::Open);
 
