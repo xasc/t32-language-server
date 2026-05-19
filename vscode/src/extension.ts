@@ -13,7 +13,7 @@ export async function activate(context: ExtensionContext) {
   const command = getLanguageServerPath(context, client);
   const serverOptions: ServerOptions = {
     command: command,
-    args: ['--clientProcessId=0'],
+    args: [`--clientProcessId=${process.pid}`],
   };
 
   let traceChannel = channel;
@@ -48,10 +48,6 @@ export function deactivate() {
 }
 
 function getLanguageServerPath(context: ExtensionContext, client: LanguageClient): string {
-  if (process.env.NODE_ENV! === 'development') {
-      return Uri.joinPath(context.extensionUri, '..', 'target', 'debug', 't32ls').fsPath;
-  }
-
   let suffix: string = '';
   if (process.platform === 'win32') {
     suffix = '.exe';
@@ -61,6 +57,10 @@ function getLanguageServerPath(context: ExtensionContext, client: LanguageClient
   } else {
     client.error('Operating system is not supported.', 'force');
     throw new Error;
+  }
+
+  if (process.env.NODE_ENV! === 'development') {
+      return Uri.joinPath(context.extensionUri, '..', 'target', 'debug', 't32ls' + suffix).fsPath;
   }
   return Uri.joinPath(context.extensionUri, 'bin', 't32ls' + suffix).fsPath;
 }
