@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [Unreleased]
 ------------
 
+### Added
+
+-  Update feature section in readme.
+
 ### Changed
 
 -  Server is started with process ID of Node.js client process in
