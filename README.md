@@ -128,12 +128,24 @@ t32ls [OPTIONS]
     process dies. If the client process ID is not provided, set the value to 0
     to suppress the warning.
 
+  -s DIR, --t32SystemDir=DIR
+    System directory of your TRACE32 installation. The server will use this
+    path to resolve the path prefix "~~" in script files. This prefix expands
+    to the absolute path of the TRACE32 system directory, e.g. "C:\T32". It is
+    commonly used to reference files from the subdirectory "demo" in the TRACE32
+    system directory.
+
   -t LEVEL, --trace=LEVEL
     Set the initial logging level of the server's execution trace. LEVEL must
     be one of 'off,messages,verbose'.
 
+  -T DIR, --t32TempDir=DIR
+    Selected temporary directory of TRACE32. The server will use this path to
+    resolve the path prefix "~~~" in script files. This prefix expands
+    to the absolute path of the TRACE32 temporary directory, e.g. "/tmp".
+
   -V, --version
-    Print version info and exit.
+    Print version info and exit."
 ~~~~
 
 #### Example

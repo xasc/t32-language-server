@@ -2,8 +2,27 @@
 //
 // SPDX-License-Identifier: EUPL-1.2
 
+//! [Note] Command Line Argument Parser
+//! ===================================
+//!
+//! The command line parser is automatically taking care of quoted arguments.
+//! This command line argument
+//!
+//! ~~~~ text
+//! --t32SystemDir="C:\Program Files\T32"
+//! ~~~~
+//! becomes this input argument:
+//!
+//! ~~~~ text
+//! --t32SystemDir=C:\\Program Files\\T32
+//! ~~~~
+//!
+//! Double quotes are automatically removed and escape sequences are converted.
+//! The same mechanism is applied for single quotes.
+//!
 use std::{
     io::{self, Write},
+    path::{self, Path, PathBuf},
     str::FromStr,
     time::Duration,
 };
@@ -25,7 +44,7 @@ pub enum ChannelKind {
     Stdio,
 }
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum OperationMode {
     Server,
     StdioTransport,
@@ -37,6 +56,14 @@ pub enum Workspace {
     Folders(Option<Vec<WorkspaceFolder>>),
 }
 
+#[derive(Debug)]
+pub struct T32DefaultDirs {
+    pub system_dir: Option<PathBuf>,
+    pub temp_dir: Option<PathBuf>,
+}
+
+
+#[derive(Debug)]
 pub struct Config {
     pub parent_pid: Option<u32>,
     pub pid_check_interval: Duration,
@@ -49,8 +76,10 @@ pub struct Config {
     pub location_links: LocationLinkSupport,
     pub did_rename_files_supported: bool,
     pub semantic_tokens: SemanticTokenSupport,
+    pub t32_dirs: T32DefaultDirs,
 }
 
+#[derive(Debug)]
 pub struct LocationLinkSupport {
     pub definitions_supported: bool,
 }
@@ -76,6 +105,8 @@ impl Config {
         let mut show_version: bool = false;
         let mut trace_level: TraceValue = TraceValue::Off;
         let mut mode: OperationMode = OperationMode::Server;
+        let mut t32_system_dir: Option<PathBuf> = None;
+        let mut t32_temp_dir: Option<PathBuf> = None;
 
         debug_assert!(args.len() > 0);
         let len = args[1..].len();
@@ -111,6 +142,50 @@ impl Config {
                     continue;
                 }
                 Ok(None) => (),
+            }
+
+            // Check [Note: Command Line Argument Parser] for details about shape of input arguments.
+            match Self::parse_flag_value::<PathBuf>("--t32SystemDir=", Some("-s"), arg, next) {
+                Err(err) => return Err(err),
+                Ok(None) => (),
+                Ok(Some(p)) => {
+                    let path = match path::absolute(&p) {
+                        Ok(p) => p,
+                        Err(_) => {
+                            warn_invalid_abs_path(&mut io::stdout(), &"--t32SystemDir", &p);
+                            continue;
+                        }
+                    };
+
+                    if path.is_dir() {
+                        t32_system_dir = Some(path);
+                    } else {
+                        warn_dir_not_exist(&mut io::stdout(),  &"--t32SystemDir", &path);
+                    }
+                    continue;
+                }
+            }
+
+            // Check [Note: Command Line Argument Parser] for details about shape of input arguments.
+            match Self::parse_flag_value::<PathBuf>("--t32TempDir=", Some("-T"), arg, next) {
+                Err(err) => return Err(err),
+                Ok(None) => (),
+                Ok(Some(p)) => {
+                    let path = match path::absolute(&p) {
+                        Ok(p) => p,
+                        Err(_) => {
+                            warn_invalid_abs_path(&mut io::stdout(), &"--t32TempDir", &p);
+                            continue;
+                        }
+                    };
+
+                    if path.is_dir() {
+                        t32_temp_dir = Some(path);
+                    } else {
+                        warn_dir_not_exist(&mut io::stdout(),  &"--t32TempDir", &path);
+                    }
+                    continue;
+                }
             }
 
             if Self::parse_flag("--help", "-h", arg) {
@@ -155,6 +230,10 @@ impl Config {
             trace_level,
             mode,
             semantic_tokens: SemanticTokenSupport::default(),
+            t32_dirs: T32DefaultDirs {
+                system_dir: t32_system_dir,
+                temp_dir: t32_temp_dir,
+            },
         })
     }
 
@@ -337,6 +416,25 @@ Process ID of parent process is not available. The editor process cannot be
 monitored for shutdown."#
     );
 }
+fn warn_invalid_abs_path(writer: &mut impl Write, flag: &str, path: &Path) {
+    let _ = writeln!(
+        writer,
+        r#"WARNING: Invalid path \"{}\".
+The path value of the flag \"{}\" cannot be converted into an absolute path."#,
+        path.to_string_lossy(),
+        flag
+    );
+}
+
+fn warn_dir_not_exist(writer: &mut impl Write, flag: &str, path: &Path) {
+    let _ = writeln!(
+        writer,
+        r#"WARNING: Directory \"{}\" does not exist.
+The path value of the flag \"{}\" does not specify a valid directory."#,
+        path.to_string_lossy(),
+        flag
+    );
+}
 
 #[cfg(all(target_os = "wasi", target_env = "p1"))]
 fn error_wasm(writer: &mut impl Write, param: &str) {
@@ -364,9 +462,21 @@ General options:
     process dies. If the client process ID is not provided, set the value to 0
     to suppress the warning.
 
+  -s DIR, --t32SystemDir=DIR
+    System directory of your TRACE32 installation. The server will use this
+    path to resolve the path prefix "~~" in script files. This prefix expands
+    to the absolute path of the TRACE32 system directory, e.g. "C:\T32". It is
+    commonly used to reference files from the subdirectory "demo" in the TRACE32
+    system directory.
+
   -t LEVEL, --trace=LEVEL
     Set the initial logging level of the server's execution trace. LEVEL must
     be one of 'off,messages,verbose'.
+
+  -T DIR, --t32TempDir=DIR
+    Selected temporary directory of TRACE32. The server will use this path to
+    resolve the path prefix "~~~" in script files. This prefix expands
+    to the absolute path of the TRACE32 temporary directory, e.g. "/tmp".
 
   -V, --version
     Print version info and exit."#
@@ -385,4 +495,25 @@ SPDX-License-Identifier: EUPL-1.2"#,
     )
     .expect("Writer must be configured correctly.");
     // REUSE-IgnoreEnd
+}
+
+mod tests {
+    #[allow(unused)]
+    use super::*;
+
+    #[test]
+    fn can_parse_t32_system_directory() {
+        let cfg = Config::build(&["t32ls", "--t32SystemDir=tests/samples"].map(String::from))
+            .expect("Must complete without error.");
+
+        assert_eq!(cfg.t32_dirs.system_dir, Some(path::absolute(PathBuf::from("tests/samples")).expect("Must not fail.")));
+    }
+
+    #[test]
+    fn can_parse_t32_temporary_directory() {
+        let cfg = Config::build(&["t32ls", "--t32TempDir=tests/samples/a"].map(String::from))
+            .expect("Must complete without error.");
+
+        assert_eq!(cfg.t32_dirs.temp_dir, Some(path::absolute(PathBuf::from("tests/samples/a")).expect("Must not fail.")));
+    }
 }

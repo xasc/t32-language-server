@@ -2,6 +2,8 @@
 //
 // SPDX-License-Identifier: EUPL-1.2
 
+use std::{thread, time};
+
 use t32_language_server;
 
 mod utils;
@@ -38,4 +40,36 @@ fn prints_version() {
             .unwrap()
             .starts_with("t32ls (t32-language-server), version")
     );
+}
+
+#[test]
+fn reports_invalid_t32_sys_dir(){
+    let mut ls = utils::start_ls(&["--clientProcessId=0", "--t32SystemDir=/invalid"], false);
+    let mut stdin = ls.stdin.take().unwrap();
+
+    utils::stop_ls(&mut ls, Some(&mut stdin), None);
+
+    thread::sleep(time::Duration::from_millis(100));
+
+    let output = ls.wait_with_output().expect("Failed to capture output");
+
+    assert!(str::from_utf8(&output.stdout).unwrap().contains("WARNING:"));
+    assert!(str::from_utf8(&output.stdout).unwrap().contains("does not exist."));
+    assert!(str::from_utf8(&output.stdout).unwrap().contains("--t32SystemDir"));
+}
+
+#[test]
+fn reports_invalid_t32_temp_dir(){
+    let mut ls = utils::start_ls(&["--clientProcessId=0", "--t32TempDir=/invalid"], false);
+    let mut stdin = ls.stdin.take().unwrap();
+
+    utils::stop_ls(&mut ls, Some(&mut stdin), None);
+
+    thread::sleep(time::Duration::from_millis(100));
+
+    let output = ls.wait_with_output().expect("Failed to capture output");
+
+    assert!(str::from_utf8(&output.stdout).unwrap().contains("WARNING:"));
+    assert!(str::from_utf8(&output.stdout).unwrap().contains("does not exist."));
+    assert!(str::from_utf8(&output.stdout).unwrap().contains("--t32TempDir"));
 }
