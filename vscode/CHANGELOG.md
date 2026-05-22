@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 -  Update feature section in readme.
+-  Switch to *t32-language-server* v0.12.0.
 
 ### Changed
 

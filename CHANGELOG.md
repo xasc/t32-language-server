@@ -20,8 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 -  Add support for default path prefixes in script paths:
     -  `~` is the user home directory.
-    -  `~~` is the TRACE32 system directory.
-    -  `~~~` is the TRACE32 temporary directory.
+    -  `~~` specifies the TRACE32 system directory.
+    -  `~~~` sets the TRACE32 temporary directory.
     -  `~~~~` is an alias for the active script directory.
 
    The path prefixes are used to resolve the targets of ambiguous file paths.
