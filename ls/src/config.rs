@@ -5,8 +5,8 @@
 //! [Note] Command Line Argument Parser
 //! ===================================
 //!
-//! The command line parser is automatically taking care of quoted arguments.
-//! This command line argument
+//! The command line parser of Linux shells is automatically taking care of
+//! quoted arguments. This command line argument
 //!
 //! ~~~~ text
 //! --t32SystemDir="C:\Program Files\T32"
@@ -19,6 +19,12 @@
 //!
 //! Double quotes are automatically removed and escape sequences are converted.
 //! The same mechanism is applied for single quotes.
+//!
+//! On the other hand, the Node.js command line parser is giving us this:
+//!
+//! ~~~~ text
+//! --t32SystemDir=\"C:\\Program Files\\T32\"
+//! ~~~~
 //!
 use std::{
     env,
@@ -235,10 +241,10 @@ impl Config {
         })
     }
 
-    fn parse_flag_value<T: std::str::FromStr>(
+    fn parse_flag_value<'a, T: std::str::FromStr>(
         long: &str,
         short: Option<&str>,
-        arg: &str,
+        arg: &'a str,
         next: Option<&str>,
     ) -> Result<Option<T>, ReturnCode> {
         if let Some(sh) = short
@@ -249,7 +255,11 @@ impl Config {
                 return Err(ReturnCode::UsageErr);
             }
 
-            match next.expect("The flag must have a value.").parse::<T>() {
+            let val = next
+                .expect("The flag must have a value.")
+                .trim_matches(&['"', '\'']);
+
+            match val.parse::<T>() {
                 Ok(v) => return Ok(Some(v)),
                 Err(_) => {
                     error_format(&mut io::stderr(), long);
@@ -262,9 +272,14 @@ impl Config {
             return Ok(None);
         }
 
+        let trim_parens = |s: &'a str| -> &'a str {
+            s.trim_matches(&['"', '\''])
+        };
+
         let val: Vec<&str> = arg
             .split(long)
             .map(str::trim)
+            .map(trim_parens)
             .filter(|s| !s.is_empty())
             .collect();
 
