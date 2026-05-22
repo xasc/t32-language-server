@@ -99,13 +99,14 @@ use crate::{protocol::Uri, t32::ast::find_deepest_node, utils::BRange};
 use super::{
     FindMacroRefsLangContext, GotoDefLangContext, MacroDefinitionResult,
     ast::{
-        KEYWORD_SUBROUTINE_ENTRY, KEYWORD_SUBROUTINE_PARAMETERS, KEYWORD_SUBROUTINE_RETURNVALUES,
-        NodeKind, get_block_opener_ids, get_control_flow_block_ids, get_macro_container_expr_ids,
+        KEYWORD_GLOBAL, KEYWORD_LOCAL, KEYWORD_PRIVATE, KEYWORD_SUBROUTINE_ENTRY,
+        KEYWORD_SUBROUTINE_PARAMETERS, KEYWORD_SUBROUTINE_RETURNVALUES, NodeKind,
+        get_block_opener_ids, get_control_flow_block_ids, get_macro_container_expr_ids,
         get_subroutine_ids,
     },
     cache::find_subroutine_for_call,
     expressions::{
-        CallExpression, MacroDefResolution, MacroDefinition, MacroScope, ParameterDeclaration,
+        CallExpression, MacroDefResolution, MacroDefinition, ParameterDeclaration,
         ParameterDeclarationKind, RECURSION_BREAKER_SUBROUTINE_SCAN, Subroutine, SubscriptCalls,
         assign_lhs_matches_macro, extract_assign_lhs_macro, find_docstring, goto_subroutine,
         resides_in_subroutine,
@@ -137,6 +138,13 @@ pub struct MacroDefinitions {
 pub struct MacroDefinitionsImplicit {
     pub privates: Vec<BRange>,
     pub locals: Vec<BRange>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum MacroScope {
+    Global,
+    Local,
+    Private,
 }
 
 struct MacroDefinitionsCutoff {
@@ -277,6 +285,20 @@ impl<'a> MacroReferencesBlockCaptures<'a> {
             references: Vec::new(),
             subroutines: Vec::new(),
             scripts: Vec::new(),
+        }
+    }
+}
+
+impl From<&str> for MacroScope {
+    fn from(keyword: &str) -> Self {
+        if keyword.eq_ignore_ascii_case(KEYWORD_PRIVATE) {
+            MacroScope::Private
+        } else if keyword.eq_ignore_ascii_case(KEYWORD_LOCAL) {
+            MacroScope::Local
+        } else if keyword.eq_ignore_ascii_case(KEYWORD_GLOBAL) {
+            MacroScope::Global
+        } else {
+            unreachable!("No other variant exists.")
         }
     }
 }
@@ -1406,7 +1428,7 @@ pub fn params_ignore_block_global_definitions(text: &str, cursor: &mut TreeCurso
                 KEYWORD_SUBROUTINE_RETURNVALUES
             ]
             .iter()
-            .any(|k| *k == command)
+            .any(|k| k.eq_ignore_ascii_case(command))
         );
         true
     }
@@ -2109,11 +2131,11 @@ fn extract_macro_scope(text: &str, cursor: &mut TreeCursor) -> Option<MacroScope
 }
 
 fn extract_param_decl_kind(command: &str) -> Option<ParameterDeclarationKind> {
-    if command == KEYWORD_SUBROUTINE_ENTRY {
+    if command.eq_ignore_ascii_case(KEYWORD_SUBROUTINE_ENTRY) {
         Some(ParameterDeclarationKind::Entry)
-    } else if command == KEYWORD_SUBROUTINE_PARAMETERS {
+    } else if command.eq_ignore_ascii_case(KEYWORD_SUBROUTINE_PARAMETERS) {
         Some(ParameterDeclarationKind::Parameters)
-    } else if command == KEYWORD_SUBROUTINE_RETURNVALUES {
+    } else if command.eq_ignore_ascii_case(KEYWORD_SUBROUTINE_RETURNVALUES) {
         Some(ParameterDeclarationKind::RETURNVALUES)
     } else {
         None
@@ -2230,5 +2252,35 @@ mod tests {
         extract_macro_defs(&text, &mut cursor, &mut defs);
 
         debug_assert_eq!(defs.len(), 2);
+    }
+
+    #[test]
+    fn detects_lower_or_mixed_case_macro_definition_keywords() {
+        let file = env::current_dir()
+            .unwrap()
+            .join("tests")
+            .join("samples")
+            .join("ambiguities.cmm");
+
+        let text = fs::read_to_string(file).expect("File must exist.");
+        let tree = t32::parse_full(text.as_bytes());
+
+        let defs = find_all_macro_definitions(&text, &Vec::new(), &Vec::new(), &tree);
+
+        assert!(
+            defs.privates
+                .iter()
+                .any(|d| d.r#macro == (115usize..117usize))
+        );
+        assert!(
+            defs.locals
+                .iter()
+                .any(|d| d.r#macro == (124usize..126usize))
+        );
+        assert!(
+            defs.globals
+                .iter()
+                .any(|d| d.r#macro == (134usize..136usize))
+        );
     }
 }

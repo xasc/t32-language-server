@@ -58,7 +58,6 @@ fn reports_invalid_t32_sys_dir() {
     thread::sleep(time::Duration::from_millis(100));
 
     let output = ls.wait_with_output().expect("Failed to capture output");
-    dbg!(str::from_utf8(&output.stdout).unwrap());
 
     assert!(str::from_utf8(&output.stderr).unwrap().contains("WARNING:"));
     assert!(

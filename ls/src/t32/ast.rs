@@ -87,14 +87,22 @@ pub const GOTO_DEF_SOURCES: [NodeKind; 3] = [
 ];
 
 pub const KEYWORD_DO: &'static str = "DO";
+pub const KEYWORD_END: &'static str = "END";
+
+pub const KEYWORD_ENDDO: &'static str = "ENDDO";
+pub const KEYWORD_GLOBAL: &'static str = "GLOBAL";
 pub const KEYWORD_GOTO: &'static str = "GOTO";
+pub const KEYWORD_LOCAL: &'static str = "LOCAL";
+
+pub const KEYWORD_PRIVATE: &'static str = "PRIVATE";
 pub const KEYWORD_RUN: &'static str = "RUN";
+
 pub const KEYWORD_SUBROUTINE_ENTRY: &'static str = "ENTRY";
 pub const KEYWORD_SUBROUTINE_PARAMETERS: &'static str = "PARAMETERS";
 pub const KEYWORD_SUBROUTINE_RETURNVALUES: &'static str = "RETURNVALUES";
 pub const KEYWORD_SUBROUTINE_RETURN: &'static str = "RETURN";
-pub const KEYWORDS_SCRIPT_CALL: [&'static str; 2] = ["DO", "RUN"];
-pub const KEYWORDS_SCRIPT_END: [&'static str; 2] = ["END", "ENDDO"];
+pub const KEYWORDS_SCRIPT_CALL: [&'static str; 2] = [KEYWORD_DO, KEYWORD_RUN];
+pub const KEYWORDS_SCRIPT_END: [&'static str; 2] = [KEYWORD_END, KEYWORD_ENDDO];
 
 pub const NODE_ACCESS_CLASS: &'static str = "access_class";
 pub const NODE_ARGUMENT_LIST: &'static str = "argument_list";

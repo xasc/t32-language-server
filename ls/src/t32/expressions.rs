@@ -89,13 +89,6 @@ pub enum MacroDefResolution {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum MacroScope {
-    Global,
-    Local,
-    Private,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ParameterDeclarationKind {
     Parameters,
     Entry,
@@ -168,17 +161,6 @@ pub struct SubscriptCalls {
     pub locations: Vec<CallExpression>,
     pub targets: Vec<Option<Uri>>,
     pub kinds: Vec<SubscriptCallKind>,
-}
-
-impl From<&str> for MacroScope {
-    fn from(keyword: &str) -> Self {
-        match keyword {
-            "GLOBAL" => MacroScope::Global,
-            "LOCAL" => MacroScope::Local,
-            "PRIVATE" => MacroScope::Private,
-            &_ => unreachable!("No other variant exists."),
-        }
-    }
 }
 
 impl Eq for MacroDefinition {}
@@ -1281,7 +1263,7 @@ pub fn skip_comments(cursor: &mut TreeCursor) {
 mod tests {
     use super::*;
 
-    use std::path::PathBuf;
+    use std::{env, fs, path::PathBuf};
 
     use url::Url;
 
@@ -1357,5 +1339,26 @@ mod tests {
 
         assert_eq!(res.len(), 1);
         assert!(res.contains(&utils::to_file_uri("tests/samples/a/d/d.cmm")));
+    }
+
+    #[test]
+    fn detects_lower_or_mixed_case_parameter_declaration_keywords() {
+        let file = env::current_dir()
+            .unwrap()
+            .join("tests")
+            .join("samples")
+            .join("ambiguities.cmm");
+
+        let text = fs::read_to_string(file).expect("File must exist.");
+        let tree = t32::parse_full(text.as_bytes());
+
+        let (_, params) = find_all_commands_and_parameter_declarations(&text, &tree);
+
+        assert!(params.iter().any(|d| d.r#macro == (144usize..146usize)));
+        assert!(params.iter().any(|d| d.r#macro == (153usize..155usize)));
+        assert!(params.iter().any(|d| d.r#macro == (168usize..170usize)));
+        assert!(params.iter().any(|d| d.r#macro == (182usize..184usize)));
+        assert!(params.iter().any(|d| d.r#macro == (199usize..201usize)));
+        assert!(params.iter().any(|d| d.r#macro == (215usize..217usize)));
     }
 }

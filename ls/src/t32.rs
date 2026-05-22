@@ -15,10 +15,10 @@ use tree_sitter::{Language, Tree, TreeCursor};
 pub use ast::{NodeKind, id_into_node};
 pub use cache::{get_macro_scope, locate_calls_to_file_target};
 pub use expressions::{
-    CallExpression, CallExpressions, CallLocations, Command, Label, MacroDefinition, MacroScope,
+    CallExpression, CallExpressions, CallLocations, Command, Label, MacroDefinition,
     ParameterDeclaration, ParameterDeclarationKind, Subroutine, SubscriptCallKind, SubscriptCalls,
 };
-pub use macros::MacroDefinitions;
+pub use macros::{MacroDefinitions, MacroScope};
 pub use query::{SemanticToken, do_syntax_highlighting, do_syntax_highlighting_in_range};
 
 #[cfg(test)]
