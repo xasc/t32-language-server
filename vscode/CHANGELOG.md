@@ -18,8 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+-  Add configuration new settings for directory configuration:
+    -  `t32ls.t32.systemDirectory`: TRACE32 system directory
+    -  `t32ls.t32.temporaryDirectory`: TRACE32 temporary directory
+
 -  Update feature section in readme.
--  Switch to *t32-language-server* v0.12.0.
+-  Switch to *t32-language-server* v0.12.2.
 
 ### Changed
 

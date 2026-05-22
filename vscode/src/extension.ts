@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: EUPL-1.2
 
-import { ExtensionContext, Uri, window, } from 'vscode';
+import { ExtensionContext, Uri, window, workspace, WorkspaceConfiguration } from 'vscode';
 import { LanguageClient, LanguageClientOptions, ServerOptions} from 'vscode-languageclient/node';
 
 let client: LanguageClient;
@@ -11,9 +11,13 @@ export async function activate(context: ExtensionContext) {
   const channel = window.createOutputChannel('t32 Language Server', { log: true });
 
   const command = getLanguageServerPath(context, client);
+
+  const cfg = workspace.getConfiguration();
+  const args = getLanguageServerArgs(cfg);
+
   const serverOptions: ServerOptions = {
     command: command,
-    args: [`--clientProcessId=${process.pid}`],
+    args: args,
   };
 
   let traceChannel = channel;
@@ -63,4 +67,19 @@ function getLanguageServerPath(context: ExtensionContext, client: LanguageClient
       return Uri.joinPath(context.extensionUri, '..', 'target', 'debug', 't32ls' + suffix).fsPath;
   }
   return Uri.joinPath(context.extensionUri, 'bin', 't32ls' + suffix).fsPath;
+}
+
+function getLanguageServerArgs(cfg: WorkspaceConfiguration): string[] {
+  let args: string[] = [`--clientProcessId=${process.pid}`];
+
+  const t32_system_dir = cfg.get('t32ls.t32.systemDirectory');
+  if (t32_system_dir !== '') {
+    args.push(`--t32SystemDir="${t32_system_dir}"`);
+  }
+
+  const t32_temp_dir = cfg.get('t32ls.t32.temporaryDirectory');
+  if (t32_temp_dir !== '') {
+    args.push(`--t32TempDir="${t32_temp_dir}"`);
+  }
+  return args;
 }

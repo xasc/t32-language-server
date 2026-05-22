@@ -55,6 +55,16 @@
       {
         "title": "t32 Language Server",
         "properties": {
+          "t32ls.t32.systemDirectory": {
+            "scope": "machine",
+            "type": "string",
+            "markdownDescription": "System directory of the TRACE32 installation, e.g. `C:\\T32`."
+          },
+          "t32ls.t32.temporaryDirectory": {
+            "scope": "machine",
+            "type": "string",
+            "markdownDescription": "Temporary directory of TRACE32, e.g. `/tmp`."
+          },
           "t32ls.trace.server": {
             "scope": "window",
             "type": "string",
