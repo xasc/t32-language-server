@@ -1298,21 +1298,21 @@ mod tests {
 
         // → ~~~~/same.cmm
         let res =
-            locate_subscript(&doc.text, &tree, 8, &file_idx, &dirs).expect("Must yield a result.");
+            locate_subscript(&doc.text, &tree, 110, &file_idx, &dirs).expect("Must yield a result.");
 
         assert_eq!(res.len(), 1);
         assert!(res.contains(&utils::to_file_uri("tests/samples/same.cmm")));
 
         // → ~~~~/a/same.cmm
         let res =
-            locate_subscript(&doc.text, &tree, 25, &file_idx, &dirs).expect("Must yield a result.");
+            locate_subscript(&doc.text, &tree, 127, &file_idx, &dirs).expect("Must yield a result.");
 
         assert_eq!(res.len(), 1);
         assert!(res.contains(&utils::to_file_uri("tests/samples/a/same.cmm")));
 
         // → ~~~~/b/same.cmm
         let res =
-            locate_subscript(&doc.text, &tree, 47, &file_idx, &dirs).expect("Must yield a result.");
+            locate_subscript(&doc.text, &tree, 149, &file_idx, &dirs).expect("Must yield a result.");
 
         assert_eq!(res.len(), 1);
         assert!(res.contains(&utils::to_file_uri("tests/samples/b/same.cmm")));
@@ -1335,7 +1335,7 @@ mod tests {
 
         // → ~~~~/a/d/d.cmm
         let res =
-            locate_subscript(&doc.text, &tree, 70, &file_idx, &dirs).expect("Must yield a result.");
+            locate_subscript(&doc.text, &tree, 171, &file_idx, &dirs).expect("Must yield a result.");
 
         assert_eq!(res.len(), 1);
         assert!(res.contains(&utils::to_file_uri("tests/samples/a/d/d.cmm")));
