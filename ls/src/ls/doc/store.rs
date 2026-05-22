@@ -1253,7 +1253,7 @@ mod test {
 
         let text = "PRINT \"Hello, World!\"\n";
 
-        let files = ["file:///a.cmm", "file:///b.cmm"];
+        let files = ["file://C:/a.cmm", "file://D:/b.cmm"];
         for uri in files.iter() {
             let (doc, tree, expr) = create_doc(uri.to_string(), &text, None);
             docs.add(doc, tree, expr, TextDocStatus::Open);
@@ -1287,7 +1287,7 @@ mod test {
         let mut docs = TextDocs::new();
 
         let text = "PRINT \"Hello, World!\"\n";
-        let uri = "file:///test.cmm".to_string();
+        let uri = "file://C:/test.cmm".to_string();
         let (doc, tree, expr) = create_doc(uri.clone(), &text, None);
 
         docs.add(doc, tree, expr, TextDocStatus::Open);
