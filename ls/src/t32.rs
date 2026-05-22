@@ -38,7 +38,7 @@ pub use macros::{
 
 pub use parse::{parse_full, parse_incremental};
 
-pub use path::locate_script as resolve_script;
+pub use path::{PathShorthandDirs, locate_script as resolve_script};
 
 use std::ops::Range;
 
@@ -222,13 +222,13 @@ pub fn goto_file(text: &str, calls: &SubscriptCalls, command: TreeCursor) -> Opt
 }
 
 pub fn resolve_subscript_call_targets(
-    uri: &Uri,
     text: &str,
     tree: &Tree,
     offset: usize,
     files: &FileIndex,
+    dirs: &PathShorthandDirs,
 ) -> Option<Vec<Uri>> {
-    if let Some(calls) = locate_subscript(uri, text, tree, offset, files) {
+    if let Some(calls) = locate_subscript(text, tree, offset, files, dirs) {
         let mut scripts: Vec<Uri> = Vec::with_capacity(1);
 
         calls.into_iter().for_each(|c| scripts.push(c));

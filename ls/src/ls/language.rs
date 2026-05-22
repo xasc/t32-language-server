@@ -1214,6 +1214,7 @@ mod tests {
     use url::Url;
 
     use crate::{
+        config::T32DefaultDirs,
         ls::{
             doc::read_doc,
             workspace::{self, FileIndex},
@@ -1231,7 +1232,9 @@ mod tests {
         let uri = Url::from_file_path(path::absolute(file).expect("File must exist.")).unwrap();
 
         let file_idx = workspace::index_files(files());
-        let (doc, tree, t32) = read_doc(uri, &file_idx).unwrap();
+        let dirs = T32DefaultDirs::default();
+
+        let (doc, tree, t32) = read_doc(uri, &file_idx, &dirs).unwrap();
 
         find_definition(
             TextDocData { doc, tree },
@@ -1244,7 +1247,9 @@ mod tests {
         let uri = Url::from_file_path(path::absolute(file).expect("File must exist.")).unwrap();
 
         let file_idx = workspace::index_files(files());
-        let (doc, tree, t32) = read_doc(uri, &file_idx).unwrap();
+        let dirs = T32DefaultDirs::default();
+
+        let (doc, tree, t32) = read_doc(uri, &file_idx, &dirs).unwrap();
 
         find_references(
             TextDocData { doc, tree },
@@ -1262,7 +1267,9 @@ mod tests {
         let uri = Url::from_file_path(path::absolute(file).expect("File must exist.")).unwrap();
 
         let file_idx = workspace::index_files(files());
-        let (doc, tree, t32) = read_doc(uri, &file_idx).unwrap();
+        let dirs = T32DefaultDirs::default();
+
+        let (doc, tree, t32) = read_doc(uri, &file_idx, &dirs).unwrap();
 
         find_external_macro_definition(
             TextDocData { doc, tree },
@@ -2257,12 +2264,14 @@ mod tests {
     #[test]
     fn can_find_macro_global_macro_definition() {
         let file_idx = create_file_idx();
+        let dirs = T32DefaultDirs::default();
 
         let files = files();
         let mut members: Vec<(TextDoc, Tree, LangExpressions)> = Vec::new();
 
         for uri in files {
-            let (doc, tree, expr) = read_doc(uri.clone(), &file_idx).expect("Must not fail.");
+            let (doc, tree, expr) =
+                read_doc(uri.clone(), &file_idx, &dirs).expect("Must not fail.");
             members.push((doc, tree, expr));
         }
 
@@ -2529,11 +2538,12 @@ mod tests {
     #[test]
     fn can_find_infile_references_for_macro_definition() {
         let file_idx = create_file_idx();
+        let dirs = T32DefaultDirs::default();
 
         let uri =
             Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
                 .unwrap();
-        let (doc, tree, t32) = read_doc(uri, &file_idx).unwrap();
+        let (doc, tree, t32) = read_doc(uri, &file_idx, &dirs).unwrap();
 
         for ((name, range, scope), (refs, scripts)) in [
             (
@@ -2839,11 +2849,12 @@ mod tests {
     #[test]
     fn can_find_references_for_macros_on_stack() {
         let file_idx = create_file_idx();
+        let dirs = T32DefaultDirs::default();
 
         let uri =
             Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
                 .unwrap();
-        let (doc, tree, t32) = read_doc(uri, &file_idx).unwrap();
+        let (doc, tree, t32) = read_doc(uri, &file_idx, &dirs).unwrap();
 
         let result = find_infile_macro_references(
             TextDocData { doc, tree },
@@ -2872,6 +2883,9 @@ mod tests {
 
     #[test]
     fn can_find_external_definitions_for_macro_ref() {
+        let file_idx = create_file_idx();
+        let dirs = T32DefaultDirs::default();
+
         let origin = MacroReferenceOrigin {
             name: "&from_c_cmm".to_string(),
             span: LRange {
@@ -2963,9 +2977,7 @@ mod tests {
                 .to_string(),
             ),
         ]) {
-            let file_idx = create_file_idx();
-
-            let (doc, tree, t32) = read_doc(uri, &file_idx).unwrap();
+            let (doc, tree, t32) = read_doc(uri, &file_idx, &dirs).unwrap();
 
             let defs = find_external_definitions_for_macro_ref(
                 TextDocData { doc, tree },

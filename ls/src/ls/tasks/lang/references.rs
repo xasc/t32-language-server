@@ -26,9 +26,12 @@
 //!       files with a corresponding macro definitions.
 //!
 
+use url::Url;
+
 use serde_json::json;
 
 use crate::{
+    config::Config,
     ls::{
         ReturnCode,
         doc::{TextDocData, TextDocs},
@@ -51,7 +54,7 @@ use crate::{
     protocol::{Location, LogTraceParams, NumberOrString, ReferenceParams, TraceValue, Uri},
     t32::{
         FindMacroRefsLangContext, FindRefsLangContext, GotoDefLangContext, MacroScope,
-        resolve_script,
+        PathShorthandDirs, resolve_script,
     },
     utils::FileLocationMap,
 };
@@ -101,11 +104,11 @@ pub fn process_find_references_req(
 }
 
 pub fn process_find_references_result(
+    cfg: &Config,
     docs: &TextDocs,
     files: &FileIndex,
     id: &NumberOrString,
     references: Option<FindReferencesResult>,
-    trace_level: TraceValue,
     ts: &mut Tasks,
     outgoing: &mut Vec<Option<Message>>,
 ) -> Option<FindReferencesResponse> {
@@ -119,7 +122,7 @@ pub fn process_find_references_result(
             } => {
                 debug_assert!(!definitions.is_empty());
 
-                if trace_level != TraceValue::Off {
+                if cfg.trace_level != TraceValue::Off {
                     outgoing.push(Some(log_conv_find_macro_ref_req(
                         id.clone(),
                         origin.clone(),
@@ -139,7 +142,7 @@ pub fn process_find_references_result(
                 definitions,
             } => {
                 if let Some(callers) = docs.get_callers(&origin.uri) {
-                    if trace_level != TraceValue::Off {
+                    if cfg.trace_level != TraceValue::Off {
                         outgoing.push(Some(log_conv_find_macro_ref_req(
                             id.clone(),
                             origin.clone(),
@@ -157,7 +160,7 @@ pub fn process_find_references_result(
                 }
 
                 if !definitions.is_empty() {
-                    if trace_level != TraceValue::Off {
+                    if cfg.trace_level != TraceValue::Off {
                         outgoing.push(Some(log_conv_find_macro_ref_req(
                             id.clone(),
                             origin.clone(),
@@ -187,7 +190,15 @@ pub fn process_find_references_result(
             }
             // TODO: Include the script itself, if request asked to include declarations?
             FindReferencesPartialResult::FileTarget { origin_uri, target } => {
-                if let Some(scripts) = resolve_script(&origin_uri, &target, files) {
+                let script_file = Url::parse(&origin_uri)
+                    .expect("Uri must be well-formed.")
+                    .to_file_path()
+                    .expect("Input must convert to path.");
+                let script_dir = script_file.parent()?;
+
+                let dirs = PathShorthandDirs::new(&cfg.t32_dirs, script_dir);
+
+                if let Some(scripts) = resolve_script(&target, files, &dirs) {
                     let mut locations: Vec<Location> = Vec::new();
                     for script in scripts {
                         if let Some(locs) = docs.get_all_target_file_refs(&script) {
@@ -810,13 +821,36 @@ fn log_conv_find_macro_ref_req(id: NumberOrString, r#macro: MacroReferenceOrigin
 mod tests {
     use super::*;
 
-    use std::{time::Instant, u32};
+    use std::{
+        time::{Duration, Instant},
+        u32,
+    };
 
     use crate::{
+        config,
         ls::{TaskCounterInternal, TaskSystem, tasks::TaskProgress},
-        protocol::{Position, Range},
+        protocol::{self, Position, Range},
         utils::{BRange, create_doc_store, create_file_idx, files, to_file_uri},
     };
+
+    fn config() -> Config {
+        Config {
+            parent_pid: Some(0u32),
+            pid_check_interval: Duration::from_secs(5),
+            channel: config::ChannelKind::Stdio,
+            workspace: config::Workspace::Root(None),
+            workspace_folders_supported: false,
+            position_encoding: protocol::PositionEncodingKind::Utf16,
+            location_links: config::LocationLinkSupport {
+                definitions_supported: false,
+            },
+            did_rename_files_supported: false,
+            trace_level: protocol::TraceValue::Off,
+            mode: config::OperationMode::StdioTransport,
+            semantic_tokens: config::SemanticTokenSupport::default(),
+            t32_dirs: config::T32DefaultDirs::default(),
+        }
+    }
 
     #[test]
     fn can_queue_lookups_for_macro_definition_references() {
@@ -1026,6 +1060,7 @@ mod tests {
 
     #[test]
     fn can_process_find_refs_result_for_macro_only_defined_in_file() {
+        let cfg = config();
         let files = files();
         let file_idx = create_file_idx();
         let docs = create_doc_store(&files, &file_idx);
@@ -1082,11 +1117,11 @@ mod tests {
         let mut outgoing: Vec<Option<Message>> = Vec::new();
 
         let result = process_find_references_result(
+            &cfg,
             &docs,
             &file_idx,
             &id,
             find_refs_res,
-            TraceValue::Off,
             &mut ts,
             &mut outgoing,
         );
@@ -1115,6 +1150,7 @@ mod tests {
 
     #[test]
     fn can_process_find_refs_result_for_externally_defined_macro() {
+        let cfg = config();
         let files = files();
         let file_idx = create_file_idx();
         let docs = create_doc_store(&files, &file_idx);
@@ -1170,11 +1206,11 @@ mod tests {
         let mut outgoing: Vec<Option<Message>> = Vec::new();
 
         let result = process_find_references_result(
+            &cfg,
             &docs,
             &file_idx,
             &id,
             find_refs_res,
-            TraceValue::Off,
             &mut ts,
             &mut outgoing,
         );
@@ -1204,6 +1240,7 @@ mod tests {
 
     #[test]
     fn can_process_find_refs_result_for_macro_without_definition() {
+        let cfg = config();
         let files = files();
         let file_idx = create_file_idx();
         let docs = create_doc_store(&files, &file_idx);
@@ -1244,11 +1281,11 @@ mod tests {
         let mut outgoing: Vec<Option<Message>> = Vec::new();
 
         let result = process_find_references_result(
+            &cfg,
             &docs,
             &file_idx,
             &id,
             find_refs_res,
-            TraceValue::Off,
             &mut ts,
             &mut outgoing,
         );
@@ -1939,6 +1976,7 @@ mod tests {
 
     #[test]
     fn can_process_find_refs_result_for_file_target() {
+        let cfg = config();
         let files = files();
         let file_idx = create_file_idx();
         let docs = create_doc_store(&files, &file_idx);
@@ -1964,11 +2002,11 @@ mod tests {
         let mut outgoing: Vec<Option<Message>> = Vec::new();
 
         let result = process_find_references_result(
+            &cfg,
             &docs,
             &file_idx,
             &id,
             find_refs_res,
-            TraceValue::Off,
             &mut ts,
             &mut outgoing,
         );

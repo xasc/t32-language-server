@@ -7,9 +7,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use url::Url;
-
-use crate::{ls::FileIndex, protocol::Uri, t32::SUFFIXES};
+use crate::{config::T32DefaultDirs, ls::FileIndex, protocol::Uri, t32::SUFFIXES};
 
 #[derive(Debug, PartialEq)]
 enum PathPrefixDir {
@@ -19,23 +17,49 @@ enum PathPrefixDir {
     ScriptDir,
 }
 
-pub fn locate_script(origin: &Uri, subscript: &str, files: &FileIndex) -> Option<Vec<Uri>> {
-    let path = split_call_path(subscript);
+#[derive(Debug)]
+pub struct PathShorthandDirs<'a> {
+    home_dir: Option<&'a Path>,
+    script_dir: &'a Path,
+    system_dir: Option<&'a Path>,
+    temp_dir: Option<&'a Path>,
+}
+
+impl<'a> PathShorthandDirs<'a> {
+    pub fn new(t32_dirs: &'a T32DefaultDirs, script_dir: &'a Path) -> Self {
+        Self {
+            home_dir: t32_dirs.home_dir.as_deref(),
+            script_dir,
+            system_dir: t32_dirs.system_dir.as_deref(),
+            temp_dir: t32_dirs.temp_dir.as_deref(),
+        }
+    }
+    fn resolve_shorthand(&self, prefix: &PathPrefixDir) -> Option<&'a Path> {
+        match prefix {
+            PathPrefixDir::ScriptDir => Some(self.script_dir),
+            PathPrefixDir::SystemDir => self.system_dir,
+            PathPrefixDir::TempDir => self.temp_dir,
+            PathPrefixDir::HomeDir => self.home_dir,
+        }
+    }
+}
+
+pub fn locate_script(
+    script: &str,
+    files: &FileIndex,
+    dirs: &PathShorthandDirs,
+) -> Option<Vec<Uri>> {
+    let path = split_call_path(script);
     let filename = path.file_name()?.to_str()?;
 
     if let Some(uri) = matches_script_name(filename, files) {
         return Some(vec![uri]);
     }
 
-    let prefix = detect_path_prefix(&path);
-    if prefix.is_some_and(|p| p == PathPrefixDir::ScriptDir) {
-        let script_file = Url::parse(origin)
-            .expect("Uri must be well-formed.")
-            .to_file_path()
-            .expect("Input must convert to path.");
-        let script_dir = script_file.parent()?;
-
-        let complemented_path = resolve_path_prefix(&path, script_dir);
+    if let Some(prefix) = detect_path_prefix(&path)
+        && let Some(dir) = dirs.resolve_shorthand(&prefix)
+    {
+        let complemented_path = resolve_path_prefix(&path, dir);
 
         matches_conflict(&complemented_path, files)
     } else {

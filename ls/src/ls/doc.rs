@@ -10,26 +10,37 @@ use url::Url;
 use tree_sitter::Tree;
 
 use crate::{
+    config::T32DefaultDirs,
     ls::workspace::FileIndex,
     protocol::{TextDocumentContentChangeEvent, TextDocumentItem, Uri},
     t32::{
-        CallExpression, CallExpressions, CallLocations, LangExpressions, SubscriptCallKind,
-        SubscriptCalls, find_any_macro_references, find_call_expressions,
+        CallExpression, CallExpressions, CallLocations, LangExpressions, PathShorthandDirs,
+        SubscriptCallKind, SubscriptCalls, find_any_macro_references, find_call_expressions,
         find_commands_and_parameter_declarations, find_macro_definitions,
         find_subroutines_and_labels, parse_full, parse_incremental, resolve_subscript_call_targets,
     },
+    utils::uri_to_path,
 };
 
 pub use store::{GlobalMacroDefIndex, TextDocData, TextDocs};
 pub use textdoc::{TextDoc, TextDocStatus};
 
-pub fn import_doc(r#in: TextDocumentItem, files: FileIndex) -> (TextDoc, Tree, LangExpressions) {
+pub fn import_doc(
+    r#in: TextDocumentItem,
+    files: FileIndex,
+    t32_dirs: T32DefaultDirs,
+) -> (TextDoc, Tree, LangExpressions) {
     let doc = TextDoc::from(r#in);
     let tree = parse_full(doc.text.as_bytes());
 
+    let script_file = uri_to_path(&doc.uri);
+    let script_dir = script_file.parent().expect("File must have parent folder.");
+
+    let dirs = PathShorthandDirs::new(&t32_dirs, &script_dir);
+
     let (subroutines, labels) = find_subroutines_and_labels(&doc.text, &tree);
     let (commands, parameters) = find_commands_and_parameter_declarations(&doc.text, &tree);
-    let calls = resolve_call_expressions(&doc.uri, &doc.text, &tree, &files);
+    let calls = resolve_call_expressions(&doc.text, &tree, &files, &dirs);
     let macro_refs = find_any_macro_references(&tree);
     let macros = find_macro_definitions(&doc.text, &subroutines, &calls.subroutines, &tree);
 
@@ -51,6 +62,7 @@ pub fn import_doc(r#in: TextDocumentItem, files: FileIndex) -> (TextDoc, Tree, L
 pub fn update_doc(
     mut textdoc: TextDocData,
     files: FileIndex,
+    t32_dirs: T32DefaultDirs,
     changes: Vec<TextDocumentContentChangeEvent>,
 ) -> (TextDoc, Tree, LangExpressions) {
     for change in changes {
@@ -60,9 +72,14 @@ pub fn update_doc(
     }
     let (doc, tree) = (&textdoc.doc, &textdoc.tree);
 
+    let script_file = uri_to_path(&doc.uri);
+    let script_dir = script_file.parent().expect("File must have parent folder.");
+
+    let dirs = PathShorthandDirs::new(&t32_dirs, &script_dir);
+
     let (subroutines, labels) = find_subroutines_and_labels(&doc.text, tree);
     let (commands, parameters) = find_commands_and_parameter_declarations(&doc.text, tree);
-    let calls = resolve_call_expressions(&doc.uri, &doc.text, tree, &files);
+    let calls = resolve_call_expressions(&doc.text, tree, &files, &dirs);
     let macro_refs = find_any_macro_references(&tree);
     let macros = find_macro_definitions(&doc.text, &subroutines, &calls.subroutines, tree);
 
@@ -81,16 +98,25 @@ pub fn update_doc(
     )
 }
 
-pub fn read_doc(uri: Url, files: &FileIndex) -> Result<(TextDoc, Tree, LangExpressions), Uri> {
+pub fn read_doc(
+    uri: Url,
+    files: &FileIndex,
+    t32_dirs: &T32DefaultDirs,
+) -> Result<(TextDoc, Tree, LangExpressions), Uri> {
     let doc = match TextDoc::try_from(uri.clone()) {
         Ok(text) => text,
         Err(_) => return Err(uri.to_string()),
     };
     let tree = parse_full(doc.text.as_bytes());
 
+    let script_file = uri_to_path(&doc.uri);
+    let script_dir = script_file.parent().expect("File must have parent folder.");
+
+    let dirs = PathShorthandDirs::new(t32_dirs, &script_dir);
+
     let (subroutines, labels) = find_subroutines_and_labels(&doc.text, &tree);
     let (commands, parameters) = find_commands_and_parameter_declarations(&doc.text, &tree);
-    let calls = resolve_call_expressions(&doc.uri, &doc.text, &tree, files);
+    let calls = resolve_call_expressions(&doc.text, &tree, files, &dirs);
     let macro_refs = find_any_macro_references(&tree);
     let macros = find_macro_definitions(&doc.text, &subroutines, &calls.subroutines, &tree);
 
@@ -110,10 +136,10 @@ pub fn read_doc(uri: Url, files: &FileIndex) -> Result<(TextDoc, Tree, LangExpre
 }
 
 pub fn resolve_call_expressions(
-    uri: &Uri,
     text: &str,
     tree: &Tree,
     files: &FileIndex,
+    dirs: &PathShorthandDirs,
 ) -> CallExpressions {
     let CallLocations {
         subroutines,
@@ -128,7 +154,7 @@ pub fn resolve_call_expressions(
 
         for (expr, kind) in scripts.into_iter() {
             if let Some(calls) =
-                resolve_subscript_call_targets(uri, text, &tree, expr.target.start, files)
+                resolve_subscript_call_targets(text, &tree, expr.target.start, files, dirs)
             {
                 for call in calls.into_iter() {
                     locations.push(expr.clone());
@@ -221,13 +247,14 @@ mod test {
     #[test]
     fn can_find_subroutines() {
         let file_idx = FileIndex::new();
+        let dirs = T32DefaultDirs::default();
 
         let file =
             Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
                 .unwrap();
 
         let (doc, _, LangExpressions { subroutines, .. }) =
-            read_doc(file, &file_idx).expect("Must not fail.");
+            read_doc(file, &file_idx, &dirs).expect("Must not fail.");
 
         assert!(!subroutines.clone().is_empty());
 
@@ -244,13 +271,14 @@ mod test {
     #[test]
     fn can_find_end_of_subroutines_from_labeled_expression() {
         let file_idx = FileIndex::new();
+        let dirs = T32DefaultDirs::default();
 
         let file =
             Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
                 .unwrap();
 
         let (doc, _, LangExpressions { subroutines, .. }) =
-            read_doc(file, &file_idx).expect("Must not fail.");
+            read_doc(file, &file_idx, &dirs).expect("Must not fail.");
 
         assert!(!subroutines.clone().is_empty());
 
@@ -267,6 +295,7 @@ mod test {
     #[test]
     fn can_find_global_scoped_macros() {
         let file_idx = FileIndex::new();
+        let dirs = T32DefaultDirs::default();
 
         let file =
             Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
@@ -279,7 +308,7 @@ mod test {
                 macros: MacroDefinitions { globals, .. },
                 ..
             },
-        ) = read_doc(file, &file_idx).expect("Must not fail.");
+        ) = read_doc(file, &file_idx, &dirs).expect("Must not fail.");
 
         assert!(!globals.is_empty());
         assert!(
@@ -293,6 +322,7 @@ mod test {
     #[test]
     fn can_find_implicitly_defined_macros() {
         let file_idx = FileIndex::new();
+        let dirs = T32DefaultDirs::default();
 
         let file =
             Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
@@ -309,7 +339,7 @@ mod test {
                     },
                 ..
             },
-        ) = read_doc(file, &file_idx).expect("Must not fail.");
+        ) = read_doc(file, &file_idx, &dirs).expect("Must not fail.");
 
         for def in [
             BRange::from(447usize..449usize),
@@ -331,6 +361,7 @@ mod test {
     #[test]
     fn can_find_macro_definitions_in_subroutines_without_caller() {
         let file_idx = FileIndex::new();
+        let dirs = T32DefaultDirs::default();
 
         let file =
             Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
@@ -343,7 +374,7 @@ mod test {
                 macros: MacroDefinitions { privates, .. },
                 ..
             },
-        ) = read_doc(file, &file_idx).expect("Must not fail.");
+        ) = read_doc(file, &file_idx, &dirs).expect("Must not fail.");
 
         for def in [MacroDefinition {
             cmd: 1707usize..1722usize,
@@ -357,6 +388,7 @@ mod test {
     #[test]
     fn can_find_local_scoped_macros() {
         let file_idx = FileIndex::new();
+        let dirs = T32DefaultDirs::default();
 
         let file =
             Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
@@ -369,7 +401,7 @@ mod test {
                 macros: MacroDefinitions { locals, .. },
                 ..
             },
-        ) = read_doc(file, &file_idx).expect("Must not fail.");
+        ) = read_doc(file, &file_idx, &dirs).expect("Must not fail.");
 
         assert!(!locals.is_empty());
         assert!(
@@ -383,6 +415,7 @@ mod test {
     #[test]
     fn can_find_private_scoped_macros() {
         let file_idx = FileIndex::new();
+        let dirs = T32DefaultDirs::default();
 
         let file =
             Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
@@ -395,7 +428,7 @@ mod test {
                 macros: MacroDefinitions { privates, .. },
                 ..
             },
-        ) = read_doc(file, &file_idx).expect("Must not fail.");
+        ) = read_doc(file, &file_idx, &dirs).expect("Must not fail.");
 
         assert!(!privates.is_empty());
         assert!(
@@ -409,13 +442,14 @@ mod test {
     #[test]
     fn can_find_parameters() {
         let file_idx = FileIndex::new();
+        let dirs = T32DefaultDirs::default();
 
         let file =
             Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
                 .unwrap();
 
         let (doc, _, LangExpressions { parameters, .. }) =
-            read_doc(file, &file_idx).expect("Must not fail.");
+            read_doc(file, &file_idx, &dirs).expect("Must not fail.");
 
         assert!(!parameters.is_empty());
         assert!(
@@ -435,6 +469,7 @@ mod test {
     #[test]
     fn can_find_subroutine_calls() {
         let file_idx = FileIndex::new();
+        let dirs = T32DefaultDirs::default();
 
         let file =
             Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
@@ -447,7 +482,7 @@ mod test {
                 calls: CallExpressions { subroutines, .. },
                 ..
             },
-        ) = read_doc(file, &file_idx).expect("Must not fail.");
+        ) = read_doc(file, &file_idx, &dirs).expect("Must not fail.");
 
         assert!(subroutines.len() > 0);
         assert!(
@@ -470,6 +505,7 @@ mod test {
     #[test]
     fn can_find_script_calls() {
         let file_idx = FileIndex::new();
+        let dirs = T32DefaultDirs::default();
 
         let file =
             Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
@@ -482,7 +518,7 @@ mod test {
                 calls: CallExpressions { scripts, .. },
                 ..
             },
-        ) = read_doc(file, &file_idx).expect("Must not fail.");
+        ) = read_doc(file, &file_idx, &dirs).expect("Must not fail.");
 
         assert!(!scripts.clone().is_none_or(|s| s.locations.is_empty()));
         assert!(
@@ -520,6 +556,8 @@ mod test {
     #[test]
     fn can_resolve_script_call_targets() {
         let file_idx = create_file_idx();
+        let dirs = T32DefaultDirs::default();
+
         let file =
             Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
                 .unwrap();
@@ -531,7 +569,7 @@ mod test {
                 calls: CallExpressions { scripts, .. },
                 ..
             },
-        ) = read_doc(file, &file_idx).expect("Must not fail.");
+        ) = read_doc(file, &file_idx, &dirs).expect("Must not fail.");
 
         assert!(scripts.is_some());
 
@@ -561,6 +599,8 @@ mod test {
     #[test]
     fn can_resolve_ambiguous_script_call_targets() {
         let file_idx = create_file_idx();
+        let dirs = T32DefaultDirs::default();
+
         let file =
             Url::from_file_path(path::absolute("tests/samples/c.cmm").expect("File must exist."))
                 .unwrap();
@@ -572,7 +612,7 @@ mod test {
                 calls: CallExpressions { scripts, .. },
                 ..
             },
-        ) = read_doc(file, &file_idx).expect("Must not fail.");
+        ) = read_doc(file, &file_idx, &dirs).expect("Must not fail.");
 
         assert!(scripts.is_some());
 
@@ -604,6 +644,8 @@ mod test {
     #[test]
     fn can_resolve_script_call_targets_with_relative_path() {
         let file_idx = create_file_idx();
+        let dirs = T32DefaultDirs::default();
+
         let file =
             Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
                 .unwrap();
@@ -615,7 +657,7 @@ mod test {
                 calls: CallExpressions { scripts, .. },
                 ..
             },
-        ) = read_doc(file, &file_idx).expect("Must not fail.");
+        ) = read_doc(file, &file_idx, &dirs).expect("Must not fail.");
 
         assert!(scripts.is_some());
 
@@ -638,7 +680,7 @@ mod test {
                 calls: CallExpressions { scripts, .. },
                 ..
             },
-        ) = read_doc(file, &file_idx).expect("Must not fail.");
+        ) = read_doc(file, &file_idx, &dirs).expect("Must not fail.");
 
         assert!(scripts.is_some());
 
@@ -662,13 +704,14 @@ mod test {
     #[test]
     fn can_find_all_macro_references() {
         let file_idx = FileIndex::new();
+        let dirs = T32DefaultDirs::default();
 
         let file =
             Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
                 .unwrap();
 
         let (doc, _, LangExpressions { macro_refs, .. }) =
-            read_doc(file, &file_idx).expect("Must not fail.");
+            read_doc(file, &file_idx, &dirs).expect("Must not fail.");
 
         assert!(
             macro_refs
@@ -690,13 +733,14 @@ mod test {
     #[test]
     fn can_find_commands() {
         let file_idx = FileIndex::new();
+        let dirs = T32DefaultDirs::default();
 
         let file =
             Url::from_file_path(path::absolute("tests/samples/c.cmm").expect("File must exist."))
                 .unwrap();
 
         let (doc, _, LangExpressions { commands, .. }) =
-            read_doc(file, &file_idx).expect("Must not fail.");
+            read_doc(file, &file_idx, &dirs).expect("Must not fail.");
 
         assert!(!commands.is_empty());
         assert!(

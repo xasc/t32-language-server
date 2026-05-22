@@ -145,7 +145,12 @@ fn parse_files(
     for file in workspace.files.iter() {
         try_schedule(
             &mut tasks.runner,
-            Task::WorkspaceFileScan(file.clone(), file_index.clone(), read_doc),
+            Task::WorkspaceFileScan(
+                file.clone(),
+                file_index.clone(),
+                cfg.t32_dirs.clone(),
+                read_doc,
+            ),
             &mut tasks.ongoing,
             &mut tasks.blocked,
         )?;

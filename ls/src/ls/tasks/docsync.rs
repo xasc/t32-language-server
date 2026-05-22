@@ -4,6 +4,7 @@
 
 use crate::{
     ReturnCode,
+    config::T32DefaultDirs,
     ls::{
         doc::{TextDoc, TextDocData, TextDocs, import_doc, update_doc},
         lsp::Message,
@@ -18,6 +19,7 @@ pub fn process_doc_change_notif(
     params: DidChangeTextDocumentParams,
     docs: &TextDocs,
     files: FileIndex,
+    dirs: T32DefaultDirs,
     ts: &mut Tasks,
     outgoing: &mut Vec<Option<Message>>,
 ) -> Result<(), ReturnCode> {
@@ -40,6 +42,7 @@ pub fn process_doc_change_notif(
                 tree: tree.clone(),
             },
             files,
+            dirs,
             params.content_changes,
             update_doc,
         ),
@@ -51,11 +54,12 @@ pub fn process_doc_change_notif(
 pub fn process_doc_open_notif(
     doc: TextDocumentItem,
     files: FileIndex,
+    dirs: T32DefaultDirs,
     ts: &mut Tasks,
 ) -> Result<(), ReturnCode> {
     try_schedule(
         &mut ts.runner,
-        Task::TextDocNew(doc, files, import_doc),
+        Task::TextDocNew(doc, files, dirs, import_doc),
         &mut ts.ongoing,
         &mut ts.blocked,
     )

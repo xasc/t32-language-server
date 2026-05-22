@@ -1165,6 +1165,7 @@ mod test {
     use url::Url;
 
     use crate::{
+        config::T32DefaultDirs,
         ls::{
             doc::{
                 find_commands_and_parameter_declarations, find_subroutines_and_labels, read_doc,
@@ -1174,9 +1175,10 @@ mod test {
         },
         protocol::{Position, Range},
         t32::{
-            self, CallExpressions, LANGUAGE_ID, find_any_macro_references, find_macro_definitions,
+            self, CallExpressions, LANGUAGE_ID, PathShorthandDirs, find_any_macro_references,
+            find_macro_definitions,
         },
-        utils::{files, to_file_uri},
+        utils::{files, to_file_uri, uri_to_path},
     };
 
     fn create_file_idx() -> FileIndex {
@@ -1184,23 +1186,30 @@ mod test {
         index_files(files)
     }
 
-    fn create_doc_store(files: &Vec<Url>, index: &FileIndex) -> TextDocs {
+    fn create_doc_store(files: &Vec<Url>, index: &FileIndex, dirs: &T32DefaultDirs) -> TextDocs {
         let mut members: Vec<(TextDoc, Tree, LangExpressions)> = Vec::new();
         for uri in files {
-            let (doc, tree, expr) = read_doc(uri.clone(), &index).expect("Must not fail.");
+            let (doc, tree, expr) = read_doc(uri.clone(), &index, &dirs).expect("Must not fail.");
             members.push((doc, tree, expr));
         }
         TextDocs::from_workspace(members)
     }
 
     fn create_doc(
-        uri: &str,
+        uri: Uri,
         text: &str,
         files: Option<FileIndex>,
     ) -> (TextDoc, Tree, LangExpressions) {
+        let t32_dirs = T32DefaultDirs::default();
+
+        let script_file = uri_to_path(&uri);
+        let script_dir = script_file.parent().expect("File must have parent folder.");
+
+        let dirs = PathShorthandDirs::new(&t32_dirs, &script_dir);
+
         let lines = create_line_map_for_text(&text, None, None);
         let doc = TextDoc {
-            uri: uri.to_string(),
+            uri,
             lang_id: LANGUAGE_ID.to_string(),
             version: 1,
             text: text.to_string(),
@@ -1212,7 +1221,7 @@ mod test {
         let (commands, parameters) = find_commands_and_parameter_declarations(text, &tree);
 
         let calls = if let Some(file_idx) = files {
-            resolve_call_expressions(&uri.to_string(), text, &tree, &file_idx)
+            resolve_call_expressions(text, &tree, &file_idx, &dirs)
         } else {
             CallExpressions {
                 subroutines: Vec::new(),
@@ -1246,7 +1255,7 @@ mod test {
 
         let files = ["file:///a.cmm", "file:///b.cmm"];
         for uri in files.iter() {
-            let (doc, tree, expr) = create_doc(*uri, &text, None);
+            let (doc, tree, expr) = create_doc(uri.to_string(), &text, None);
             docs.add(doc, tree, expr, TextDocStatus::Open);
 
             assert!(docs.is_open(*uri));
@@ -1260,13 +1269,13 @@ mod test {
         assert!(!docs.free_list.open.is_empty());
         assert!(docs.free_list.closed.is_empty());
 
-        let (doc, tree, expr) = create_doc(files[0], &text, None);
+        let (doc, tree, expr) = create_doc(files[0].to_string(), &text, None);
         docs.add(doc, tree, expr, TextDocStatus::Open);
 
         assert!(!docs.free_list.open.is_empty());
         assert!(!docs.free_list.closed.is_empty());
 
-        let (doc, tree, expr) = create_doc(files[1], &text, None);
+        let (doc, tree, expr) = create_doc(files[1].to_string(), &text, None);
         docs.add(doc, tree, expr, TextDocStatus::Open);
 
         assert!(docs.free_list.open.is_empty());
@@ -1278,24 +1287,26 @@ mod test {
         let mut docs = TextDocs::new();
 
         let text = "PRINT \"Hello, World!\"\n";
-        let uri = "file:///test.cmm";
-        let (doc, tree, expr) = create_doc(uri, &text, None);
+        let uri = "file:///test.cmm".to_string();
+        let (doc, tree, expr) = create_doc(uri.clone(), &text, None);
 
         docs.add(doc, tree, expr, TextDocStatus::Open);
 
         assert!(docs.free_list.closed.is_empty());
 
-        docs.close(uri);
+        docs.close(&uri);
 
         assert!(!docs.free_list.open.is_empty());
-        assert!(!docs.is_open(uri));
+        assert!(!docs.is_open(&uri));
     }
 
     #[test]
     fn can_import_workspace() {
         let files = files();
         let file_idx = create_file_idx();
-        let docs = create_doc_store(&files, &file_idx);
+        let dirs = T32DefaultDirs::default();
+
+        let docs = create_doc_store(&files, &file_idx, &dirs);
 
         let checks: Vec<(String, String)> = vec![
             (
@@ -1364,20 +1375,22 @@ mod test {
     fn can_update_callers() {
         let files = files();
         let file_idx = create_file_idx();
-        let mut docs = create_doc_store(&files, &file_idx);
+        let dirs = T32DefaultDirs::default();
+
+        let mut docs = create_doc_store(&files, &file_idx, &dirs);
 
         let uri =
             Url::from_file_path(path::absolute("tests/samples/c.cmm").expect("File must exist."))
                 .unwrap();
 
-        let (doc, tree, expr) = read_doc(uri.clone(), &file_idx).expect("Must not fail.");
+        let (doc, tree, expr) = read_doc(uri.clone(), &file_idx, &dirs).expect("Must not fail.");
 
         docs.add(doc, tree, expr, TextDocStatus::Open);
 
         let caller =
             Url::from_file_path(path::absolute("tests/samples/c.cmm").expect("File must exist."))
                 .unwrap();
-        let (doc, tree, expr) = read_doc(caller.clone(), &file_idx).expect("Must not fail.");
+        let (doc, tree, expr) = read_doc(caller.clone(), &file_idx, &dirs).expect("Must not fail.");
 
         docs.add(doc, tree, expr, TextDocStatus::Open);
 
@@ -1392,7 +1405,9 @@ mod test {
     fn can_rename_files() {
         let files = files();
         let mut file_idx = create_file_idx();
-        let mut docs = create_doc_store(&files, &file_idx);
+        let dirs = T32DefaultDirs::default();
+
+        let mut docs = create_doc_store(&files, &file_idx, &dirs);
 
         let old_files = [
             "tests/samples/c.cmm",
@@ -1481,7 +1496,9 @@ mod test {
     fn can_update_macro_index() {
         let files = files();
         let file_idx = create_file_idx();
-        let mut docs = create_doc_store(&files, &file_idx);
+        let dirs = T32DefaultDirs::default();
+
+        let mut docs = create_doc_store(&files, &file_idx, &dirs);
 
         let uri_a = to_file_uri("tests/samples/a/a.cmm");
         let uri_d = to_file_uri("tests/samples/a/d/d.cmm");
@@ -1495,7 +1512,7 @@ mod test {
         assert_eq!(&hits[..], [uri_a.clone(), uri_d.clone()]);
 
         let text = "LOCAL &a\n&a=3\n";
-        let (doc, tree, expr) = create_doc(&uri_a1, &text, None);
+        let (doc, tree, expr) = create_doc(uri_a1.clone(), &text, None);
         docs.add(doc, tree, expr, TextDocStatus::Open);
 
         let hits = docs
@@ -1511,7 +1528,7 @@ mod test {
         assert_eq!(&hits[..], uris);
 
         let text = "PRINT \"Hello, World!\"\n";
-        let (doc, tree, expr) = create_doc(&uri_a, &text, None);
+        let (doc, tree, expr) = create_doc(uri_a, &text, None);
         docs.add(doc, tree, expr, TextDocStatus::Open);
 
         assert!(docs.get_all_scripts_with_macro("&b").is_none());
@@ -1527,7 +1544,9 @@ mod test {
     fn can_update_file_target_index() {
         let files = files();
         let file_idx = create_file_idx();
-        let mut docs = create_doc_store(&files, &file_idx);
+        let dirs = T32DefaultDirs::default();
+
+        let mut docs = create_doc_store(&files, &file_idx, &dirs);
 
         let uri_a = to_file_uri("tests/samples/a/a.cmm");
         let uri_c = to_file_uri("tests/samples/c.cmm");
@@ -1595,7 +1614,7 @@ mod test {
 
         let uri_c1 = to_file_uri("tests/samples/a/c1.cmm");
         let text = "DO a.cmm\n&a=3\n";
-        let (doc, tree, expr) = create_doc(&uri_c1, &text, Some(file_idx));
+        let (doc, tree, expr) = create_doc(uri_c1.clone(), &text, Some(file_idx));
         docs.add(doc, tree, expr, TextDocStatus::Open);
 
         assert!(
@@ -1720,7 +1739,9 @@ mod test {
     fn can_update_command_index() {
         let files = files();
         let file_idx = create_file_idx();
-        let mut docs = create_doc_store(&files, &file_idx);
+        let dirs = T32DefaultDirs::default();
+
+        let mut docs = create_doc_store(&files, &file_idx, &dirs);
 
         let uri_c = to_file_uri("tests/samples/c.cmm");
 
@@ -1766,7 +1787,7 @@ mod test {
 
         let uri_c1 = to_file_uri("tests/samples/a/c1.cmm");
         let text = "PRINT \"TEST\"&a=1.\n";
-        let (doc, tree, expr) = create_doc(&uri_c1, &text, Some(file_idx.clone()));
+        let (doc, tree, expr) = create_doc(uri_c1.clone(), &text, Some(file_idx.clone()));
 
         docs.add(doc, tree, expr, TextDocStatus::Open);
 
@@ -1789,7 +1810,7 @@ mod test {
         );
 
         let text = "SYStem.CPU M68K\nSYStem.Up\n";
-        let (doc, tree, expr) = create_doc(&uri_c1, &text, Some(file_idx.clone()));
+        let (doc, tree, expr) = create_doc(uri_c1.clone(), &text, Some(file_idx.clone()));
 
         docs.update(doc, tree, expr);
 

@@ -46,6 +46,31 @@ pub fn start_ls(args: &[&str], try_initialize: bool) -> Child {
 }
 
 #[allow(dead_code)]
+pub fn start_ls_and_capture_stderr(args: &[&str], try_initialize: bool) -> Child {
+    let mut params = vec!["run", "--quiet", "--"];
+    params.extend_from_slice(&args);
+
+    let mut ls = Command::new("cargo")
+        .args(params)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("Must be able to start language server.");
+
+    if try_initialize {
+        if let Some(cin) = &mut ls.stdin {
+            let pid = process::id();
+
+            let init = make_initialize_request(1, pid);
+
+            to_stdin(cin, &init);
+        }
+    }
+    ls
+}
+
+#[allow(dead_code)]
 pub fn start_ls_with_workspace(args: &[&str]) -> Child {
     let mut params = vec!["run", "--quiet", "--"];
     params.extend_from_slice(&args);

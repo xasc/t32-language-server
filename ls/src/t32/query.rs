@@ -702,6 +702,7 @@ mod tests {
     use url::Url;
 
     use crate::{
+        config,
         ls::read_doc,
         protocol::Position,
         utils::{create_doc, create_file_idx},
@@ -741,12 +742,14 @@ mod tests {
     #[test]
     fn can_determine_syntax_highlights() {
         let files = create_file_idx();
+        let dirs = config::T32DefaultDirs::default();
+
         let uri_a = Url::from_file_path(
             path::absolute("tests/samples/semantic.cmm").expect("Files must exist."),
         )
         .unwrap();
 
-        let (doc, tree, _) = read_doc(uri_a, &files).expect("Must not fail.");
+        let (doc, tree, _) = read_doc(uri_a, &files, &dirs).expect("Must not fail.");
 
         let types = vec![
             SemanticTokenTypes::Operator,
@@ -804,12 +807,14 @@ mod tests {
     #[test]
     fn does_not_capture_operators_in_macros() {
         let files = create_file_idx();
+        let dirs = config::T32DefaultDirs::default();
+
         let uri_a = Url::from_file_path(
             path::absolute("tests/samples/semantic.cmm").expect("Files must exist."),
         )
         .unwrap();
 
-        let (doc, tree, _) = read_doc(uri_a, &files).expect("Must not fail.");
+        let (doc, tree, _) = read_doc(uri_a, &files, &dirs).expect("Must not fail.");
 
         let legend = SemanticTokensLegend {
             token_types: vec![SemanticTokenTypes::Operator],
@@ -861,12 +866,14 @@ mod tests {
     #[test]
     fn does_not_capture_other_keywords_with_function_definition() {
         let files = create_file_idx();
+        let dirs = config::T32DefaultDirs::default();
+
         let uri_a = Url::from_file_path(
             path::absolute("tests/samples/semantic.cmm").expect("Files must exist."),
         )
         .unwrap();
 
-        let (doc, tree, _) = read_doc(uri_a, &files).expect("Must not fail.");
+        let (doc, tree, _) = read_doc(uri_a, &files, &dirs).expect("Must not fail.");
 
         let legend = SemanticTokensLegend {
             token_types: vec![SemanticTokenTypes::Function],
@@ -907,12 +914,14 @@ mod tests {
     #[test]
     fn can_restrict_captures_to_range() {
         let files = create_file_idx();
+        let dirs = config::T32DefaultDirs::default();
+
         let uri_a = Url::from_file_path(
             path::absolute("tests/samples/semantic.cmm").expect("Files must exist."),
         )
         .unwrap();
 
-        let (doc, tree, _) = read_doc(uri_a, &files).expect("Must not fail.");
+        let (doc, tree, _) = read_doc(uri_a, &files, &dirs).expect("Must not fail.");
 
         let legend = SemanticTokensLegend {
             token_types: vec![SemanticTokenTypes::Macro],

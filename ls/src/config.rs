@@ -21,6 +21,7 @@
 //! The same mechanism is applied for single quotes.
 //!
 use std::{
+    env,
     io::{self, Write},
     path::{self, Path, PathBuf},
     str::FromStr,
@@ -56,12 +57,12 @@ pub enum Workspace {
     Folders(Option<Vec<WorkspaceFolder>>),
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct T32DefaultDirs {
     pub system_dir: Option<PathBuf>,
     pub temp_dir: Option<PathBuf>,
+    pub home_dir: Option<PathBuf>,
 }
-
 
 #[derive(Debug)]
 pub struct Config {
@@ -152,7 +153,7 @@ impl Config {
                     let path = match path::absolute(&p) {
                         Ok(p) => p,
                         Err(_) => {
-                            warn_invalid_abs_path(&mut io::stdout(), &"--t32SystemDir", &p);
+                            warn_invalid_abs_path(&mut io::stderr(), &"--t32SystemDir", &p);
                             continue;
                         }
                     };
@@ -160,7 +161,7 @@ impl Config {
                     if path.is_dir() {
                         t32_system_dir = Some(path);
                     } else {
-                        warn_dir_not_exist(&mut io::stdout(),  &"--t32SystemDir", &path);
+                        warn_dir_not_exist(&mut io::stderr(), &"--t32SystemDir", &path);
                     }
                     continue;
                 }
@@ -174,7 +175,7 @@ impl Config {
                     let path = match path::absolute(&p) {
                         Ok(p) => p,
                         Err(_) => {
-                            warn_invalid_abs_path(&mut io::stdout(), &"--t32TempDir", &p);
+                            warn_invalid_abs_path(&mut io::stderr(), &"--t32TempDir", &p);
                             continue;
                         }
                     };
@@ -182,7 +183,7 @@ impl Config {
                     if path.is_dir() {
                         t32_temp_dir = Some(path);
                     } else {
-                        warn_dir_not_exist(&mut io::stdout(),  &"--t32TempDir", &path);
+                        warn_dir_not_exist(&mut io::stderr(), &"--t32TempDir", &path);
                     }
                     continue;
                 }
@@ -230,10 +231,7 @@ impl Config {
             trace_level,
             mode,
             semantic_tokens: SemanticTokenSupport::default(),
-            t32_dirs: T32DefaultDirs {
-                system_dir: t32_system_dir,
-                temp_dir: t32_temp_dir,
-            },
+            t32_dirs: T32DefaultDirs::build(t32_system_dir, t32_temp_dir),
         })
     }
 
@@ -289,6 +287,21 @@ impl Config {
     }
 }
 
+impl T32DefaultDirs {
+    pub fn build(t32_sys_dir: Option<PathBuf>, t32_temp_dir: Option<PathBuf>) -> Self {
+        let home_dir = env::home_dir();
+        if home_dir.is_none() {
+            warn_missing_user_home(&mut io::stderr());
+        }
+
+        Self {
+            system_dir: t32_sys_dir,
+            temp_dir: t32_temp_dir,
+            home_dir,
+        }
+    }
+}
+
 impl Default for SemanticTokenSupport {
     fn default() -> Self {
         Self {
@@ -297,6 +310,16 @@ impl Default for SemanticTokenSupport {
                 multiline_tokens: false,
             },
             legend: SemanticTokensLegend::new(),
+        }
+    }
+}
+
+impl Default for T32DefaultDirs {
+    fn default() -> Self {
+        Self {
+            system_dir: None,
+            temp_dir: None,
+            home_dir: None,
         }
     }
 }
@@ -411,7 +434,7 @@ fn error_missing(writer: &mut impl Write, param: &str) {
 fn warn_missing_ppid(writer: &mut impl Write, param: &str) {
     let _ = writeln!(
         writer,
-        r#"WARNING: Missing argument \"{param}\".
+        r#"WARNING: Missing argument \"{param}\"
 Process ID of parent process is not available. The editor process cannot be
 monitored for shutdown."#
     );
@@ -419,7 +442,7 @@ monitored for shutdown."#
 fn warn_invalid_abs_path(writer: &mut impl Write, flag: &str, path: &Path) {
     let _ = writeln!(
         writer,
-        r#"WARNING: Invalid path \"{}\".
+        r#"WARNING: Invalid path \"{}\"
 The path value of the flag \"{}\" cannot be converted into an absolute path."#,
         path.to_string_lossy(),
         flag
@@ -433,6 +456,14 @@ fn warn_dir_not_exist(writer: &mut impl Write, flag: &str, path: &Path) {
 The path value of the flag \"{}\" does not specify a valid directory."#,
         path.to_string_lossy(),
         flag
+    );
+}
+
+fn warn_missing_user_home(writer: &mut impl Write) {
+    let _ = writeln!(
+        writer,
+        r#"WARNING: Missing home directory
+The path to the user home directory cannot be retrieved."#
     );
 }
 
@@ -506,7 +537,10 @@ mod tests {
         let cfg = Config::build(&["t32ls", "--t32SystemDir=tests/samples"].map(String::from))
             .expect("Must complete without error.");
 
-        assert_eq!(cfg.t32_dirs.system_dir, Some(path::absolute(PathBuf::from("tests/samples")).expect("Must not fail.")));
+        assert_eq!(
+            cfg.t32_dirs.system_dir,
+            Some(path::absolute(PathBuf::from("tests/samples")).expect("Must not fail."))
+        );
     }
 
     #[test]
@@ -514,6 +548,9 @@ mod tests {
         let cfg = Config::build(&["t32ls", "--t32TempDir=tests/samples/a"].map(String::from))
             .expect("Must complete without error.");
 
-        assert_eq!(cfg.t32_dirs.temp_dir, Some(path::absolute(PathBuf::from("tests/samples/a")).expect("Must not fail.")));
+        assert_eq!(
+            cfg.t32_dirs.temp_dir,
+            Some(path::absolute(PathBuf::from("tests/samples/a")).expect("Must not fail."))
+        );
     }
 }

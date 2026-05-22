@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: EUPL-1.2
 
-use std::{cmp::Ordering, collections::BTreeMap, convert::From, ops::Range};
+use std::{cmp::Ordering, collections::BTreeMap, convert::From, ops::Range, path::PathBuf};
 
 #[cfg(test)]
 use std::path;
@@ -10,15 +10,15 @@ use std::path;
 use tree_sitter::Range as TRange;
 
 #[cfg(test)]
-use url::Url;
-
-#[cfg(test)]
 use tree_sitter::Tree;
+
+use url::Url;
 
 use crate::protocol::{Location, Range as LRange, Uri};
 
 #[cfg(test)]
 use crate::{
+    config::T32DefaultDirs,
     ls::{FileIndex, TextDoc, TextDocs, index_files, read_doc},
     protocol::TextDocumentItem,
     t32::{LANGUAGE_ID, LangExpressions},
@@ -348,6 +348,13 @@ impl PartialOrd for BRange {
     }
 }
 
+pub fn uri_to_path(uri: &Uri) -> PathBuf {
+    Url::parse(uri)
+        .expect("Uri must be well-formed.")
+        .to_file_path()
+        .expect("Input must convert to path.")
+}
+
 #[cfg(test)]
 pub fn files() -> Vec<Url> {
     vec![
@@ -387,9 +394,11 @@ pub fn create_file_idx() -> FileIndex {
 
 #[cfg(test)]
 pub fn create_doc_store(files: &Vec<Url>, index: &FileIndex) -> TextDocs {
+    let dirs = T32DefaultDirs::default();
+
     let mut members: Vec<(TextDoc, Tree, LangExpressions)> = Vec::new();
     for uri in files {
-        let (doc, tree, expr) = read_doc(uri.clone(), &index).expect("Must not fail.");
+        let (doc, tree, expr) = read_doc(uri.clone(), &index, &dirs).expect("Must not fail.");
         members.push((doc, tree, expr));
     }
     TextDocs::from_workspace(members)

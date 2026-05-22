@@ -673,15 +673,9 @@ fn process_completed_task(
             Ok(false)
         }
         TaskDone::FindReferences(id, result) => {
-            if let Some(resp) = process_find_references_result(
-                docs,
-                files,
-                &id,
-                result,
-                cfg.trace_level,
-                ts,
-                outgoing,
-            ) {
+            if let Some(resp) =
+                process_find_references_result(cfg, docs, files, &id, result, ts, outgoing)
+            {
                 if cfg.trace_level != TraceValue::Off {
                     let idx = find_ongoing_task_by_id(&id, &ts.ongoing);
                     let Some(OngoingTask::FindReferences(_, onset)) = &ts.ongoing[idx] else {
@@ -1087,13 +1081,25 @@ fn process_msg(
             params: DidOpenTextDocumentParams { text_document },
         }) => {
             if lang_id_supported(&text_document.language_id) {
-                process_doc_open_notif(text_document, g.files.clone(), &mut g.tasks)?;
+                process_doc_open_notif(
+                    text_document,
+                    g.files.clone(),
+                    cfg.t32_dirs.clone(),
+                    &mut g.tasks,
+                )?;
             } else {
                 outgoing.push(Some(error_lang_id_unsupported(&text_document.language_id)));
             }
         }
         Message::Notification(Notification::DidChangeTextDocumentNotification { params }) => {
-            process_doc_change_notif(params, &g.docs, g.files.clone(), &mut g.tasks, outgoing)?;
+            process_doc_change_notif(
+                params,
+                &g.docs,
+                g.files.clone(),
+                cfg.t32_dirs.clone(),
+                &mut g.tasks,
+                outgoing,
+            )?;
         }
         Message::Notification(Notification::DidRenameFilesNotification { params }) => {
             process_files_did_rename_notif(&mut g.tasks, params.files, g.files.clone())?;
@@ -1477,6 +1483,7 @@ mod tests {
     use super::*;
 
     use crate::{
+        config::T32DefaultDirs,
         ls::{FileIndex, doc::import_doc},
         t32::LANGUAGE_ID,
     };
@@ -1493,6 +1500,7 @@ mod tests {
                 text: "This is a test.".to_string(),
             },
             FileIndex::new(),
+            T32DefaultDirs::default(),
             import_doc,
         );
         let job_copy = job.clone();

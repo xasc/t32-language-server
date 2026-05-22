@@ -21,7 +21,7 @@ use url::Url;
 
 use crate::{
     ReturnCode,
-    config::{SemanticTokenEncoding, Workspace},
+    config::{SemanticTokenEncoding, T32DefaultDirs, Workspace},
     ls::{
         doc::{TextDoc, TextDocData},
         language::{
@@ -132,15 +132,18 @@ pub enum Task {
     TextDocNew(
         TextDocumentItem,
         FileIndex,
-        fn(TextDocumentItem, FileIndex) -> (TextDoc, Tree, LangExpressions),
+        T32DefaultDirs,
+        fn(TextDocumentItem, FileIndex, T32DefaultDirs) -> (TextDoc, Tree, LangExpressions),
     ),
     TextDocEdit(
         TextDocData,
         FileIndex,
+        T32DefaultDirs,
         Vec<TextDocumentContentChangeEvent>,
         fn(
             TextDocData,
             FileIndex,
+            T32DefaultDirs,
             Vec<TextDocumentContentChangeEvent>,
         ) -> (TextDoc, Tree, LangExpressions),
     ),
@@ -152,7 +155,8 @@ pub enum Task {
     WorkspaceFileScan(
         Url,
         FileIndex,
-        fn(Url, &FileIndex) -> Result<(TextDoc, Tree, LangExpressions), Uri>,
+        T32DefaultDirs,
+        fn(Url, &FileIndex, &T32DefaultDirs) -> Result<(TextDoc, Tree, LangExpressions), Uri>,
     ),
     WorkspaceFileIndexNew(Vec<Url>, fn(Vec<Url>) -> FileIndex),
 }
@@ -413,19 +417,19 @@ impl TaskSystem {
             Task::SemanticTokensRange(id, legend, encoding, textdoc, range, tokenize) => {
                 TaskDone::SemanticTokensRange(id, tokenize(legend, encoding, textdoc, range))
             }
-            Task::TextDocNew(doc, files, transform) => {
-                let (doc, tree, t32) = transform(doc, files);
+            Task::TextDocNew(doc, files, dirs, transform) => {
+                let (doc, tree, t32) = transform(doc, files, dirs);
                 TaskDone::TextDocNew(doc, tree, t32)
             }
-            Task::TextDocEdit(textdoc, files, changes, update) => {
-                let (doc, tree, t32) = update(textdoc, files, changes);
+            Task::TextDocEdit(textdoc, files, dirs, changes, update) => {
+                let (doc, tree, t32) = update(textdoc, files, dirs, changes);
                 TaskDone::TextDocEdit(doc, tree, t32)
             }
             Task::WorkspaceFileDiscovery(workspace, suffixes, locate) => {
                 TaskDone::WorkspaceFileDiscovery(locate(&workspace, suffixes))
             }
-            Task::WorkspaceFileScan(uri, files, scan) => {
-                TaskDone::WorkspaceFileScan(scan(uri, &files))
+            Task::WorkspaceFileScan(uri, files, dirs, scan) => {
+                TaskDone::WorkspaceFileScan(scan(uri, &files, &dirs))
             }
             Task::WorkspaceFileIndexNew(files, index) => {
                 TaskDone::WorkspaceFileIndexNew(index(files))

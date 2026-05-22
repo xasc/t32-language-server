@@ -61,7 +61,7 @@ use crate::{
             start_on_adjacent_lines,
         },
         macros::extract_params,
-        path::locate_script,
+        path::{PathShorthandDirs, locate_script},
     },
     utils::BRange,
 };
@@ -486,11 +486,11 @@ pub fn find_all_commands_and_parameter_declarations(
 }
 
 pub fn locate_subscript(
-    origin: &Uri,
     text: &str,
     tree: &Tree,
     offset: usize,
     files: &FileIndex,
+    dirs: &PathShorthandDirs,
 ) -> Option<Vec<Uri>> {
     let mut cursor = tree.walk();
 
@@ -517,7 +517,7 @@ pub fn locate_subscript(
         return None;
     }
     let path = extract_script_call_command_arguments(text, &mut cursor)?;
-    locate_script(origin, path, &files)
+    locate_script(path, files, dirs)
 }
 
 pub fn locate_subscript_call_target<'a>(text: &'a str, cursor: &mut TreeCursor) -> Option<&'a str> {
@@ -1281,9 +1281,11 @@ pub fn skip_comments(cursor: &mut TreeCursor) {
 mod tests {
     use super::*;
 
+    use std::path::PathBuf;
+
     use url::Url;
 
-    use crate::{ls, t32, utils};
+    use crate::{config, ls, t32, utils};
 
     #[test]
     fn detects_subroutine_call_expressions_with_macro_target() {
@@ -1304,25 +1306,31 @@ mod tests {
         let origin = utils::to_file_uri("tests/samples/paths.cmm");
         let origin_uri = Url::parse(&origin).expect("Must not fail.");
 
-        let (doc, tree, _) = ls::read_doc(origin_uri.clone(), &file_idx).expect("Must not fail.");
+        let dirs = config::T32DefaultDirs::default();
+        let script_path = utils::uri_to_path(&origin);
+
+        let (doc, tree, _) =
+            ls::read_doc(origin_uri.clone(), &file_idx, &dirs).expect("Must not fail.");
+
+        let dirs = PathShorthandDirs::new(&dirs, &script_path.parent().expect("Must not fail."));
 
         // → ~~~~/same.cmm
-        let res = locate_subscript(&origin_uri.to_string(), &doc.text, &tree, 8, &file_idx)
-            .expect("Must yield a result.");
+        let res =
+            locate_subscript(&doc.text, &tree, 8, &file_idx, &dirs).expect("Must yield a result.");
 
         assert_eq!(res.len(), 1);
         assert!(res.contains(&utils::to_file_uri("tests/samples/same.cmm")));
 
         // → ~~~~/a/same.cmm
-        let res = locate_subscript(&origin_uri.to_string(), &doc.text, &tree, 25, &file_idx)
-            .expect("Must yield a result.");
+        let res =
+            locate_subscript(&doc.text, &tree, 25, &file_idx, &dirs).expect("Must yield a result.");
 
         assert_eq!(res.len(), 1);
         assert!(res.contains(&utils::to_file_uri("tests/samples/a/same.cmm")));
 
         // → ~~~~/b/same.cmm
-        let res = locate_subscript(&origin_uri.to_string(), &doc.text, &tree, 47, &file_idx)
-            .expect("Must yield a result.");
+        let res =
+            locate_subscript(&doc.text, &tree, 47, &file_idx, &dirs).expect("Must yield a result.");
 
         assert_eq!(res.len(), 1);
         assert!(res.contains(&utils::to_file_uri("tests/samples/b/same.cmm")));
@@ -1335,11 +1343,17 @@ mod tests {
         let origin = utils::to_file_uri("tests/samples/paths.cmm");
         let origin_uri = Url::parse(&origin).expect("Must not fail.");
 
-        let (doc, tree, _) = ls::read_doc(origin_uri.clone(), &file_idx).expect("Must not fail.");
+        let dirs = config::T32DefaultDirs::default();
+        let script_path = PathBuf::from(origin);
+
+        let (doc, tree, _) =
+            ls::read_doc(origin_uri.clone(), &file_idx, &dirs).expect("Must not fail.");
+
+        let dirs = PathShorthandDirs::new(&dirs, &script_path.parent().expect("Must not fail."));
 
         // → ~~~~/a/d/d.cmm
-        let res = locate_subscript(&origin_uri.to_string(), &doc.text, &tree, 70, &file_idx)
-            .expect("Must yield a result.");
+        let res =
+            locate_subscript(&doc.text, &tree, 70, &file_idx, &dirs).expect("Must yield a result.");
 
         assert_eq!(res.len(), 1);
         assert!(res.contains(&utils::to_file_uri("tests/samples/a/d/d.cmm")));
