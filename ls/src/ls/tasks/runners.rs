@@ -21,19 +21,22 @@ use url::Url;
 
 use crate::{
     ReturnCode,
-    config::{SemanticTokenEncoding, T32DefaultDirs, Workspace},
+    config::{CodeFoldingEncoding, SemanticTokenEncoding, T32DefaultDirs, Workspace},
     ls::{
         doc::{TextDoc, TextDocData},
-        language::{
-            FindDefintionsForMacroRefResult, FindMacroReferencesResult, FindReferencesResult,
-            GotoDefinitionResult, MacroReferenceOrigin,
+        tasks::{
+            OngoingTaskHandle, RenameFileOperations,
+            lang::{
+                FindDefintionsForMacroRefResult, FindMacroReferencesResult, FindReferencesResult,
+                GotoDefinitionResult, MacroDefinitionLocation, MacroReferenceOrigin,
+            },
         },
-        tasks::{MacroDefinitionLocation, OngoingTaskHandle, RenameFileOperations},
         workspace::{FileIndex, ResolvedRenameFileOperations, WorkspaceMembers},
     },
     protocol::{
-        Location, LocationLink, NumberOrString, Position, Range, SemanticTokens,
-        SemanticTokensLegend, TextDocumentContentChangeEvent, TextDocumentItem, Uri,
+        FoldingRange, FoldingRangeKind, Location, LocationLink, NumberOrString, Position, Range,
+        SemanticTokens, SemanticTokensLegend, TextDocumentContentChangeEvent, TextDocumentItem,
+        Uri,
     },
     t32::{FindMacroRefsLangContext, FindRefsLangContext, GotoDefLangContext, LangExpressions},
 };
@@ -92,6 +95,13 @@ pub enum Task {
 
         find: fn(TextDocData, FindRefsLangContext, Position) -> Option<FindReferencesResult>,
     },
+    CodeFolds(
+        NumberOrString,
+        CodeFoldingEncoding,
+        Vec<FoldingRangeKind>,
+        TextDocData,
+        fn(CodeFoldingEncoding, Vec<FoldingRangeKind>, TextDocData) -> Vec<FoldingRange>,
+    ),
     GoToDefinition(
         NumberOrString,
         TextDocData,
@@ -163,6 +173,7 @@ pub enum Task {
 
 #[derive(Debug)]
 pub enum TaskDone {
+    CodeFolds(NumberOrString, Vec<FoldingRange>),
     DidRenameFiles(NumberOrString, ResolvedRenameFileOperations, FileIndex),
     FindExternalDefinitionsForMacroRefSync(NumberOrString, FindDefintionsForMacroRefResult),
     FindMacroReferences(NumberOrString, Option<Vec<Location>>),
@@ -197,7 +208,8 @@ pub struct JobQueue {
 impl TaskDone {
     pub fn get_task_handle(&self) -> Option<OngoingTaskHandle> {
         match self {
-            TaskDone::DidRenameFiles(id, ..)
+            TaskDone::CodeFolds(id, ..)
+            | TaskDone::DidRenameFiles(id, ..)
             | TaskDone::FindExternalDefinitionsForMacroRefSync(id, ..)
             | TaskDone::FindMacroReferences(id, ..)
             | TaskDone::FindMacroReferencesFromDefinitionsSync(id, ..)
@@ -352,6 +364,9 @@ impl TaskSystem {
 
     fn execute(job: Task) -> TaskDone {
         match job {
+            Task::CodeFolds(id, encoding, fold_kinds, textdoc, mark) => {
+                TaskDone::CodeFolds(id, mark(encoding, fold_kinds, textdoc))
+            }
             Task::DidRenameFiles(id, renamed, mut file_idx, rename_files) => {
                 let operations = rename_files(renamed, &mut file_idx);
                 TaskDone::DidRenameFiles(id, operations, file_idx)

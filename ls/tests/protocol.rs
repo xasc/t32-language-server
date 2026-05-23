@@ -846,7 +846,7 @@ fn supports_lang_semantic_tokens_doc_range_request() {
     let req = utils::make_semantic_tokens_doc_range_request(1, String::from(uri));
     utils::to_stdin(&mut stdin, &req);
 
-    thread::sleep(time::Duration::from_millis(2000));
+    thread::sleep(time::Duration::from_millis(3000));
 
     utils::stop_ls(&mut ls, Some(&mut stdin), Some(2));
     let output = ls.wait_with_output().expect("Cannot capture output");
@@ -860,5 +860,51 @@ fn supports_lang_semantic_tokens_doc_range_request() {
         std::str::from_utf8(&output.stdout)
             .unwrap()
             .contains("3,2,1,0")
+    );
+}
+
+#[test]
+fn supports_lang_folding_range_request() {
+    let mut ls = utils::start_ls(
+        &[
+            &format!("--clientProcessId={}", process::id().to_string()),
+            &format!("--trace={}", "messages"),
+        ],
+        true,
+    );
+    let mut stdin = ls.stdin.take().unwrap();
+
+    let file = env::current_dir()
+        .unwrap()
+        .join("tests")
+        .join("samples")
+        .join("folds.cmm");
+    let uri = Url::from_file_path(file).expect("Must not fail.");
+
+    let notif = utils::make_did_open_text_doc_notification_with_text(
+        String::from(uri.clone()),
+        "// Comment 1\n; Comment 2\n// Comment 3\n".to_string(),
+    );
+    utils::to_stdin(&mut stdin, &notif);
+
+    thread::sleep(time::Duration::from_millis(500));
+
+    let req = utils::make_folding_range_request(1, String::from(uri));
+    utils::to_stdin(&mut stdin, &req);
+
+    thread::sleep(time::Duration::from_millis(3000));
+
+    utils::stop_ls(&mut ls, Some(&mut stdin), Some(2));
+    let output = ls.wait_with_output().expect("Cannot capture output");
+
+    assert!(
+        std::str::from_utf8(&output.stdout)
+            .unwrap()
+            .contains("\"endLine\":2")
+    );
+    assert!(
+        std::str::from_utf8(&output.stdout)
+            .unwrap()
+            .contains("\"startLine\":0")
     );
 }

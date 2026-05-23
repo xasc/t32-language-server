@@ -2,8 +2,6 @@
 //
 // SPDX-License-Identifier: EUPL-1.2
 
-use std::ops::Range;
-
 use crate::{
     protocol::Uri,
     t32::{CallExpression, MacroDefinitions, MacroScope, Subroutine, SubscriptCalls},
@@ -15,34 +13,35 @@ pub fn find_subroutine_for_call<'a>(
     call: &CallExpression,
     subroutines: &'a [Subroutine],
 ) -> Option<&'a Subroutine> {
-    if call.target.end > text.len() {
+    if call.target.inner().end > text.len() {
         return None;
     }
 
-    let name = &text[call.target.clone()];
+    let name = &text[call.target.clone().to_inner()];
     for subroutine in subroutines {
-        if text[subroutine.name.clone()] == *name {
+        if text[subroutine.name.clone().to_inner()] == *name {
             return Some(subroutine);
         }
     }
     None
 }
 
-pub fn get_macro_scope(macros: &MacroDefinitions, range: &Range<usize>) -> Option<MacroScope> {
+pub fn get_macro_scope(macros: &MacroDefinitions, range: &BRange) -> Option<MacroScope> {
+    let span = &range.inner();
     for def in &macros.privates {
-        if def.r#macro.contains(&range.start) {
+        if def.r#macro.contains(&span.start) {
             return Some(MacroScope::Private);
         }
     }
 
     for def in &macros.locals {
-        if def.r#macro.contains(&range.start) {
+        if def.r#macro.contains(&span.start) {
             return Some(MacroScope::Local);
         }
     }
 
     for def in &macros.globals {
-        if def.r#macro.contains(&range.start) {
+        if def.r#macro.contains(&span.start) {
             return Some(MacroScope::Global);
         }
     }

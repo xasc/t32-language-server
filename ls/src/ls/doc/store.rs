@@ -109,33 +109,33 @@ impl<'a> CommandIndex {
 
     pub fn add(&mut self, doc: &TextDoc, t32: &LangExpressions) {
         for r#macro in t32.macros.privates.iter() {
-            let (start, end) = (r#macro.cmd.start, r#macro.cmd.end);
+            let (start, end) = (r#macro.cmd.inner().start, r#macro.cmd.inner().end);
             let span = doc.to_range(start, end);
 
             self.0.insert("private", &doc.uri, span);
         }
         for r#macro in t32.macros.locals.iter() {
-            let (start, end) = (r#macro.cmd.start, r#macro.cmd.end);
+            let (start, end) = (r#macro.cmd.inner().start, r#macro.cmd.inner().end);
             let span = doc.to_range(start, end);
 
             self.0.insert("local", &doc.uri, span);
         }
         for r#macro in t32.macros.globals.iter() {
-            let (start, end) = (r#macro.cmd.start, r#macro.cmd.end);
+            let (start, end) = (r#macro.cmd.inner().start, r#macro.cmd.inner().end);
             let span = doc.to_range(start, end);
 
             self.0.insert("global", &doc.uri, span);
         }
 
         for sub in t32.calls.subroutines.iter() {
-            let (start, end) = (sub.call.start, sub.call.end);
+            let (start, end) = (sub.call.inner().start, sub.call.inner().end);
             let span = doc.to_range(start, end);
 
             self.0.insert("gosub", &doc.uri, span);
         }
         if let Some(scripts) = &t32.calls.scripts {
             for (location, kind) in scripts.locations.iter().zip(scripts.kinds.iter()) {
-                let (start, end) = (location.call.start, location.call.end);
+                let (start, end) = (location.call.inner().start, location.call.inner().end);
                 let span = doc.to_range(start, end);
 
                 if *kind == SubscriptCallKind::Do {
@@ -147,7 +147,7 @@ impl<'a> CommandIndex {
         }
 
         for ParameterDeclaration { cmd, kind, .. } in t32.parameters.iter() {
-            let (start, end) = (cmd.start, cmd.end);
+            let (start, end) = (cmd.inner().start, cmd.inner().end);
             let span = doc.to_range(start, end);
 
             if *kind == ParameterDeclarationKind::Entry {
@@ -809,7 +809,7 @@ impl<'a> TextDocs {
             names.reserve(num);
             macros.reserve(num);
             for def in globals {
-                names.push(&doc.text[def.r#macro.clone()]);
+                names.push(&doc.text[def.r#macro.clone().to_inner()]);
                 macros.push(def);
             }
 
@@ -1137,7 +1137,7 @@ impl<'a> FileTargetIndex {
             let Some(uri) = target else {
                 continue;
             };
-            let (start, end) = (call.target.start, call.target.end);
+            let (start, end) = (call.target.inner().start, call.target.inner().end);
 
             let span = doc.to_range(start, end);
             self.0.insert(uri, &doc.uri, span);

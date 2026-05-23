@@ -12,14 +12,16 @@ mod query;
 
 use tree_sitter::{Language, Tree, TreeCursor};
 
-pub use ast::{NodeKind, id_into_node};
+pub use ast::{NodeKind, find_deepest_node, id_into_node};
 pub use cache::{get_macro_scope, locate_calls_to_file_target};
 pub use expressions::{
     CallExpression, CallExpressions, CallLocations, Command, Label, MacroDefinition,
     ParameterDeclaration, ParameterDeclarationKind, Subroutine, SubscriptCallKind, SubscriptCalls,
 };
 pub use macros::{MacroDefinitions, MacroScope};
-pub use query::{SemanticToken, do_syntax_highlighting, do_syntax_highlighting_in_range};
+pub use query::{
+    SemanticToken, do_syntax_highlighting, do_syntax_highlighting_in_range, list_code_folds,
+};
 
 #[cfg(test)]
 pub use macros::MacroDefinitionsImplicit;
@@ -39,8 +41,6 @@ pub use macros::{
 pub use parse::{parse_full, parse_incremental};
 
 pub use path::{PathShorthandDirs, locate_script as resolve_script};
-
-use std::ops::Range;
 
 use crate::{ls::FileIndex, protocol::Uri, utils::BRange};
 
@@ -243,7 +243,7 @@ pub fn find_subroutine_call_references(
     subroutines: &Vec<Subroutine>,
     call: TreeCursor,
     tree: &Tree,
-) -> Option<Vec<Range<usize>>> {
+) -> Option<Vec<BRange>> {
     debug_assert_eq!(
         call.node().kind_id(),
         NodeKind::SubroutineCallExpression.into_id(&call.node().language()),
@@ -264,7 +264,7 @@ pub fn find_subroutine_references(
     subroutines: &Vec<Subroutine>,
     subroutine: &TreeCursor,
     tree: &Tree,
-) -> Option<Vec<Range<usize>>> {
+) -> Option<Vec<BRange>> {
     debug_assert!(
         subroutine.node().kind_id()
             == NodeKind::SubroutineBlock.into_id(&subroutine.node().language())
@@ -287,7 +287,7 @@ pub fn find_label_references(
     labels: &Vec<Label>,
     label: &TreeCursor,
     tree: &Tree,
-) -> Option<Vec<Range<usize>>> {
+) -> Option<Vec<BRange>> {
     debug_assert_eq!(
         label.node().kind_id(),
         NodeKind::LabeledExpression.into_id(&label.node().language())

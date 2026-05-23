@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: EUPL-1.2
 
 //! [Note] Semantic Token to Tree-sitter Capture Mapping
-//! ==========================================================
+//! ====================================================
 //!
 //! We are using these correspondence tables for mapping semantic token types to
 //! Tree-sitter grammar captures:
@@ -104,18 +104,21 @@ use tree_sitter_t32::HIGHLIGHTS_QUERY;
 
 use crate::{
     ls::TextDoc,
-    protocol::{Range as LRange, SemanticTokenModifiers, SemanticTokenTypes, SemanticTokensLegend},
+    protocol::{
+        FoldingRange, FoldingRangeKind, Range as LRange, SemanticTokenModifiers,
+        SemanticTokenTypes, SemanticTokensLegend,
+    },
     t32::{NodeKind, parse_full},
     utils::BRange,
 };
 
 use captures::{
-    CAPTURE_COMMENT, CAPTURE_CONDITIONAL, CAPTURE_CONDITIONAL_TERNARY, CAPTURE_CONSTANT,
-    CAPTURE_CONSTANT_BUILTIN, CAPTURE_FUNCTION, CAPTURE_FUNCTION_BUILTIN, CAPTURE_FUNCTION_CALL,
-    CAPTURE_KEYWORD, CAPTURE_KEYWORD_FUNCTION, CAPTURE_KEYWORD_OPERATOR, CAPTURE_KEYWORD_RETURN,
-    CAPTURE_LABEL, CAPTURE_NUMBER, CAPTURE_OPERATOR, CAPTURE_REPEAT, CAPTURE_STRING,
-    CAPTURE_STRING_SPECIAL, CAPTURE_TYPE, CAPTURE_VARIABLE, CAPTURE_VARIABLE_BUILTIN,
-    CAPTURE_VARIABLE_PARAMETER,
+    CAPTURE_BLOCK, CAPTURE_COMMENT, CAPTURE_CONDITIONAL, CAPTURE_CONDITIONAL_TERNARY,
+    CAPTURE_CONSTANT, CAPTURE_CONSTANT_BUILTIN, CAPTURE_FUNCTION, CAPTURE_FUNCTION_BUILTIN,
+    CAPTURE_FUNCTION_CALL, CAPTURE_KEYWORD, CAPTURE_KEYWORD_FUNCTION, CAPTURE_KEYWORD_OPERATOR,
+    CAPTURE_KEYWORD_RETURN, CAPTURE_LABEL, CAPTURE_NUMBER, CAPTURE_OPERATOR, CAPTURE_REPEAT,
+    CAPTURE_STRING, CAPTURE_STRING_SPECIAL, CAPTURE_TYPE, CAPTURE_VARIABLE,
+    CAPTURE_VARIABLE_BUILTIN, CAPTURE_VARIABLE_PARAMETER,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -140,9 +143,35 @@ struct SemanticTokenQueryCaptureMapIterator<'a> {
 #[derive(Debug)]
 struct SemanticTokenQueryCaptureMap(pub Vec<usize>, pub Vec<usize>, pub Vec<u32>);
 
-pub static QUERY_HIGHLIGHTS_CACHED: LazyLock<Query> = LazyLock::new(|| {
+static QUERY_HIGHLIGHTS_CACHED: LazyLock<Query> = LazyLock::new(|| {
     let tree = parse_full(&[]);
     Query::new(&tree.language(), HIGHLIGHTS_QUERY).expect("Highlights query must be valid")
+});
+
+static QUERY_FOLDS_CACHED: LazyLock<Query> = LazyLock::new(|| {
+    let tree = parse_full(&[]);
+    Query::new(
+        &tree.language(),
+        r#"(block) @block
+
+(comment) @comment
+
+[
+    (assignment_expression)
+    (command_expression)
+    (macro_definition)
+    (macro)
+    (if_block)
+    (parameter_declaration)
+    (recursive_macro_expansion)
+    (repeat_block)
+    (subroutine_block)
+    (subroutine_call_expression)
+    (while_block)
+    (labeled_expression)
+] @other"#,
+    )
+    .expect("Highlights query must be valid")
 });
 
 impl SemanticTokenQueryCaptures {
@@ -471,6 +500,10 @@ pub fn do_syntax_highlighting_in_range(
     let Some((num, matches)) = run_query(&query, &tree, &doc, &mut cursor) else {
         return Vec::new();
     };
+
+    if num <= 0 {
+        return Vec::new();
+    }
     let captures = SemanticTokenQueryCaptures::new(&legend, &query);
 
     capture_semantic_tokens(
@@ -484,6 +517,21 @@ pub fn do_syntax_highlighting_in_range(
     )
 }
 
+pub fn list_code_folds(doc: &TextDoc, tree: &Tree) -> Vec<FoldingRange> {
+    let query = &*QUERY_FOLDS_CACHED;
+
+    let mut cursor = QueryCursor::new();
+
+    let Some((num, matches)) = run_query(&query, &tree, &doc, &mut cursor) else {
+        return Vec::new();
+    };
+
+    if num <= 0 {
+        return Vec::new();
+    }
+    capture_code_folds(&doc, &query, num, r#matches)
+}
+
 fn capture_semantic_tokens<'a, 'b>(
     doc: &'b TextDoc,
     lang: &LanguageRef,
@@ -493,6 +541,8 @@ fn capture_semantic_tokens<'a, 'b>(
     num_matches: usize,
     matches: QueryCaptures<'a, 'a, &'b [u8], &'b [u8]>,
 ) -> Vec<SemanticToken> {
+    debug_assert_ne!(num_matches, 0);
+
     let (const_builtin, operator, id_type, keyword, var, var_builtin) = {
         let id_constant_builtin = query
             .capture_index_for_name(CAPTURE_CONSTANT_BUILTIN)
@@ -677,6 +727,121 @@ fn capture_semantic_tokens<'a, 'b>(
     tokens
 }
 
+fn capture_code_folds<'a, 'b>(
+    doc: &'b TextDoc,
+    query: &Query,
+    num_matches: usize,
+    matches: QueryCaptures<'a, 'a, &'b [u8], &'b [u8]>,
+) -> Vec<FoldingRange> {
+    debug_assert_ne!(num_matches, 0);
+
+    let (block, comment) = {
+        let id_block = query
+            .capture_index_for_name(CAPTURE_BLOCK)
+            .expect("Capture name must exist.");
+        let id_comment = query
+            .capture_index_for_name(CAPTURE_COMMENT)
+            .expect("Capture name must exist.");
+        (id_block, id_comment)
+    };
+
+    let num_patterns = query.pattern_count() as u32;
+
+    const MIN_LEN_FOLD_COMMENT: u32 = 3;
+
+    let mut prior_id_captured = num_patterns;
+
+    let mut folds: Vec<FoldingRange> = Vec::with_capacity(num_matches / 2);
+    matches.for_each(|(m, idx)| {
+        let capture = m.captures[*idx];
+
+        let node = &capture.node;
+        let span = BRange::from(node.byte_range());
+        if span.inner().start == span.inner().end {
+            return;
+        }
+
+        let bytes = capture.node.byte_range();
+        let span = doc.to_range(bytes.start, bytes.end);
+
+        // Set a fold for a comment block only if it is at least 3 lines long.
+        if prior_id_captured == comment {
+            let prior = folds.last_mut().expect("Must point to (comment) node.");
+            debug_assert!(prior.end_line >= prior.end_line);
+
+            if capture.index == comment {
+                if prior.end_line == span.start.line {
+                    prior.end_line = span.end.line;
+                    prior.end_character = Some(span.end.character);
+                } else {
+                    let fold = FoldingRange {
+                        start_line: span.start.line,
+                        start_character: Some(span.start.character),
+                        end_line: span.end.line,
+                        end_character: Some(span.end.character),
+                        kind: Some(FoldingRangeKind::Comment),
+                        collapsed_text: None,
+                    };
+
+                    let len = prior.end_line - prior.start_line;
+                    if len >= MIN_LEN_FOLD_COMMENT {
+                        folds.push(fold);
+                    } else {
+                        *prior = fold;
+                    }
+                }
+            } else if capture.index == block {
+                let fold = FoldingRange {
+                    start_line: span.start.line,
+                    start_character: Some(span.start.character),
+                    end_line: span.end.line,
+                    end_character: Some(span.end.character),
+                    kind: Some(FoldingRangeKind::Region),
+                    collapsed_text: None,
+                };
+
+                let len = prior.end_line - prior.start_line;
+                if len >= MIN_LEN_FOLD_COMMENT {
+                    folds.push(fold);
+                } else {
+                    *prior = fold;
+                }
+            }
+        } else if capture.index == comment || capture.index == block {
+            let kind = if capture.index == block {
+                Some(FoldingRangeKind::Region)
+            } else if capture.index == comment {
+                Some(FoldingRangeKind::Comment)
+            } else {
+                unreachable!("No other capture type possible.");
+            };
+
+            let fold = FoldingRange {
+                start_line: span.start.line,
+                start_character: Some(span.start.character),
+                end_line: span.end.line,
+                end_character: Some(span.end.character),
+                kind,
+                collapsed_text: None,
+            };
+            folds.push(fold);
+        }
+        prior_id_captured = capture.index;
+    });
+
+    // Remove the last comment block if it is too short.
+    if prior_id_captured == comment {
+        let prior = folds.last().expect("Must point to (comment) node.");
+        debug_assert!(prior.end_line >= prior.end_line);
+
+        let len = prior.end_line - prior.start_line;
+        if len < 3 {
+            drop(folds.pop());
+        }
+    }
+    folds
+}
+
 fn run_query<'a, 'b>(
     query: &'a Query,
     tree: &'a Tree,
@@ -701,12 +866,7 @@ mod tests {
 
     use url::Url;
 
-    use crate::{
-        config,
-        ls::read_doc,
-        protocol::Position,
-        utils::{create_doc, create_file_idx},
-    };
+    use crate::{config, ls, protocol::Position, utils};
 
     fn create_full_legend() -> SemanticTokensLegend {
         let types = vec![
@@ -741,7 +901,7 @@ mod tests {
 
     #[test]
     fn can_determine_syntax_highlights() {
-        let files = create_file_idx();
+        let files = utils::create_file_idx();
         let dirs = config::T32DefaultDirs::default();
 
         let uri_a = Url::from_file_path(
@@ -749,7 +909,7 @@ mod tests {
         )
         .unwrap();
 
-        let (doc, tree, _) = read_doc(uri_a, &files, &dirs).expect("Must not fail.");
+        let (doc, tree, _) = ls::read_doc(uri_a, &files, &dirs).expect("Must not fail.");
 
         let types = vec![
             SemanticTokenTypes::Operator,
@@ -806,7 +966,7 @@ mod tests {
 
     #[test]
     fn does_not_capture_operators_in_macros() {
-        let files = create_file_idx();
+        let files = utils::create_file_idx();
         let dirs = config::T32DefaultDirs::default();
 
         let uri_a = Url::from_file_path(
@@ -814,7 +974,7 @@ mod tests {
         )
         .unwrap();
 
-        let (doc, tree, _) = read_doc(uri_a, &files, &dirs).expect("Must not fail.");
+        let (doc, tree, _) = ls::read_doc(uri_a, &files, &dirs).expect("Must not fail.");
 
         let legend = SemanticTokensLegend {
             token_types: vec![SemanticTokenTypes::Operator],
@@ -865,7 +1025,7 @@ mod tests {
 
     #[test]
     fn does_not_capture_other_keywords_with_function_definition() {
-        let files = create_file_idx();
+        let files = utils::create_file_idx();
         let dirs = config::T32DefaultDirs::default();
 
         let uri_a = Url::from_file_path(
@@ -873,7 +1033,7 @@ mod tests {
         )
         .unwrap();
 
-        let (doc, tree, _) = read_doc(uri_a, &files, &dirs).expect("Must not fail.");
+        let (doc, tree, _) = ls::read_doc(uri_a, &files, &dirs).expect("Must not fail.");
 
         let legend = SemanticTokensLegend {
             token_types: vec![SemanticTokenTypes::Function],
@@ -913,7 +1073,7 @@ mod tests {
 
     #[test]
     fn can_restrict_captures_to_range() {
-        let files = create_file_idx();
+        let files = utils::create_file_idx();
         let dirs = config::T32DefaultDirs::default();
 
         let uri_a = Url::from_file_path(
@@ -921,7 +1081,7 @@ mod tests {
         )
         .unwrap();
 
-        let (doc, tree, _) = read_doc(uri_a, &files, &dirs).expect("Must not fail.");
+        let (doc, tree, _) = ls::read_doc(uri_a, &files, &dirs).expect("Must not fail.");
 
         let legend = SemanticTokensLegend {
             token_types: vec![SemanticTokenTypes::Macro],
@@ -947,7 +1107,7 @@ mod tests {
     fn selects_capture_with_higher_priority() {
         let text = "SUBROUTINE abc\n(\n    RETURN \"&a\"\n)";
         let tree = parse_full(&text.as_bytes());
-        let doc = create_doc("file://test.cmm".to_string(), 0, text.to_string());
+        let doc = utils::create_doc("file://test.cmm".to_string(), 0, text.to_string());
         let legend = create_full_legend();
 
         let tokens = do_syntax_highlighting(legend.clone(), &doc, &tree);
@@ -1019,7 +1179,7 @@ mod tests {
     fn ignores_tokens_with_zero_length() {
         let text = "abc:\n(\n    RETURN \"&a\"\n)";
         let tree = parse_full(&text.as_bytes());
-        let doc = create_doc("file://test.cmm".to_string(), 0, text.to_string());
+        let doc = utils::create_doc("file://test.cmm".to_string(), 0, text.to_string());
         let legend = create_full_legend();
 
         let tokens = do_syntax_highlighting(legend.clone(), &doc, &tree);
@@ -1032,7 +1192,7 @@ mod tests {
         let text = "PRINT STATE.RUNNING()\n";
 
         let tree = parse_full(&text.as_bytes());
-        let doc = create_doc("file://test.cmm".to_string(), 0, text.to_string());
+        let doc = utils::create_doc("file://test.cmm".to_string(), 0, text.to_string());
         let legend = create_full_legend();
 
         let tokens = do_syntax_highlighting(legend.clone(), &doc, &tree);
@@ -1059,7 +1219,7 @@ mod tests {
         let text = "PARAMETERS &a &b\n";
 
         let tree = parse_full(&text.as_bytes());
-        let doc = create_doc("file://test.cmm".to_string(), 0, text.to_string());
+        let doc = utils::create_doc("file://test.cmm".to_string(), 0, text.to_string());
         let legend = create_full_legend();
 
         let tokens = do_syntax_highlighting(legend.clone(), &doc, &tree);
@@ -1118,7 +1278,7 @@ mod tests {
         let text = "IF &a\nPRINT \"hello\"\n";
 
         let tree = parse_full(&text.as_bytes());
-        let doc = create_doc("file://test.cmm".to_string(), 0, text.to_string());
+        let doc = utils::create_doc("file://test.cmm".to_string(), 0, text.to_string());
         let legend = create_full_legend();
 
         let tokens = do_syntax_highlighting(legend.clone(), &doc, &tree);
@@ -1161,7 +1321,7 @@ mod tests {
         let text = "&a=1+1";
 
         let tree = parse_full(&text.as_bytes());
-        let doc = create_doc("file://test.cmm".to_string(), 0, text.to_string());
+        let doc = utils::create_doc("file://test.cmm".to_string(), 0, text.to_string());
         let legend = create_full_legend();
 
         let tokens = do_syntax_highlighting(legend.clone(), &doc, &tree);
@@ -1204,7 +1364,7 @@ mod tests {
         let text = "PRINT \"Hello\"+\", World\"\n";
 
         let tree = parse_full(&text.as_bytes());
-        let doc = create_doc("file://test.cmm".to_string(), 0, text.to_string());
+        let doc = utils::create_doc("file://test.cmm".to_string(), 0, text.to_string());
         let legend = create_full_legend();
 
         let tokens = do_syntax_highlighting(legend.clone(), &doc, &tree);
@@ -1247,7 +1407,7 @@ mod tests {
         let text = "DO C:\\run.cmm\n";
 
         let tree = parse_full(&text.as_bytes());
-        let doc = create_doc("file://test.cmm".to_string(), 0, text.to_string());
+        let doc = utils::create_doc("file://test.cmm".to_string(), 0, text.to_string());
         let legend = create_full_legend();
 
         let tokens = do_syntax_highlighting(legend.clone(), &doc, &tree);
@@ -1274,7 +1434,7 @@ mod tests {
         let text = "&a // Comment\n";
 
         let tree = parse_full(&text.as_bytes());
-        let doc = create_doc("file://test.cmm".to_string(), 0, text.to_string());
+        let doc = utils::create_doc("file://test.cmm".to_string(), 0, text.to_string());
         let legend = create_full_legend();
 
         let tokens = do_syntax_highlighting(legend.clone(), &doc, &tree);
@@ -1301,7 +1461,7 @@ mod tests {
         let text = "&a=1+2\n";
 
         let tree = parse_full(&text.as_bytes());
-        let doc = create_doc("file://test.cmm".to_string(), 0, text.to_string());
+        let doc = utils::create_doc("file://test.cmm".to_string(), 0, text.to_string());
         let legend = create_full_legend();
 
         let tokens = do_syntax_highlighting(legend.clone(), &doc, &tree);
@@ -1344,7 +1504,7 @@ mod tests {
         let text = "GOSUB terminate\n";
 
         let tree = parse_full(&text.as_bytes());
-        let doc = create_doc("file://test.cmm".to_string(), 0, text.to_string());
+        let doc = utils::create_doc("file://test.cmm".to_string(), 0, text.to_string());
         let legend = create_full_legend();
 
         let tokens = do_syntax_highlighting(legend.clone(), &doc, &tree);
@@ -1387,7 +1547,7 @@ mod tests {
         let text = "PRIVATE &a\nLOCAL &b\nGLOBAL &c\n";
 
         let tree = parse_full(&text.as_bytes());
-        let doc = create_doc("file://test.cmm".to_string(), 0, text.to_string());
+        let doc = utils::create_doc("file://test.cmm".to_string(), 0, text.to_string());
         let legend = create_full_legend();
 
         let tokens = do_syntax_highlighting(legend.clone(), &doc, &tree);
@@ -1446,7 +1606,7 @@ mod tests {
         let text = "Data.Set %Byte\n";
 
         let tree = parse_full(&text.as_bytes());
-        let doc = create_doc("file://test.cmm".to_string(), 0, text.to_string());
+        let doc = utils::create_doc("file://test.cmm".to_string(), 0, text.to_string());
         let legend = create_full_legend();
 
         let tokens = do_syntax_highlighting(legend.clone(), &doc, &tree);
@@ -1473,7 +1633,7 @@ mod tests {
         let text = "Data.View /Track\n";
 
         let tree = parse_full(&text.as_bytes());
-        let doc = create_doc("file://test.cmm".to_string(), 0, text.to_string());
+        let doc = utils::create_doc("file://test.cmm".to_string(), 0, text.to_string());
         let legend = create_full_legend();
 
         let tokens = do_syntax_highlighting(legend.clone(), &doc, &tree);
@@ -1500,7 +1660,7 @@ mod tests {
         let text = "IF &a\n(\n  PRINT \"hello\"\n)\nELSE\n  PRINT \", world!\"\n";
 
         let tree = parse_full(&text.as_bytes());
-        let doc = create_doc("file://test.cmm".to_string(), 0, text.to_string());
+        let doc = utils::create_doc("file://test.cmm".to_string(), 0, text.to_string());
         let legend = create_full_legend();
 
         let tokens = do_syntax_highlighting(legend.clone(), &doc, &tree);
@@ -1543,7 +1703,7 @@ mod tests {
         let text = "WHILE &a\n(\n  PRINT \"hello\"\n)\n";
 
         let tree = parse_full(&text.as_bytes());
-        let doc = create_doc("file://test.cmm".to_string(), 0, text.to_string());
+        let doc = utils::create_doc("file://test.cmm".to_string(), 0, text.to_string());
         let legend = create_full_legend();
 
         let tokens = do_syntax_highlighting(legend.clone(), &doc, &tree);
@@ -1567,7 +1727,7 @@ mod tests {
         let text = "RePeaT &a\n(\n  PRINT \", world!\"\n)\n";
 
         let tree = parse_full(&text.as_bytes());
-        let doc = create_doc("file://test.cmm".to_string(), 0, text.to_string());
+        let doc = utils::create_doc("file://test.cmm".to_string(), 0, text.to_string());
         let legend = create_full_legend();
 
         let tokens = do_syntax_highlighting(legend.clone(), &doc, &tree);
@@ -1594,7 +1754,7 @@ mod tests {
         let text = "RETURN\n";
 
         let tree = parse_full(&text.as_bytes());
-        let doc = create_doc("file://test.cmm".to_string(), 0, text.to_string());
+        let doc = utils::create_doc("file://test.cmm".to_string(), 0, text.to_string());
         let legend = create_full_legend();
 
         let tokens = do_syntax_highlighting(legend.clone(), &doc, &tree);
@@ -1618,7 +1778,7 @@ mod tests {
         let text = "END TRUE()\n";
 
         let tree = parse_full(&text.as_bytes());
-        let doc = create_doc("file://test.cmm".to_string(), 0, text.to_string());
+        let doc = utils::create_doc("file://test.cmm".to_string(), 0, text.to_string());
         let legend = create_full_legend();
 
         let tokens = do_syntax_highlighting(legend.clone(), &doc, &tree);
@@ -1642,7 +1802,7 @@ mod tests {
         let text = "ENDDO \"&a\"\n";
 
         let tree = parse_full(&text.as_bytes());
-        let doc = create_doc("file://test.cmm".to_string(), 0, text.to_string());
+        let doc = utils::create_doc("file://test.cmm".to_string(), 0, text.to_string());
         let legend = create_full_legend();
 
         let tokens = do_syntax_highlighting(legend.clone(), &doc, &tree);
@@ -1661,6 +1821,67 @@ mod tests {
                 },
                 r#type: 1,
                 modifier: 1 << 4,
+            }));
+    }
+
+    #[test]
+    fn can_mark_code_folds() {
+        let files = utils::create_file_idx();
+        let dirs = config::T32DefaultDirs::default();
+
+        let uri_a = Url::from_file_path(
+            path::absolute("tests/samples/folds.cmm").expect("Files must exist."),
+        )
+        .unwrap();
+
+        let (doc, tree, _) = ls::read_doc(uri_a, &files, &dirs).expect("Must not fail.");
+
+        let folds = list_code_folds(&doc, &tree);
+
+        assert!(folds.iter().any(|f| *f
+            == FoldingRange {
+                start_line: 0,
+                start_character: Some(0),
+                end_line: 3,
+                end_character: Some(0),
+                kind: Some(FoldingRangeKind::Comment),
+                collapsed_text: None,
+            }));
+
+        assert!(folds.iter().any(|f| *f
+            == FoldingRange {
+                start_line: 6,
+                start_character: Some(0),
+                end_line: 11,
+                end_character: Some(0),
+                kind: Some(FoldingRangeKind::Comment),
+                collapsed_text: None,
+            }));
+
+        assert!(
+            folds
+                .iter()
+                .any(|f| !(f.start_line == 14 || f.start_line == 15 || f.start_line == 17))
+        );
+
+        assert!(folds.iter().any(|f| *f
+            == FoldingRange {
+                start_line: 20,
+                start_character: Some(0),
+                end_line: 24,
+                end_character: Some(0),
+                kind: Some(FoldingRangeKind::Region),
+                collapsed_text: None,
+            }));
+
+        assert!(folds.iter().any(|f| *f
+            == FoldingRange {
+                start_line: 26,
+                start_character: Some(0),
+                end_line: 29,
+                end_character: Some(0),
+                kind: Some(FoldingRangeKind::Region),
+                collapsed_text: None,
             }));
     }
 }

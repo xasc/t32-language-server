@@ -9,11 +9,12 @@ use crate::{
     protocol::{
         DefinitionOptions, DefinitionProvider, DocumentFilter, FileOperationFilter,
         FileOperationPattern, FileOperationPatternKind, FileOperationPatternOptions,
-        FileOperationRegistrationOptions, InitializeResult, Location, LocationLink, NumberOrString,
-        PositionEncodingKind, ReferenceOptions, ReferencesProvider, ResponseError, SemanticTokens,
-        SemanticTokensFullDocumentCapabilities, SemanticTokensLegend, SemanticTokensProvider,
-        SemanticTokensRegistrationOptions, ServerCapabilities, ServerInfo, TextDocumentSyncKind,
-        TextDocumentSyncOptions, TextDocumentSyncServerCapabilities, WorkspaceFileOperations,
+        FileOperationRegistrationOptions, FoldingRange, FoldingRangeProvider, InitializeResult,
+        Location, LocationLink, NumberOrString, PositionEncodingKind, ReferenceOptions,
+        ReferencesProvider, ResponseError, SemanticTokens, SemanticTokensFullDocumentCapabilities,
+        SemanticTokensLegend, SemanticTokensProvider, SemanticTokensRegistrationOptions,
+        ServerCapabilities, ServerInfo, TextDocumentSyncKind, TextDocumentSyncOptions,
+        TextDocumentSyncServerCapabilities, WorkspaceFileOperations,
         WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
     },
     t32::{LANGUAGE_ID, SUFFIXES},
@@ -23,6 +24,7 @@ use crate::{
 #[derive(Debug, Deserialize, Serialize)]
 pub enum Response {
     ErrorResponse(ErrorResponse),
+    FoldingRangeResponse(FoldingRangeResponse),
     FindReferencesResponse(FindReferencesResponse),
     GoToDefinitionResponse(GoToDefinitionResponse),
     InitializeResponse(InitializeResponse),
@@ -41,6 +43,12 @@ pub struct ErrorResponse {
 pub struct FindReferencesResponse {
     pub id: NumberOrString,
     pub result: Option<Vec<Location>>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct FoldingRangeResponse {
+    pub id: NumberOrString,
+    pub result: Option<Vec<FoldingRange>>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -116,7 +124,7 @@ impl ServerCapabilities {
             document_range_formatting_provider: None,
             document_on_type_formatting_provider: None,
             rename_provider: None,
-            folding_range_provider: None,
+            folding_range_provider: Some(FoldingRangeProvider::Bool(true)),
             execute_command_provider: None,
             selection_range_provider: None,
             linked_editing_range_provider: None,

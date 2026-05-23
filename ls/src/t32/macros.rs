@@ -363,9 +363,9 @@ pub fn find_all_macro_definitions(
             calls
                 .get_targets()
                 .iter()
-                .any(|t| &text[t.inner().clone()] == &text[s.name.clone()])
+                .any(|t| &text[t.inner().clone()] == &text[s.name.clone().to_inner()])
         })
-        .map(|s| s.definition.start)
+        .map(|s| s.definition.inner().start)
         .collect();
 
     let mut privates: Vec<MacroDefinition> = Vec::new();
@@ -415,7 +415,7 @@ pub fn find_all_macro_definitions(
         {
             let subroutine = subroutines
                 .iter()
-                .find(|s| text[s.name.clone()] == text[target.inner().clone()]);
+                .find(|s| text[s.name.clone().to_inner()] == text[target.inner().clone()]);
 
             if let Some(sub) = subroutine {
                 // `PRIVATE` macros are block-local macros. Other types propagate
@@ -469,7 +469,7 @@ pub fn find_all_macro_definitions(
                 .iter()
                 .chain(locals.iter())
                 .chain(globals.iter())
-                .any(|d| text[d.r#macro.clone()] == *name)
+                .any(|d| text[d.r#macro.clone().to_inner()] == *name)
                 || implicit_main
                     .privates
                     .iter()
@@ -487,7 +487,7 @@ pub fn find_all_macro_definitions(
                 params_ignore_block_global_definitions(text, &mut cursor);
 
             for param in parameters {
-                let name: &str = &text[param.r#macro.clone()];
+                let name: &str = &text[param.r#macro.clone().to_inner()];
 
                 // The `PARAMETERS` command can create an implicit `PRIVATE`
                 // macro definition. The `ENTRY` command can create implicit
@@ -497,7 +497,7 @@ pub fn find_all_macro_definitions(
                     .iter()
                     .chain(locals.iter())
                     .chain(globals.iter())
-                    .any(|d| text[d.r#macro.clone()] == *name)
+                    .any(|d| text[d.r#macro.clone().to_inner()] == *name)
                 {
                     continue;
                 }
@@ -812,7 +812,7 @@ pub fn defines_named_macro(
     if macros
         .privates
         .iter()
-        .any(|m| text[m.r#macro.clone()] == *name)
+        .any(|m| text[m.r#macro.clone().to_inner()] == *name)
     {
         return true;
     }
@@ -820,12 +820,15 @@ pub fn defines_named_macro(
     if macros
         .locals
         .iter()
-        .any(|m| text[m.r#macro.clone()] == *name)
+        .any(|m| text[m.r#macro.clone().to_inner()] == *name)
     {
         return true;
     }
 
-    if parameters.iter().any(|m| text[m.r#macro.clone()] == *name) {
+    if parameters
+        .iter()
+        .any(|m| text[m.r#macro.clone().to_inner()] == *name)
+    {
         return true;
     }
 
@@ -842,7 +845,7 @@ pub fn defines_named_macro(
     macros
         .globals
         .iter()
-        .any(|m| text[m.r#macro.clone()] == *name)
+        .any(|m| text[m.r#macro.clone().to_inner()] == *name)
 }
 
 pub fn defines_any_macro(
@@ -879,8 +882,8 @@ pub fn defines_any_macro(
         if &text[range] == name {
             cursor.goto_parent();
             return Some(MacroDefinition {
-                cmd: cursor.node().byte_range(),
-                r#macro: r#macro.byte_range(),
+                cmd: BRange::from(cursor.node().byte_range()),
+                r#macro: BRange::from(r#macro.byte_range()),
                 docstring: None,
             });
         }
@@ -927,8 +930,8 @@ pub fn defines_block_global_macro(
         if &text[range] == name {
             cursor.goto_parent();
             return Some(MacroDefinition {
-                cmd: cursor.node().byte_range(),
-                r#macro: r#macro.byte_range(),
+                cmd: BRange::from(cursor.node().byte_range()),
+                r#macro: BRange::from(r#macro.byte_range()),
                 docstring: None,
             });
         }
@@ -982,8 +985,8 @@ pub fn may_define_macro_implicitly(
             cursor.goto_parent();
 
             let def = MacroDefinition {
-                cmd: cursor.node().byte_range(),
-                r#macro: r#macro.byte_range(),
+                cmd: BRange::from(cursor.node().byte_range()),
+                r#macro: BRange::from(r#macro.byte_range()),
                 docstring: None,
             };
             return Some(match command {
@@ -1003,7 +1006,7 @@ pub fn may_define_macro_implicitly(
 pub fn find_definition_for_macro_in_subroutine(
     text: &str,
     t32: &GotoDefLangContext,
-    origin: &Range<usize>,
+    origin: &BRange,
     subroutine: &Subroutine,
     name: &str,
     tree: &Tree,
@@ -1027,7 +1030,7 @@ pub fn find_definition_for_macro_in_subroutine(
             .macros
             .globals
             .iter()
-            .filter(|m| text[m.r#macro.clone()] == *name)
+            .filter(|m| text[m.r#macro.clone().to_inner()] == *name)
         {
             globals.push(MacroDefResolution::Final(r#macro.clone()));
         }
@@ -1045,7 +1048,7 @@ pub fn find_definition_for_macro_in_subroutine(
         text,
         origin,
         name,
-        goto_subroutine(&tree, subroutine.definition.start),
+        goto_subroutine(&tree, subroutine.definition.inner().start),
     );
 
     if let Some(MacroDefResolution::Final(_)) = inner {
@@ -1098,7 +1101,7 @@ pub fn find_definition_for_macro_in_subroutine(
 
 fn find_any_macro_def_in_subroutine_body(
     text: &str,
-    origin: &Range<usize>,
+    origin: &BRange,
     name: &str,
     subroutine: TreeCursor,
 ) -> Option<MacroDefResolution> {
@@ -1114,7 +1117,7 @@ fn find_any_macro_def_in_subroutine_body(
 
 fn find_block_global_macro_def_in_subroutine_body(
     text: &str,
-    origin: &Range<usize>,
+    origin: &BRange,
     name: &str,
     subroutine: TreeCursor,
 ) -> Option<MacroDefResolution> {
@@ -1137,7 +1140,7 @@ fn find_block_global_macro_def_in_subroutine_body(
 fn find_macro_def_covering_subroutine_call(
     mut level: usize,
     text: &str,
-    origin: &Range<usize>,
+    origin: &BRange,
     name: &str,
     calls: &Vec<CallExpression>,
     subroutines: &Vec<Subroutine>,
@@ -1152,14 +1155,14 @@ fn find_macro_def_covering_subroutine_call(
     let mut defs: Vec<MacroDefResolution> = Vec::new();
     for target in calls
         .iter()
-        .filter(|&c| text[c.target.clone()] == text[origin.clone()])
+        .filter(|&c| text[c.target.clone().to_inner()] == text[origin.clone().to_inner()])
     {
         let subroutine = subroutines
             .iter()
-            .find(|s| s.definition.contains(&target.call.start));
+            .find(|s| s.definition.contains(&target.call.inner().start));
 
         let root: TreeCursor = match subroutine {
-            Some(sub) => goto_subroutine(&tree, sub.definition.start),
+            Some(sub) => goto_subroutine(&tree, sub.definition.inner().start),
             None => tree.walk(),
         };
 
@@ -1223,7 +1226,7 @@ fn find_macro_def_covering_subroutine_call(
 
 fn find_explicit_or_implicit_macro_def_in_script(
     text: &str,
-    origin: &Range<usize>,
+    origin: &BRange,
     name: &str,
     tree: &Tree,
 ) -> Option<MacroDefResolution> {
@@ -1237,7 +1240,7 @@ fn find_explicit_or_implicit_macro_def_in_script(
 pub fn find_explicit_or_implicit_macro_def(
     text: &str,
     globals: &[MacroDefinition],
-    origin: &Range<usize>,
+    origin: &BRange,
     name: &str,
     tree: &Tree,
 ) -> Option<Vec<MacroDefResolution>> {
@@ -1252,7 +1255,10 @@ pub fn find_explicit_or_implicit_macro_def(
     } else if !globals.is_empty() {
         // See [Note: `GLOBAL` Macro Definitions]
         let mut defs = Vec::new();
-        for r#macro in globals.iter().filter(|m| text[m.r#macro.clone()] == *name) {
+        for r#macro in globals
+            .iter()
+            .filter(|m| text[m.r#macro.clone().to_inner()] == *name)
+        {
             defs.push(MacroDefResolution::Final(r#macro.clone()));
         }
         if defs.len() > 0 { Some(defs) } else { None }
@@ -1270,18 +1276,13 @@ fn locate_all_macro_definitions(
 ) -> Vec<MacroDefResolution> {
     let mut defs: Vec<MacroDefResolution> = Vec::new();
     if let Some(subroutine) = resides_in_subroutine(&t32.subroutines, origin.inner().start) {
-        if let Some(mut macros) = find_definition_for_macro_in_subroutine(
-            text,
-            t32,
-            origin.inner(),
-            subroutine,
-            name,
-            tree,
-        ) {
+        if let Some(mut macros) =
+            find_definition_for_macro_in_subroutine(text, t32, origin, subroutine, name, tree)
+        {
             defs.append(&mut macros);
         }
     } else if let Some(mut macros) =
-        find_explicit_or_implicit_macro_def(text, &t32.macros.globals, origin.inner(), name, tree)
+        find_explicit_or_implicit_macro_def(text, &t32.macros.globals, origin, name, tree)
     {
         defs.append(&mut macros);
     }
@@ -1387,8 +1388,8 @@ pub fn defines_global_macro_implicitly(
             cursor.goto_parent();
 
             let def = MacroDefinition {
-                cmd: cursor.node().byte_range(),
-                r#macro: r#macro.byte_range(),
+                cmd: BRange::from(cursor.node().byte_range()),
+                r#macro: BRange::from(r#macro.byte_range()),
                 docstring: None,
             };
             return Some(match command {
@@ -1476,8 +1477,8 @@ pub fn extract_macro_defs(text: &str, cursor: &mut TreeCursor, macros: &mut Vec<
             break;
         }
         macros.push(MacroDefinition {
-            cmd: def.byte_range(),
-            r#macro: r#macro.byte_range(),
+            cmd: BRange::from(def.byte_range()),
+            r#macro: BRange::from(r#macro.byte_range()),
             docstring: None,
         });
     }
@@ -1535,8 +1536,8 @@ pub fn extract_params(
             break;
         }
         declarations.push(ParameterDeclaration {
-            cmd: decl.byte_range(),
-            r#macro: range,
+            cmd: BRange::from(decl.byte_range()),
+            r#macro: BRange::from(range),
             kind,
             docstring: None,
         });
@@ -1566,7 +1567,11 @@ pub fn find_macro_references_and_call_transitions<'a>(
     let param_decl = NodeKind::ParameterDeclaration.into_id(&lang);
     let subroutine_call = NodeKind::SubroutineCallExpression.into_id(&lang);
 
-    let labels: Vec<Range<usize>> = t32.labels.iter().map(|l| l.name.clone()).collect();
+    let labels: Vec<Range<usize>> = t32
+        .labels
+        .iter()
+        .map(|l| l.name.clone().to_inner())
+        .collect();
     let defs: Vec<Range<usize>> = filter_macro_defs_by_name(text, name, &t32.macros);
 
     let params: Vec<Range<usize>> = {
@@ -1581,7 +1586,7 @@ pub fn find_macro_references_and_call_transitions<'a>(
         .calls
         .subroutines
         .iter()
-        .map(|c| c.call.clone())
+        .map(|c| c.call.clone().to_inner())
         .collect();
 
     let script_call_ranges: (Vec<Range<usize>>, Vec<&Uri>) = match &t32.calls.scripts {
@@ -1591,7 +1596,7 @@ pub fn find_macro_references_and_call_transitions<'a>(
             let (mut spans, mut files): (Vec<Range<usize>>, Vec<&Uri>) = (Vec::new(), Vec::new());
             for (span, target) in locations.iter().zip(targets) {
                 if target.is_some() {
-                    spans.push(span.call.clone());
+                    spans.push(span.call.clone().to_inner());
                     files.push(&target.as_ref().unwrap());
                 }
             }
@@ -1680,7 +1685,7 @@ pub fn find_macro_references_and_call_transitions<'a>(
 // TODO: Check whether `ENTRY` or `PARAMETERS` in the main path of scripts are handled properly.
 fn find_explicit_or_implicit_macro_def_in_block(
     text: &str,
-    origin: &Range<usize>,
+    origin: &BRange,
     name: &str,
     root: TreeCursor,
     select_macro: fn(text: &str, def: &mut TreeCursor, name: &str) -> Option<MacroDefinition>,
@@ -1698,7 +1703,7 @@ fn find_explicit_or_implicit_macro_def_in_block(
     let mut cursor = root;
     loop {
         let node = cursor.node();
-        if node.start_byte() > origin.end {
+        if node.start_byte() > origin.inner().end {
             break;
         }
         let id = node.kind_id();
@@ -1726,11 +1731,11 @@ fn find_explicit_or_implicit_macro_def_in_block(
                 NodeKind::AssignmentExpression.into_id(&cursor.node().language())
             );
             definition = Some(MacroDefResolution::Implicit(MacroDefinition {
-                cmd: cursor.node().byte_range(),
+                cmd: BRange::from(cursor.node().byte_range()),
                 r#macro: span.into(),
                 docstring: find_docstring(&mut cursor),
             }));
-        } else if node.byte_range().contains(&origin.start) {
+        } else if node.byte_range().contains(&origin.inner().start) {
             if cursor.goto_first_child() {
                 continue;
             }
@@ -1747,7 +1752,7 @@ fn find_explicit_or_implicit_macro_def_in_block(
 
 fn find_any_macro_def_in_outer_block(
     text: &str,
-    origin: &Range<usize>,
+    origin: &BRange,
     name: &str,
     root: TreeCursor,
     select_macro: fn(text: &str, def: &mut TreeCursor, name: &str) -> Option<MacroDefinition>,
@@ -1768,7 +1773,7 @@ fn find_any_macro_def_in_outer_block(
     let mut cursor = root;
     loop {
         let node = cursor.node();
-        if node.start_byte() > origin.end {
+        if node.start_byte() > origin.inner().end {
             break;
         }
         let id = node.kind_id();
@@ -1820,11 +1825,11 @@ fn find_any_macro_def_in_outer_block(
                 NodeKind::AssignmentExpression.into_id(&cursor.node().language())
             );
             definition = Some(MacroDefResolution::Implicit(MacroDefinition {
-                cmd: cursor.node().byte_range(),
+                cmd: BRange::from(cursor.node().byte_range()),
                 r#macro: span.into(),
                 docstring: find_docstring(&mut cursor),
             }));
-        } else if node.byte_range().contains(&origin.start) {
+        } else if node.byte_range().contains(&origin.inner().start) {
             if cursor.goto_first_child() {
                 continue;
             }
@@ -1921,7 +1926,7 @@ fn find_macro_defs_in_subroutine_call_chain(
         {
             let subroutine = subroutines
                 .iter()
-                .find(|s| text[s.name.clone()] == text[target.inner().clone()]);
+                .find(|s| text[s.name.clone().to_inner()] == text[target.clone().to_inner()]);
 
             if let Some(sub) = subroutine {
                 let cutoff = MacroDefinitionsCutoff::set(macros);
@@ -1959,7 +1964,7 @@ fn find_macro_defs_in_subroutine_call_chain(
                 .chain(globals.iter())
                 .chain(macros.locals.iter())
                 .chain(macros.globals.iter())
-                .any(|d| text[d.r#macro.clone()] == *name)
+                .any(|d| text[d.r#macro.clone().to_inner()] == *name)
                 || macros
                     .implicit
                     .locals
@@ -1979,7 +1984,7 @@ fn find_macro_defs_in_subroutine_call_chain(
                 params_ignore_block_global_definitions(text, &mut cursor);
 
             for param in parameters {
-                let name: &str = &text[param.r#macro.clone()];
+                let name: &str = &text[param.r#macro.clone().to_inner()];
 
                 if ext_block_global_defs_ignored {
                     // `PARAMETERS` command ignores external block-global macro
@@ -1991,7 +1996,7 @@ fn find_macro_defs_in_subroutine_call_chain(
                         .chain(locals.iter())
                         .chain(globals.iter())
                         .chain(macros.globals.iter())
-                        .any(|d| text[d.r#macro.clone()] == *name)
+                        .any(|d| text[d.r#macro.clone().to_inner()] == *name)
                     {
                         continue;
                     }
@@ -2015,7 +2020,7 @@ fn find_macro_defs_in_subroutine_call_chain(
                         .chain(globals.iter())
                         .chain(macros.locals.iter())
                         .chain(macros.globals.iter())
-                        .any(|d| text[d.r#macro.clone()] == *name)
+                        .any(|d| text[d.r#macro.clone().to_inner()] == *name)
                     {
                         continue;
                     }
@@ -2079,13 +2084,17 @@ fn find_macro_references_in_called_subroutines<'a>(
                 continue;
             };
 
-            if visited.contains(&sub.definition.start) {
+            if visited.contains(&sub.definition.inner().start) {
                 continue;
             }
 
-            if let Some(mut captures) =
-                find_block_local_macro_references(text, tree, t32, name, sub.definition.start)
-            {
+            if let Some(mut captures) = find_block_local_macro_references(
+                text,
+                tree,
+                t32,
+                name,
+                sub.definition.inner().start,
+            ) {
                 next.append(&mut captures.subroutines);
 
                 captures.references.retain(|r| !refs.contains(r));
@@ -2099,7 +2108,7 @@ fn find_macro_references_in_called_subroutines<'a>(
                     }
                 }
             }
-            visited.push(sub.definition.start);
+            visited.push(sub.definition.inner().start);
         }
 
         if next.is_empty() {
@@ -2150,20 +2159,20 @@ fn filter_macro_defs_by_name(
     let mut have_name: Vec<Range<usize>> = Vec::new();
 
     for MacroDefinition { r#macro, .. } in &macros.privates {
-        if text[r#macro.clone()] == *name {
-            have_name.push(r#macro.clone())
+        if text[r#macro.clone().to_inner()] == *name {
+            have_name.push(r#macro.clone().to_inner())
         }
     }
 
     for MacroDefinition { r#macro, .. } in &macros.locals {
-        if text[r#macro.clone()] == *name {
-            have_name.push(r#macro.clone())
+        if text[r#macro.clone().to_inner()] == *name {
+            have_name.push(r#macro.clone().to_inner())
         }
     }
 
     for MacroDefinition { r#macro, .. } in &macros.globals {
-        if text[r#macro.clone()] == *name {
-            have_name.push(r#macro.clone())
+        if text[r#macro.clone().to_inner()] == *name {
+            have_name.push(r#macro.clone().to_inner())
         }
     }
     have_name
@@ -2179,8 +2188,8 @@ fn filter_param_declarations_by_name(
     let mut have_name: Vec<Range<usize>> = Vec::new();
 
     for ParameterDeclaration { r#macro, .. } in params {
-        if text[r#macro.clone()] == *name {
-            have_name.push(r#macro.clone())
+        if text[r#macro.clone().to_inner()] == *name {
+            have_name.push(r#macro.clone().to_inner())
         }
     }
     have_name

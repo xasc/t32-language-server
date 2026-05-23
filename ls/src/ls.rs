@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: EUPL-1.2
 
 mod doc;
-mod language;
 mod lsp;
 mod mainloop;
 mod proc;
@@ -278,11 +277,7 @@ fn wait_for_initialize_req(
                 }
                 let req = m.get_request();
                 channel.send_msg(Message::Response(Response::ErrorResponse(ErrorResponse {
-                    id: Some(
-                        req.get_id()
-                            .expect("Every request must have an ID.")
-                            .clone(),
-                    ),
+                    id: Some(req.get_id().clone()),
                     error: error_not_initialized(),
                 })));
             }
@@ -417,6 +412,30 @@ fn process_initialize_params(
             }
             SemanticTokensLegend::from_attrs(types, modifiers)
         };
+
+        // We ignore the `rangeLimit` hint of the client. The server is always
+        // producing all code folds for a file.
+        if let Some(cf) = td.folding_range {
+            cfg.code_folding.encoding.line_folds_only = cf.line_folding_only.is_some_and(|v| v);
+            cfg.code_folding.encoding.collapsed_text_supported = cf
+                .folding_range
+                .is_some_and(|r| r.collapsed_text.is_some_and(|c| c));
+
+            // If the `folding_range_kind` field is missing, then the client
+            // does not guarantee that is accepts any type of code fold. On the
+            // other hand, if `folding_range_kind` is present, then the client
+            // has to map unknown types to a default value.
+            // It does not really make much sense to have a client that signals
+            // support for code folds, but does not support any of the range
+            // kinds. In this case we can only refrain from using any range
+            // kinds in the response.
+            debug_assert!(cf.folding_range_kind.is_some());
+            if let Some(kinds) = cf.folding_range_kind {
+                cfg.code_folding.folding_range_kinds = kinds.value_set;
+            } else {
+                cfg.code_folding.folding_range_kinds.clear();
+            }
+        }
     }
 
     Ok(notif)

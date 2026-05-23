@@ -6,9 +6,9 @@ use std::fmt;
 
 use crate::protocol::{
     DefinitionParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, InitializeParams, InitializedParams, LogTraceParams, NumberOrString,
-    ReferenceParams, RenameFilesParams, SemanticTokensParams, SemanticTokensRangeParams,
-    SetTraceParams,
+    DidOpenTextDocumentParams, FoldingRangeParams, InitializeParams, InitializedParams,
+    LogTraceParams, NumberOrString, ReferenceParams, RenameFilesParams, SemanticTokensParams,
+    SemanticTokensRangeParams, SetTraceParams,
 };
 
 // Requests from client to server.
@@ -17,6 +17,10 @@ pub enum Request {
     FindReferences {
         id: NumberOrString,
         params: ReferenceParams,
+    },
+    FoldingRange {
+        id: NumberOrString,
+        params: FoldingRangeParams,
     },
     GoToDefinition {
         id: NumberOrString,
@@ -67,14 +71,15 @@ pub enum Notification {
 }
 
 impl Request {
-    pub fn get_id(&self) -> Option<&NumberOrString> {
+    pub fn get_id(&self) -> &NumberOrString {
         match self {
-            Request::GoToDefinition { id, .. } => Some(id),
-            Request::InitializeRequest { id, .. } => Some(id),
-            Request::FindReferences { id, .. } => Some(id),
-            Request::SemanticTokensFull { id, .. } => Some(id),
-            Request::SemanticTokensRange { id, .. } => Some(id),
-            Request::ShutdownRequest { id } => Some(id),
+            Request::FindReferences { id, .. } => id,
+            Request::FoldingRange { id, .. } => id,
+            Request::GoToDefinition { id, .. } => id,
+            Request::InitializeRequest { id, .. } => id,
+            Request::SemanticTokensFull { id, .. } => id,
+            Request::SemanticTokensRange { id, .. } => id,
+            Request::ShutdownRequest { id } => id,
         }
     }
 }

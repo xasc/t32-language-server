@@ -18,14 +18,15 @@ use crate::{
     ls::lsp::Message,
     ls::request::{Notification, Request},
     ls::response::{
-        ErrorResponse, FindReferencesResponse, GoToDefinitionResponse, InitializeResponse,
-        NullResponse, Response, SemanticTokensFullResponse, SemanticTokensRangeResponse,
+        ErrorResponse, FindReferencesResponse, FoldingRangeResponse, GoToDefinitionResponse,
+        InitializeResponse, NullResponse, Response, SemanticTokensFullResponse,
+        SemanticTokensRangeResponse,
     },
     protocol::{
         DefinitionParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-        DidOpenTextDocumentParams, ErrorCodes, InitializeParams, InitializedParams, NumberOrString,
-        ReferenceParams, RenameFilesParams, ResponseError, SemanticTokensParams,
-        SemanticTokensRangeParams, SetTraceParams,
+        DidOpenTextDocumentParams, ErrorCodes, FoldingRangeParams, InitializeParams,
+        InitializedParams, NumberOrString, ReferenceParams, RenameFilesParams, ResponseError,
+        SemanticTokensParams, SemanticTokensRangeParams, SetTraceParams,
     },
 };
 
@@ -320,6 +321,7 @@ fn deserialize_request(msg: RequestMessage) -> Result<Message, ErrorResponse> {
     const INITIALIZE: &'static str = "initialize";
     const SHUTDOWN: &'static str = "shutdown";
     const TEXTDOC_DEFINITION: &'static str = "textDocument/definition";
+    const TEXTDOC_FOLDING_RANGE: &'static str = "textDocument/foldingRange";
     const TEXTDOC_REFERENCES: &'static str = "textDocument/references";
     const TEXTDOC_SEMANTIC_TOKENS_FULL: &'static str = "textDocument/semanticTokens/full";
     const TEXTDOC_SEMANTIC_TOKENS_RANGE: &'static str = "textDocument/semanticTokens/range";
@@ -338,6 +340,16 @@ fn deserialize_request(msg: RequestMessage) -> Result<Message, ErrorResponse> {
         SHUTDOWN => Ok(Message::Request(Request::ShutdownRequest { id: msg.id })),
         TEXTDOC_DEFINITION => match deserialize_msg_params::<DefinitionParams>(msg.params) {
             Ok(params) => Ok(Message::Request(Request::GoToDefinition {
+                id: msg.id,
+                params,
+            })),
+            Err(err) => Err(ErrorResponse {
+                id: Some(msg.id),
+                error: err,
+            }),
+        },
+        TEXTDOC_FOLDING_RANGE => match deserialize_msg_params::<FoldingRangeParams>(msg.params) {
+            Ok(params) => Ok(Message::Request(Request::FoldingRange {
                 id: msg.id,
                 params,
             })),
@@ -493,6 +505,11 @@ fn serialize_response(msg: Response) -> LineMessage {
     let (id, result, error): (Option<NumberOrString>, Option<Value>, Option<ResponseError>) =
         match msg {
             Response::ErrorResponse(ErrorResponse { id, error }) => (id, None, Some(error)),
+            Response::FoldingRangeResponse(FoldingRangeResponse { id, result }) => (
+                Some(id),
+                Some(serde_json::to_value(result).expect("Serialization must not fail.")),
+                None,
+            ),
             Response::FindReferencesResponse(FindReferencesResponse { id, result }) => (
                 Some(id),
                 Some(serde_json::to_value(result).expect("Serialization must not fail.")),
@@ -940,6 +957,27 @@ mod tests {
     }
 
     #[test]
+    fn can_create_folding_range_request() {
+        let msg = LineMessage::RequestMessage(RequestMessage {
+            jsonrpc: "2.0".to_string(),
+            id: protocol::NumberOrString::Number(1),
+            method: "textDocument/foldingRange".to_string(),
+            params: Some(json!({
+                "textDocument": {
+                    "uri": "file:///C:/project/file.cmm",
+                }
+            })),
+        });
+
+        let req = deserialize_msg(msg).expect("Should not fail.");
+
+        assert!(matches!(
+            req,
+            Message::Request(Request::FoldingRange { .. })
+        ));
+    }
+
+    #[test]
     fn can_create_set_trace_notification() {
         let msg = LineMessage::NotificationMessage(NotificationMessage {
             jsonrpc: "2.0".to_string(),
@@ -1210,6 +1248,23 @@ mod tests {
         let res: protocol::SemanticTokens = serde_json::from_str(result).expect("Should not fail.");
         let msg = serialize_msg(Message::Response(Response::SemanticTokensRangeResponse(
             SemanticTokensRangeResponse {
+                id: NumberOrString::Number(1),
+                result: Some(res),
+            },
+        )));
+
+        assert_eq!(msg, expected);
+    }
+
+    #[test]
+    fn can_create_folding_range_response() {
+        let result = r#"[{"collapsedText":"text in comment","endCharacter":0,"endLine":0,"kind":"comment","startCharacter":0,"startLine":0}]"#;
+        let expected = format!(r#"{{"jsonrpc":"2.0","id":1,"result":{}}}"#, result);
+
+        let res: Vec<protocol::FoldingRange> =
+            serde_json::from_str(result).expect("Should not fail.");
+        let msg = serialize_msg(Message::Response(Response::FoldingRangeResponse(
+            FoldingRangeResponse {
                 id: NumberOrString::Number(1),
                 result: Some(res),
             },

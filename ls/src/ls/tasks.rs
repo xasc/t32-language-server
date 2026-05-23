@@ -20,25 +20,25 @@ use crate::{
     ls::{
         State, Tasks,
         doc::{TextDoc, TextDocData, TextDocStatus, TextDocs},
-        language::{
-            FindDefintionsForMacroRefResult, MacroDefinitionLocation, MacroReferenceOrigin,
-        },
         log_notif,
         lsp::Message,
         mainloop::{trace_doc_cannot_read, trace_doc_change},
         request::{Notification, Request},
         response::{
-            ErrorResponse, FindReferencesResponse, GoToDefinitionResponse, LocationResult,
-            NullResponse, Response, SemanticTokensFullResponse, SemanticTokensRangeResponse,
+            ErrorResponse, FindReferencesResponse, FoldingRangeResponse, GoToDefinitionResponse,
+            LocationResult, NullResponse, Response, SemanticTokensFullResponse,
+            SemanticTokensRangeResponse,
         },
         tasks::{
             docsync::{process_doc_change_notif, process_doc_close_notif, process_doc_open_notif},
             lang::{
+                FindDefintionsForMacroRefResult, MacroDefinitionLocation, MacroReferenceOrigin,
                 process_find_references_req, process_find_references_result,
-                process_goto_definition_req, process_goto_definition_result,
-                process_semantic_tokens_full_req, process_semantic_tokens_range_req,
-                progress_find_external_macro_definitions, progress_find_macro_def_references,
-                progress_find_subscript_macro_refs, progress_goto_external_macro_def,
+                process_folding_range_req, process_goto_definition_req,
+                process_goto_definition_result, process_semantic_tokens_full_req,
+                process_semantic_tokens_range_req, progress_find_external_macro_definitions,
+                progress_find_macro_def_references, progress_find_subscript_macro_refs,
+                progress_goto_external_macro_def,
                 recv_find_external_definitions_for_macro_reference_sync,
                 recv_find_macro_def_references_sync, recv_find_subscript_macro_references_sync,
                 recv_goto_external_macro_def_sync,
@@ -77,6 +77,7 @@ pub enum FindMacroReferencesPhase {
 
 #[derive(Debug, PartialEq)]
 pub enum OngoingTask {
+    CodeFolds(NumberOrString, Instant),
     DidRenameFiles(NumberOrString, Instant),
     FindMacroReferences {
         id: NumberOrString,
@@ -123,7 +124,7 @@ pub struct TaskProgress {
     max_cycles: u32,
 }
 
-/// To find macro defintions in other files, we need to check for the presence
+/// To find macro definitions in other files, we need to check for the presence
 /// of script calls. `LOCAL` and `GLOBAL` macro definitions remain valid in
 /// subscripts.
 #[derive(Clone, Debug, PartialEq)]
@@ -224,7 +225,8 @@ impl MacroDefinitionLocationMap {
 impl OngoingTask {
     fn get_id(&self) -> &NumberOrString {
         match self {
-            OngoingTask::DidRenameFiles(id, ..)
+            OngoingTask::CodeFolds(id, ..)
+            | OngoingTask::DidRenameFiles(id, ..)
             | OngoingTask::FindMacroReferences { id, .. }
             | OngoingTask::FindReferences(id, ..)
             | OngoingTask::GoToExternalMacroDef { id, .. }
@@ -237,7 +239,8 @@ impl OngoingTask {
 
     fn get_onset(&self) -> &Instant {
         match self {
-            OngoingTask::DidRenameFiles(_, onset)
+            OngoingTask::CodeFolds(_, onset)
+            | OngoingTask::DidRenameFiles(_, onset)
             | OngoingTask::FindMacroReferences { onset, .. }
             | OngoingTask::FindReferences(_, onset)
             | OngoingTask::GoToExternalMacroDef { onset, .. }
@@ -252,9 +255,10 @@ impl OngoingTask {
         match self {
             OngoingTask::FindMacroReferences { progress, .. }
             | OngoingTask::GoToExternalMacroDef { progress, .. } => progress.aborted(),
-            OngoingTask::DidRenameFiles(..)
-            | OngoingTask::GoToDefinition(..)
+            OngoingTask::CodeFolds(..)
+            | OngoingTask::DidRenameFiles(..)
             | OngoingTask::FindReferences(..)
+            | OngoingTask::GoToDefinition(..)
             | OngoingTask::SemanticTokensFull { .. }
             | OngoingTask::SemanticTokensRange { .. }
             | OngoingTask::TextDocUpdate { .. } => false,
@@ -548,6 +552,26 @@ fn process_completed_task(
     outgoing: &mut Vec<Option<Message>>,
 ) -> Result<bool, ReturnCode> {
     match done {
+        TaskDone::CodeFolds(id, folds) => {
+            if cfg.trace_level != TraceValue::Off {
+                let idx = find_ongoing_task_by_id(&id, &ts.ongoing);
+                let Some(OngoingTask::CodeFolds(_, onset)) = &ts.ongoing[idx] else {
+                    unreachable!("No other type possible.");
+                };
+                outgoing.push(Some(trace_folding_range(
+                    Instant::now() - *onset,
+                    id.clone(),
+                )));
+            }
+
+            outgoing.push(Some(Message::Response(Response::FoldingRangeResponse(
+                FoldingRangeResponse {
+                    id,
+                    result: if folds.is_empty() { None } else { Some(folds) },
+                },
+            ))));
+            Ok(true)
+        }
         TaskDone::DidRenameFiles(
             id,
             ResolvedRenameFileOperations {
@@ -894,7 +918,8 @@ fn task_blocked(job: &Task, ongoing: &[Option<OngoingTask>]) -> bool {
                 Some(task) => match task {
                     OngoingTask::DidRenameFiles(..) => true,
                     OngoingTask::TextDocUpdate { uri: file, .. } => old.contains(&file),
-                    OngoingTask::FindMacroReferences { .. }
+                    OngoingTask::CodeFolds(..)
+                    | OngoingTask::FindMacroReferences { .. }
                     | OngoingTask::FindReferences(..)
                     | OngoingTask::GoToDefinition(..)
                     | OngoingTask::GoToExternalMacroDef { .. }
@@ -904,7 +929,17 @@ fn task_blocked(job: &Task, ongoing: &[Option<OngoingTask>]) -> bool {
                 None => unreachable!("Not empty slots allowed."),
             })
         }
-        Task::FindExternalDefinitionsForMacroRef {
+        Task::CodeFolds(
+            _,
+            _,
+            _,
+            TextDocData {
+                doc: TextDoc { uri, .. },
+                ..
+            },
+            ..,
+        )
+        | Task::FindExternalDefinitionsForMacroRef {
             textdoc:
                 TextDocData {
                     doc: TextDoc { uri, .. },
@@ -985,7 +1020,8 @@ fn task_blocked(job: &Task, ongoing: &[Option<OngoingTask>]) -> bool {
             Some(task) => match task {
                 OngoingTask::DidRenameFiles(..) => true,
                 OngoingTask::TextDocUpdate { uri: file, .. } => file == uri,
-                OngoingTask::FindMacroReferences { .. }
+                OngoingTask::CodeFolds(..)
+                | OngoingTask::FindMacroReferences { .. }
                 | OngoingTask::FindReferences(..)
                 | OngoingTask::GoToDefinition(..)
                 | OngoingTask::GoToExternalMacroDef { .. }
@@ -999,7 +1035,8 @@ fn task_blocked(job: &Task, ongoing: &[Option<OngoingTask>]) -> bool {
             Some(task) => match task {
                 OngoingTask::DidRenameFiles(..) => true,
                 OngoingTask::TextDocUpdate { uri: file, .. } => file == url.as_str(),
-                OngoingTask::FindMacroReferences { .. }
+                OngoingTask::CodeFolds(..)
+                | OngoingTask::FindMacroReferences { .. }
                 | OngoingTask::FindReferences(..)
                 | OngoingTask::GoToDefinition(..)
                 | OngoingTask::GoToExternalMacroDef { .. }
@@ -1019,6 +1056,7 @@ fn task_blocked(job: &Task, ongoing: &[Option<OngoingTask>]) -> bool {
 /// No status tracking for multi-stage tasks is performed.
 fn add_task_status_tracking(job: &Task, ongoing: &mut Vec<Option<OngoingTask>>) {
     let t = match job {
+        Task::CodeFolds(id, ..) => OngoingTask::CodeFolds(id.clone(), Instant::now()),
         Task::DidRenameFiles(id, ..) => OngoingTask::DidRenameFiles(id.clone(), Instant::now()),
         Task::FindReferences { id, .. } => OngoingTask::FindReferences(id.clone(), Instant::now()),
         Task::GoToDefinition(id, ..) => OngoingTask::GoToDefinition(id.clone(), Instant::now()),
@@ -1065,12 +1103,7 @@ fn process_msg(
         // All new requests after a shutdown request was received should
         // be trigger an `InvalidRequest` error.
         m if g.shutdown_request_recv && m.is_request() => {
-            outgoing.push(Some(error_shutdown_seq(
-                m.get_request()
-                    .get_id()
-                    .expect("Every request must have an ID.")
-                    .clone(),
-            )));
+            outgoing.push(Some(error_shutdown_seq(m.get_request().get_id().clone())));
         }
         Message::Notification(Notification::DidCloseTextDocumentNotification {
             params: DidCloseTextDocumentParams { text_document },
@@ -1108,6 +1141,17 @@ fn process_msg(
             params: SetTraceParams { value },
         }) => {
             cfg.trace_level = value;
+        }
+        Message::Request(Request::FoldingRange { id, params }) => {
+            process_folding_range_req(
+                id,
+                params,
+                cfg.trace_level,
+                cfg.code_folding.clone(),
+                &mut g.docs,
+                &mut g.tasks,
+                outgoing,
+            )?;
         }
         Message::Request(Request::FindReferences { id, params }) => {
             process_find_references_req(
@@ -1160,7 +1204,10 @@ fn process_msg(
         Message::Notification(Notification::ExitNotification { .. }) => {
             g.exit_requested = true;
         }
-        _ => (),
+        Message::Notification(Notification::InitializedNotification { .. })
+        | Message::Notification(Notification::LogTraceNotification { .. })
+        | Message::Response(_)
+        | Message::Request(Request::InitializeRequest { .. }) => (),
     }
     Ok(())
 }
@@ -1205,7 +1252,13 @@ fn progress_multi_part_tasks(
                     )?
                 }
             },
-            _ => (),
+            OngoingTask::CodeFolds(..)
+            | OngoingTask::DidRenameFiles(..)
+            | OngoingTask::FindReferences(..)
+            | OngoingTask::GoToDefinition(..)
+            | OngoingTask::SemanticTokensFull(..)
+            | OngoingTask::SemanticTokensRange(..)
+            | OngoingTask::TextDocUpdate { .. } => (),
         }
     }
 
@@ -1235,7 +1288,8 @@ fn find_ongoing_task_by_id(identifier: &NumberOrString, ongoing: &[Option<Ongoin
     ongoing
         .iter()
         .position(|t| match t {
-            Some(OngoingTask::DidRenameFiles(id, ..))
+            Some(OngoingTask::CodeFolds(id, ..))
+            | Some(OngoingTask::DidRenameFiles(id, ..))
             | Some(OngoingTask::FindReferences(id, ..))
             | Some(OngoingTask::FindMacroReferences { id, .. })
             | Some(OngoingTask::GoToDefinition(id, ..))
@@ -1295,6 +1349,19 @@ fn error_shutdown_seq(id: NumberOrString) -> Message {
             data: None,
         },
     }))
+}
+
+fn trace_folding_range(duration: Duration, id: NumberOrString) -> Message {
+    Message::Notification(Notification::LogTraceNotification {
+        params: LogTraceParams {
+            message: format!(
+                "INFO: Folding range request with ID {} completed in {:.4} seconds.",
+                id,
+                duration.as_secs_f32()
+            ),
+            verbose: None,
+        },
+    })
 }
 
 fn trace_dir_unknown(uri: &str) -> Message {

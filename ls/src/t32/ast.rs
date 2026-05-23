@@ -296,13 +296,13 @@ pub fn get_string_body<'a>(node: &Node, text: &'a str) -> &'a str {
 }
 
 pub fn find_deepest_node<'a>(
-    root: TreeCursor<'a>,
+    start: TreeCursor<'a>,
     offset: usize,
     stop_at: &[u16],
 ) -> Option<TreeCursor<'a>> {
     let mut sel: Option<TreeCursor> = None;
 
-    let mut cursor = root;
+    let mut cursor = start;
     while let Some(_) = cursor.goto_first_child_for_byte(offset) {
         let node = cursor.node();
         if !node.byte_range().contains(&offset) {

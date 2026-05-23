@@ -26,6 +26,7 @@
 //! --t32SystemDir=\"C:\\Program Files\\T32\"
 //! ~~~~
 //!
+
 use std::{
     env,
     io::{self, Write},
@@ -39,8 +40,8 @@ use serde::Serialize;
 use crate::{
     ReturnCode,
     protocol::{
-        PositionEncodingKind, SemanticTokenModifiers, SemanticTokenTypes, SemanticTokensLegend,
-        TraceValue, Uri, WorkspaceFolder,
+        FoldingRangeKind, PositionEncodingKind, SemanticTokensLegend, TraceValue, Uri,
+        WorkspaceFolder,
     },
 };
 
@@ -64,26 +65,32 @@ pub enum Workspace {
 }
 
 #[derive(Clone, Debug)]
-pub struct T32DefaultDirs {
-    pub system_dir: Option<PathBuf>,
-    pub temp_dir: Option<PathBuf>,
-    pub home_dir: Option<PathBuf>,
+pub struct CodeFoldingEncoding {
+    pub line_folds_only: bool,
+    pub collapsed_text_supported: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct CodeFoldingSupport {
+    pub encoding: CodeFoldingEncoding,
+    pub folding_range_kinds: Vec<FoldingRangeKind>,
 }
 
 #[derive(Debug)]
 pub struct Config {
+    pub channel: ChannelKind,
+    pub code_folding: CodeFoldingSupport,
+    pub did_rename_files_supported: bool,
+    pub location_links: LocationLinkSupport,
+    pub mode: OperationMode,
     pub parent_pid: Option<u32>,
     pub pid_check_interval: Duration,
-    pub channel: ChannelKind,
-    pub mode: OperationMode,
+    pub position_encoding: PositionEncodingKind,
     pub workspace: Workspace,
     pub workspace_folders_supported: bool,
-    pub trace_level: TraceValue,
-    pub position_encoding: PositionEncodingKind,
-    pub location_links: LocationLinkSupport,
-    pub did_rename_files_supported: bool,
     pub semantic_tokens: SemanticTokenSupport,
     pub t32_dirs: T32DefaultDirs,
+    pub trace_level: TraceValue,
 }
 
 #[derive(Debug)]
@@ -101,6 +108,13 @@ pub struct SemanticTokenEncoding {
 pub struct SemanticTokenSupport {
     pub encoding: SemanticTokenEncoding,
     pub legend: SemanticTokensLegend,
+}
+
+#[derive(Clone, Debug)]
+pub struct T32DefaultDirs {
+    pub system_dir: Option<PathBuf>,
+    pub temp_dir: Option<PathBuf>,
+    pub home_dir: Option<PathBuf>,
 }
 const PKG_VERSION: &'static str = env!("CARGO_PKG_VERSION");
 const GIT_HEADREF: Option<&'static str> = option_env!("GIT_HEAD_REF");
@@ -238,6 +252,7 @@ impl Config {
             mode,
             semantic_tokens: SemanticTokenSupport::default(),
             t32_dirs: T32DefaultDirs::build(t32_system_dir, t32_temp_dir),
+            code_folding: CodeFoldingSupport::default(),
         })
     }
 
@@ -272,9 +287,7 @@ impl Config {
             return Ok(None);
         }
 
-        let trim_parens = |s: &'a str| -> &'a str {
-            s.trim_matches(&['"', '\''])
-        };
+        let trim_parens = |s: &'a str| -> &'a str { s.trim_matches(&['"', '\'']) };
 
         let val: Vec<&str> = arg
             .split(long)
@@ -317,6 +330,22 @@ impl T32DefaultDirs {
     }
 }
 
+impl Default for CodeFoldingSupport {
+    fn default() -> Self {
+        Self {
+            encoding: CodeFoldingEncoding {
+                line_folds_only: true,
+                collapsed_text_supported: false,
+            },
+            folding_range_kinds: vec![
+                FoldingRangeKind::Comment,
+                FoldingRangeKind::Imports,
+                FoldingRangeKind::Region,
+            ],
+        }
+    }
+}
+
 impl Default for SemanticTokenSupport {
     fn default() -> Self {
         Self {
@@ -346,73 +375,6 @@ impl FromStr for OperationMode {
         match val {
             "server" => Ok(OperationMode::Server),
             "stdio-transport" => Ok(OperationMode::StdioTransport),
-            _ => Err(()),
-        }
-    }
-}
-
-impl FromStr for SemanticTokenModifiers {
-    type Err = ();
-
-    fn from_str(val: &str) -> Result<Self, Self::Err> {
-        match val {
-            "declaration" => Ok(Self::Declaration),
-            "definition" => Ok(Self::Definition),
-            "readonly" => Ok(Self::Readonly),
-            "static" => Ok(Self::Static),
-            "deprecated" => Ok(Self::Deprecated),
-            "abstract" => Ok(Self::Abstract),
-            "async" => Ok(Self::Async),
-            "modification" => Ok(Self::Modification),
-            "documentation" => Ok(Self::Documentation),
-            "defaultLibrary" => Ok(Self::DefaultLibrary),
-            _ => Err(()),
-        }
-    }
-}
-
-impl FromStr for SemanticTokenTypes {
-    type Err = ();
-
-    fn from_str(val: &str) -> Result<Self, Self::Err> {
-        match val {
-            "namespace" => Ok(Self::Namespace),
-            "type" => Ok(Self::Type),
-            "class" => Ok(Self::Class),
-            "enum" => Ok(Self::Enum),
-            "interface" => Ok(Self::Interface),
-            "struct" => Ok(Self::Struct),
-            "typeParameter" => Ok(Self::TypeParameter),
-            "parameter" => Ok(Self::Parameter),
-            "variable" => Ok(Self::Variable),
-            "property" => Ok(Self::Property),
-            "enumMember" => Ok(Self::EnumMember),
-            "event" => Ok(Self::Event),
-            "function" => Ok(Self::Function),
-            "method" => Ok(Self::Method),
-            "macro" => Ok(Self::Macro),
-            "keyword" => Ok(Self::Keyword),
-            "modifier" => Ok(Self::Modifier),
-            "comment" => Ok(Self::Comment),
-            "string" => Ok(Self::String),
-            "number" => Ok(Self::Number),
-            "regexp" => Ok(Self::Regexp),
-            "operator" => Ok(Self::Operator),
-            "decorator" => Ok(Self::Decorator),
-            "label" => Ok(Self::Label),
-            _ => Err(()),
-        }
-    }
-}
-
-impl FromStr for TraceValue {
-    type Err = ();
-
-    fn from_str(val: &str) -> Result<Self, Self::Err> {
-        match val {
-            "off" => Ok(TraceValue::Off),
-            "messages" => Ok(TraceValue::Messages),
-            "verbose" => Ok(TraceValue::Verbose),
             _ => Err(()),
         }
     }

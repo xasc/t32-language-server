@@ -2,16 +2,14 @@
 //
 // SPDX-License-Identifier: EUPL-1.2
 
+use serde::Serialize;
+
 use serde_json::json;
 
 use crate::{
     ls::{
         ReturnCode,
-        doc::{TextDocData, TextDocs},
-        language::{
-            GotoDefinitionResult, MacroReferenceOrigin, find_definition,
-            find_external_macro_definition, find_global_macro_definitions,
-        },
+        doc::{GlobalMacroDefIndex, TextDocData, TextDocs},
         lsp::Message,
         request::Notification,
         response::{GoToDefinitionResponse, LocationResult, NullResponse, Response},
@@ -20,9 +18,28 @@ use crate::{
             find_ongoing_task_by_id, trace_doc_unknown, try_schedule,
         },
     },
-    protocol::{DefinitionParams, LocationLink, LogTraceParams, NumberOrString, TraceValue, Uri},
-    t32::GotoDefLangContext,
+    protocol::{
+        DefinitionParams, LocationLink, LogTraceParams, NumberOrString, Position, Range as LRange,
+        TraceValue, Uri,
+    },
+    t32::{self, GotoDefLangContext, MacroDefinitionResult, NodeKind, Subroutine},
+    utils::BRange,
 };
+
+// TODO: Use dedicated types for GoToExternalMacroDef results. The first two
+// elements do not have to be repeated in this case.
+#[derive(Debug, PartialEq)]
+pub enum GotoDefinitionResult {
+    Final(Vec<LocationLink>),
+    PartialMacro(Uri, String, LRange, Vec<LocationLink>),
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct MacroReferenceOrigin {
+    pub name: String,
+    pub span: LRange,
+    pub uri: Uri,
+}
 
 pub fn process_goto_definition_req(
     id: NumberOrString,
@@ -312,6 +329,227 @@ fn queue_goto_external_macro_definitions(
     total
 }
 
+/// Retrieves definitions for `(macro)`, `(subroutine_call_expression)`, and
+/// `(command_expression)` nodes. `(command_expression)` nodes capture
+/// `DO` and `RUN` commands for subscripts calls.
+///   - Macros may have multiple definitions in other files due to the
+///     `LOCAL` keyword. `GLOBAL` macro definitions are ignored.
+///   - Subscript calls return the start of the script file.
+///   - Subroutine definitions are limited to the current file.
+///
+/// TODO: Add detection for macros that are nested inside HLL expressions. In
+///       this case the macro are detected as HLL entities.
+fn find_definition(
+    textdoc: TextDocData,
+    t32: GotoDefLangContext,
+    position: Position,
+) -> Option<GotoDefinitionResult> {
+    let offset = textdoc.doc.to_byte_offset(&position);
+
+    let lang = textdoc.tree.language();
+    let allowed_kinds = t32::get_goto_def_ids(&lang);
+
+    let root = textdoc.tree.walk();
+    let origin = t32::find_deepest_node(root, offset, &allowed_kinds)?;
+
+    let node = origin.node();
+    let origin_span = node.range();
+
+    match t32::id_into_node(&lang, origin.node().kind_id()) {
+        NodeKind::Macro => {
+            match t32::goto_infile_macro_definition(&textdoc.doc.text, &textdoc.tree, &t32, origin)?
+            {
+                MacroDefinitionResult::Final(gotos) => {
+                    let mut links: Vec<LocationLink> = Vec::with_capacity(gotos.len());
+                    for def in gotos {
+                        links.push(LocationLink::from_macro_def(
+                            &textdoc.doc,
+                            origin_span.into(),
+                            def,
+                        ));
+                    }
+                    Some(GotoDefinitionResult::Final(links))
+                }
+                MacroDefinitionResult::Partial(gotos) => {
+                    let mut links: Vec<LocationLink> = Vec::with_capacity(gotos.len());
+                    for def in gotos {
+                        links.push(LocationLink::from_macro_def(
+                            &textdoc.doc,
+                            origin_span.into(),
+                            def,
+                        ));
+                    }
+                    let name = textdoc.doc.text[node.byte_range()].to_string();
+                    let span = textdoc
+                        .doc
+                        .to_range(origin_span.start_byte, origin_span.end_byte);
+                    Some(GotoDefinitionResult::PartialMacro(
+                        textdoc.doc.uri,
+                        name,
+                        span,
+                        links,
+                    ))
+                }
+                MacroDefinitionResult::Indeterminate => {
+                    let name = textdoc.doc.text[node.byte_range()].to_string();
+                    let span = textdoc
+                        .doc
+                        .to_range(origin_span.start_byte, origin_span.end_byte);
+                    Some(GotoDefinitionResult::PartialMacro(
+                        textdoc.doc.uri,
+                        name,
+                        span,
+                        Vec::new(),
+                    ))
+                }
+            }
+        }
+        NodeKind::CommandExpression => {
+            let uri = t32::goto_file(&textdoc.doc.text, &t32.calls.scripts?, origin)?;
+
+            // Point to start of called script file
+            Some(GotoDefinitionResult::Final(vec![LocationLink::build(
+                &textdoc.doc,
+                Some(BRange::from(origin_span.start_byte..origin_span.end_byte)),
+                uri,
+                BRange::from(0..1),
+                BRange::from(0..1),
+            )]))
+        }
+        // TODO: `GOSUB &macro` must look for macro definition instead of subroutine.
+        NodeKind::SubroutineCallExpression => {
+            let sub: Subroutine =
+                t32::goto_subroutine_definition(&textdoc.doc.text, &t32.subroutines, origin)?;
+            let (target_range, target_sel) = if let Some(docstring) = sub.docstring {
+                (
+                    BRange::from(docstring.inner().start..sub.definition.inner().end),
+                    sub.name.clone(),
+                )
+            } else {
+                (sub.definition.clone(), sub.name.clone())
+            };
+
+            Some(GotoDefinitionResult::Final(vec![LocationLink::build(
+                &textdoc.doc,
+                Some(BRange::from(origin_span.start_byte..origin_span.end_byte)),
+                textdoc.doc.uri.clone(),
+                target_range,
+                target_sel,
+            )]))
+        }
+        _ => None,
+    }
+}
+
+fn find_external_macro_definition(
+    textdoc: TextDocData,
+    t32: GotoDefLangContext,
+    callers: Vec<Uri>,
+    origin: MacroReferenceOrigin,
+    backtrace: Uri,
+) -> (Option<GotoDefinitionResult>, Vec<Uri>) {
+    let Some(subscripts) = &t32.calls.scripts else {
+        return (None, callers);
+    };
+
+    let MacroReferenceOrigin {
+        name: r#macro,
+        span,
+        ..
+    } = origin;
+
+    let targets: Vec<BRange> = t32::locate_calls_to_file_target(subscripts, &backtrace);
+    if targets.is_empty() {
+        return (None, callers);
+    }
+
+    // TODO: `RUN` clears the PRACTICE stack, so it cannot propagate
+    // `LOCAL` macros.
+    // TODO: Add support for `GOTO` → `(label)` transitions.
+    match t32::goto_external_macro_definition(
+        &textdoc.doc.text,
+        &textdoc.tree,
+        &t32,
+        &r#macro,
+        targets,
+    ) {
+        Some(MacroDefinitionResult::Final(gotos)) => {
+            let mut links: Vec<LocationLink> = Vec::with_capacity(gotos.len());
+            for def in gotos {
+                links.push(LocationLink::from_ext_macro_def(
+                    &textdoc.doc,
+                    span.clone(),
+                    def,
+                ));
+            }
+            (Some(GotoDefinitionResult::Final(links)), callers)
+        }
+        Some(MacroDefinitionResult::Partial(gotos)) => {
+            let mut links: Vec<LocationLink> = Vec::with_capacity(gotos.len());
+            for def in gotos {
+                links.push(LocationLink::from_ext_macro_def(
+                    &textdoc.doc,
+                    span.clone(),
+                    def,
+                ));
+            }
+
+            (
+                Some(GotoDefinitionResult::PartialMacro(
+                    textdoc.doc.uri,
+                    r#macro,
+                    span.clone(),
+                    links,
+                )),
+                callers,
+            )
+        }
+        Some(MacroDefinitionResult::Indeterminate) => (
+            Some(GotoDefinitionResult::PartialMacro(
+                textdoc.doc.uri,
+                r#macro,
+                span,
+                Vec::new(),
+            )),
+            callers,
+        ),
+        None => (None, callers),
+    }
+}
+
+fn find_global_macro_definitions(
+    docs: &TextDocs,
+    macros: GlobalMacroDefIndex,
+    origin: MacroReferenceOrigin,
+) -> Vec<LocationLink> {
+    let mut links: Vec<LocationLink> = Vec::new();
+
+    let mut base: u32 = 0;
+    for (uri, num) in macros.0.into_iter().zip(macros.1.into_iter()) {
+        if uri == origin.uri {
+            base += num;
+            continue;
+        }
+
+        for (&r#macro, &def) in macros.2[base as usize..(base + num) as usize]
+            .into_iter()
+            .zip(macros.3[base as usize..(base + num) as usize].into_iter())
+        {
+            if *r#macro != origin.name {
+                continue;
+            }
+            let doc = docs.get_doc(&uri).expect("Document must exist.");
+            links.push(LocationLink::from_ext_macro_def(
+                doc,
+                origin.span.clone(),
+                def.clone(),
+            ));
+        }
+        base += num;
+    }
+    links
+}
+
 fn log_find_defs_req(id: NumberOrString) -> Message {
     Message::Notification(Notification::LogTraceNotification {
         params: LogTraceParams {
@@ -340,19 +578,41 @@ fn log_conv_goto_macro_ref_req(id: NumberOrString, r#macro: String) -> Message {
 mod tests {
     use super::*;
 
-    use std::time::Instant;
+    use std::{env, path, time::Instant};
+
+    use tree_sitter::Tree;
+
+    use url::Url;
 
     use crate::{
-        ls::{Task, TaskCounterInternal, TaskSystem},
-        protocol::{Position, Range},
-        utils::{create_doc_store, create_file_idx, files, to_file_uri},
+        config::T32DefaultDirs,
+        ls::doc::{self, TextDoc},
+        ls::{Task, TaskCounterInternal, TaskSystem, workspace},
+        protocol::{Position, Range as LRange},
+        t32::LangExpressions,
+        utils,
     };
+
+    fn find_def(file: &str, position: Position) -> Option<GotoDefinitionResult> {
+        let uri = Url::from_file_path(path::absolute(file).expect("File must exist.")).unwrap();
+
+        let file_idx = workspace::index_files(utils::files());
+        let dirs = T32DefaultDirs::default();
+
+        let (doc, tree, t32) = doc::read_doc(uri, &file_idx, &dirs).unwrap();
+
+        find_definition(
+            TextDocData { doc, tree },
+            GotoDefLangContext::from(t32),
+            position,
+        )
+    }
 
     #[test]
     fn can_process_goto_definition_result() {
-        let files = files();
-        let file_idx = create_file_idx();
-        let docs = create_doc_store(&files, &file_idx);
+        let files = utils::files();
+        let file_idx = utils::create_file_idx();
+        let docs = utils::create_doc_store(&files, &file_idx);
 
         let id = NumberOrString::Number(2);
         let onset = Instant::now();
@@ -365,14 +625,14 @@ mod tests {
             counter: TaskCounterInternal::new(),
         };
 
-        let uri_a = to_file_uri("tests/samples/a/a.cmm");
-        let uri_c = to_file_uri("tests/samples/c.cmm");
-        let uri_d = to_file_uri("tests/samples/a/d/d.cmm");
+        let uri_a = utils::to_file_uri("tests/samples/a/a.cmm");
+        let uri_c = utils::to_file_uri("tests/samples/c.cmm");
+        let uri_d = utils::to_file_uri("tests/samples/a/d/d.cmm");
 
         let goto_def_result = Some(GotoDefinitionResult::PartialMacro(
             uri_a.clone(),
             "&from_c_cmm".to_string(),
-            Range {
+            LRange {
                 start: Position {
                     line: 139,
                     character: 7,
@@ -389,7 +649,7 @@ mod tests {
 
         let origin = MacroReferenceOrigin {
             name: "&from_c_cmm".to_string(),
-            span: Range {
+            span: LRange {
                 start: Position {
                     line: 139,
                     character: 7,
@@ -438,19 +698,19 @@ mod tests {
 
     #[test]
     fn can_queue_lookups_for_external_macro_definitions() {
-        let files = files();
-        let file_idx = create_file_idx();
-        let docs = create_doc_store(&files, &file_idx);
+        let files = utils::files();
+        let file_idx = utils::create_file_idx();
+        let docs = utils::create_doc_store(&files, &file_idx);
 
         let id = NumberOrString::Number(2);
         let onset = Instant::now();
 
-        let uri_c = to_file_uri("tests/samples/c.cmm");
-        let uri_d = to_file_uri("tests/samples/a/d/d.cmm");
+        let uri_c = utils::to_file_uri("tests/samples/c.cmm");
+        let uri_d = utils::to_file_uri("tests/samples/a/d/d.cmm");
 
         let origin = MacroReferenceOrigin {
             name: "&from_c_cmm".to_string(),
-            span: Range {
+            span: LRange {
                 start: Position {
                     line: 139,
                     character: 7,
@@ -460,7 +720,7 @@ mod tests {
                     character: 18,
                 },
             },
-            uri: to_file_uri("tests/samples/a/a.cmm"),
+            uri: utils::to_file_uri("tests/samples/a/a.cmm"),
         };
 
         let mut ongoing = OngoingTask::GoToExternalMacroDef {
@@ -472,8 +732,8 @@ mod tests {
             undone: ExtMacroDefLookups {
                 files: vec![uri_c.clone(), uri_d.clone()],
                 callees: vec![
-                    to_file_uri("tests/samples/a/a.cmm"),
-                    to_file_uri("tests/samples/a/a.cmm"),
+                    utils::to_file_uri("tests/samples/a/a.cmm"),
+                    utils::to_file_uri("tests/samples/a/a.cmm"),
                 ],
             },
             results: Vec::new(),
@@ -483,7 +743,7 @@ mod tests {
             let mut map = FileCallMap::new();
 
             for file in [uri_c.clone(), uri_d.clone()] {
-                map.insert(file, to_file_uri("tests/samples/a/a.cmm"));
+                map.insert(file, utils::to_file_uri("tests/samples/a/a.cmm"));
             }
             map
         };
@@ -528,12 +788,12 @@ mod tests {
         let id = NumberOrString::Number(2);
         let onset = Instant::now();
 
-        let uri_c = to_file_uri("tests/samples/c.cmm");
-        let uri_d = to_file_uri("tests/samples/a/d/d.cmm");
+        let uri_c = utils::to_file_uri("tests/samples/c.cmm");
+        let uri_d = utils::to_file_uri("tests/samples/a/d/d.cmm");
 
         let origin = MacroReferenceOrigin {
             name: "&from_c_cmm".to_string(),
-            span: Range {
+            span: LRange {
                 start: Position {
                     line: 139,
                     character: 7,
@@ -543,7 +803,7 @@ mod tests {
                     character: 18,
                 },
             },
-            uri: to_file_uri("tests/samples/a/a.cmm"),
+            uri: utils::to_file_uri("tests/samples/a/a.cmm"),
         };
 
         let sync_goto_ext_def = Some(GotoDefinitionResult::PartialMacro(
@@ -620,7 +880,7 @@ mod tests {
             progress: TaskProgress::new(3),
             origin: MacroReferenceOrigin {
                 name: "test".to_string(),
-                span: Range {
+                span: LRange {
                     start: Position {
                         line: 0,
                         character: 0,
@@ -652,5 +912,1089 @@ mod tests {
 
         assert!(outgoing.is_empty());
         assert!(!completed.is_empty());
+    }
+
+    #[test]
+    fn can_find_global_macro_definition() {
+        let loc = find_def(
+            "tests/samples/a/a.cmm",
+            Position {
+                line: 133,
+                character: 14,
+            },
+        );
+
+        let file = env::current_dir()
+            .unwrap()
+            .join("tests")
+            .join("samples")
+            .join("a")
+            .join("a.cmm");
+        let _uri: Url = Url::from_file_path(path::absolute(file).unwrap()).unwrap();
+
+        let GotoDefinitionResult::Final(loc) = loc.expect("Must not be empty.") else {
+            panic!();
+        };
+        assert!(matches!(
+            &loc[..],
+            [LocationLink {
+                origin_selection_range: Some(LRange {
+                    start: Position {
+                        line: 133,
+                        character: 11,
+                    },
+                    end: Position {
+                        line: 133,
+                        character: 25,
+                    },
+                }),
+                target_uri: _uri,
+                target_range: LRange {
+                    start: Position {
+                        line: 136,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 137,
+                        character: 0,
+                    },
+                },
+                target_selection_range: LRange {
+                    start: Position {
+                        line: 136,
+                        character: 7,
+                    },
+                    end: Position {
+                        line: 136,
+                        character: 21,
+                    },
+                },
+            }]
+        ));
+    }
+
+    #[test]
+    fn can_find_macro_definition_inside_subroutine() {
+        let loc = find_def(
+            "tests/samples/a/a.cmm",
+            Position {
+                line: 29,
+                character: 11,
+            },
+        );
+
+        let file = env::current_dir()
+            .unwrap()
+            .join("tests")
+            .join("samples")
+            .join("a")
+            .join("a.cmm");
+        let _uri: Url = Url::from_file_path(path::absolute(file).unwrap()).unwrap();
+
+        let GotoDefinitionResult::Final(loc) = loc.expect("Must not be empty.") else {
+            panic!();
+        };
+        assert!(matches!(
+            &loc[..],
+            [LocationLink {
+                origin_selection_range: Some(LRange {
+                    start: Position {
+                        line: 29,
+                        character: 10,
+                    },
+                    end: Position {
+                        line: 29,
+                        character: 12,
+                    },
+                }),
+                target_uri: _uri,
+                target_range: LRange {
+                    start: Position {
+                        line: 28,
+                        character: 4,
+                    },
+                    end: Position {
+                        line: 29,
+                        character: 0,
+                    },
+                },
+                target_selection_range: LRange {
+                    start: Position {
+                        line: 28,
+                        character: 12,
+                    },
+                    end: Position {
+                        line: 28,
+                        character: 14,
+                    },
+                },
+            }]
+        ));
+    }
+
+    #[test]
+    fn can_find_outside_macro_definition_for_subroutine() {
+        let loc = find_def(
+            "tests/samples/a/a.cmm",
+            Position {
+                line: 38,
+                character: 10,
+            },
+        );
+
+        let file = env::current_dir()
+            .unwrap()
+            .join("tests")
+            .join("samples")
+            .join("a")
+            .join("a.cmm");
+        let uri: Url = Url::from_file_path(path::absolute(file).unwrap()).unwrap();
+
+        let loc = loc.expect("Must not be empty.");
+
+        assert_eq!(
+            loc,
+            GotoDefinitionResult::PartialMacro(
+                uri.to_string(),
+                "&local_macro".to_string(),
+                LRange {
+                    start: Position {
+                        line: 38,
+                        character: 4,
+                    },
+                    end: Position {
+                        line: 38,
+                        character: 16,
+                    },
+                },
+                vec![
+                    LocationLink {
+                        origin_selection_range: Some(LRange {
+                            start: Position {
+                                line: 38,
+                                character: 4,
+                            },
+                            end: Position {
+                                line: 38,
+                                character: 16,
+                            },
+                        }),
+                        target_uri: uri.to_string(),
+                        target_range: LRange {
+                            start: Position {
+                                line: 42,
+                                character: 0,
+                            },
+                            end: Position {
+                                line: 43,
+                                character: 0,
+                            },
+                        },
+                        target_selection_range: LRange {
+                            start: Position {
+                                line: 42,
+                                character: 6,
+                            },
+                            end: Position {
+                                line: 42,
+                                character: 18,
+                            },
+                        },
+                    },
+                    LocationLink {
+                        origin_selection_range: Some(LRange {
+                            start: Position {
+                                line: 38,
+                                character: 4,
+                            },
+                            end: Position {
+                                line: 38,
+                                character: 16,
+                            },
+                        }),
+                        target_uri: uri.to_string(),
+                        target_range: LRange {
+                            start: Position {
+                                line: 38,
+                                character: 4,
+                            },
+                            end: Position {
+                                line: 39,
+                                character: 0,
+                            },
+                        },
+                        target_selection_range: LRange {
+                            start: Position {
+                                line: 38,
+                                character: 4,
+                            },
+                            end: Position {
+                                line: 38,
+                                character: 16,
+                            },
+                        },
+                    },
+                ]
+            )
+        );
+    }
+
+    #[test]
+    fn can_find_macro_definition_across_subroutine_calls() {
+        let file = env::current_dir()
+            .unwrap()
+            .join("tests")
+            .join("samples")
+            .join("a")
+            .join("a.cmm");
+
+        let uri: Url = Url::from_file_path(path::absolute(file).unwrap()).unwrap();
+
+        for (loc, _link) in [
+            Position {
+                line: 58,
+                character: 22,
+            },
+            Position {
+                line: 58,
+                character: 30,
+            },
+        ]
+        .into_iter()
+        .zip([
+            [
+                LocationLink {
+                    origin_selection_range: Some(LRange {
+                        start: Position {
+                            line: 58,
+                            character: 11,
+                        },
+                        end: Position {
+                            line: 58,
+                            character: 23,
+                        },
+                    }),
+                    target_uri: uri.to_string(),
+                    target_range: LRange {
+                        start: Position {
+                            line: 65,
+                            character: 4,
+                        },
+                        end: Position {
+                            line: 66,
+                            character: 0,
+                        },
+                    },
+                    target_selection_range: LRange {
+                        start: Position {
+                            line: 65,
+                            character: 10,
+                        },
+                        end: Position {
+                            line: 65,
+                            character: 22,
+                        },
+                    },
+                },
+                LocationLink {
+                    origin_selection_range: Some(LRange {
+                        start: Position {
+                            line: 58,
+                            character: 11,
+                        },
+                        end: Position {
+                            line: 58,
+                            character: 23,
+                        },
+                    }),
+                    target_uri: uri.to_string(),
+                    target_range: LRange {
+                        start: Position {
+                            line: 72,
+                            character: 4,
+                        },
+                        end: Position {
+                            line: 73,
+                            character: 0,
+                        },
+                    },
+                    target_selection_range: LRange {
+                        start: Position {
+                            line: 72,
+                            character: 10,
+                        },
+                        end: Position {
+                            line: 72,
+                            character: 22,
+                        },
+                    },
+                },
+            ],
+            [
+                LocationLink {
+                    origin_selection_range: Some(LRange {
+                        start: Position {
+                            line: 58,
+                            character: 26,
+                        },
+                        end: Position {
+                            line: 58,
+                            character: 38,
+                        },
+                    }),
+                    target_uri: uri.to_string(),
+                    target_range: LRange {
+                        start: Position {
+                            line: 61,
+                            character: 0,
+                        },
+                        end: Position {
+                            line: 62,
+                            character: 0,
+                        },
+                    },
+                    target_selection_range: LRange {
+                        start: Position {
+                            line: 61,
+                            character: 6,
+                        },
+                        end: Position {
+                            line: 61,
+                            character: 18,
+                        },
+                    },
+                },
+                LocationLink {
+                    origin_selection_range: Some(LRange {
+                        start: Position {
+                            line: 58,
+                            character: 26,
+                        },
+                        end: Position {
+                            line: 58,
+                            character: 38,
+                        },
+                    }),
+                    target_uri: uri.to_string(),
+                    target_range: LRange {
+                        start: Position {
+                            line: 73,
+                            character: 4,
+                        },
+                        end: Position {
+                            line: 74,
+                            character: 0,
+                        },
+                    },
+                    target_selection_range: LRange {
+                        start: Position {
+                            line: 73,
+                            character: 10,
+                        },
+                        end: Position {
+                            line: 73,
+                            character: 22,
+                        },
+                    },
+                },
+            ],
+        ]) {
+            let def = find_def("tests/samples/a/a.cmm", loc);
+            assert!(matches!(def, _link));
+        }
+    }
+
+    #[test]
+    fn can_identify_implicit_macro_definitions() {
+        let file = env::current_dir()
+            .unwrap()
+            .join("tests")
+            .join("samples")
+            .join("a")
+            .join("a.cmm");
+
+        let uri: Url = Url::from_file_path(path::absolute(file).unwrap()).unwrap();
+
+        for (loc, link) in [
+            Position {
+                line: 84,
+                character: 11,
+            },
+            Position {
+                line: 91,
+                character: 12,
+            },
+            Position {
+                line: 100,
+                character: 11,
+            },
+            Position {
+                line: 107,
+                character: 11,
+            },
+            Position {
+                line: 115,
+                character: 11,
+            },
+            Position {
+                line: 170,
+                character: 7,
+            },
+        ]
+        .into_iter()
+        .zip([
+            LocationLink {
+                origin_selection_range: Some(LRange {
+                    start: Position {
+                        line: 84,
+                        character: 11,
+                    },
+                    end: Position {
+                        line: 84,
+                        character: 13,
+                    },
+                }),
+                target_uri: uri.to_string(),
+                target_range: LRange {
+                    start: Position {
+                        line: 82,
+                        character: 4,
+                    },
+                    end: Position {
+                        line: 83,
+                        character: 0,
+                    },
+                },
+                target_selection_range: LRange {
+                    start: Position {
+                        line: 82,
+                        character: 10,
+                    },
+                    end: Position {
+                        line: 82,
+                        character: 12,
+                    },
+                },
+            },
+            LocationLink {
+                origin_selection_range: Some(LRange {
+                    start: Position {
+                        line: 91,
+                        character: 11,
+                    },
+                    end: Position {
+                        line: 91,
+                        character: 13,
+                    },
+                }),
+                target_uri: uri.to_string(),
+                target_range: LRange {
+                    start: Position {
+                        line: 82,
+                        character: 4,
+                    },
+                    end: Position {
+                        line: 83,
+                        character: 0,
+                    },
+                },
+                target_selection_range: LRange {
+                    start: Position {
+                        line: 82,
+                        character: 10,
+                    },
+                    end: Position {
+                        line: 82,
+                        character: 12,
+                    },
+                },
+            },
+            LocationLink {
+                origin_selection_range: Some(LRange {
+                    start: Position {
+                        line: 100,
+                        character: 11,
+                    },
+                    end: Position {
+                        line: 100,
+                        character: 13,
+                    },
+                }),
+                target_uri: uri.to_string(),
+                target_range: LRange {
+                    start: Position {
+                        line: 98,
+                        character: 4,
+                    },
+                    end: Position {
+                        line: 99,
+                        character: 0,
+                    },
+                },
+                target_selection_range: LRange {
+                    start: Position {
+                        line: 98,
+                        character: 15,
+                    },
+                    end: Position {
+                        line: 98,
+                        character: 17,
+                    },
+                },
+            },
+            LocationLink {
+                origin_selection_range: Some(LRange {
+                    start: Position {
+                        line: 107,
+                        character: 11,
+                    },
+                    end: Position {
+                        line: 107,
+                        character: 13,
+                    },
+                }),
+                target_uri: uri.to_string(),
+                target_range: LRange {
+                    start: Position {
+                        line: 82,
+                        character: 4,
+                    },
+                    end: Position {
+                        line: 83,
+                        character: 0,
+                    },
+                },
+                target_selection_range: LRange {
+                    start: Position {
+                        line: 82,
+                        character: 10,
+                    },
+                    end: Position {
+                        line: 82,
+                        character: 12,
+                    },
+                },
+            },
+            LocationLink {
+                origin_selection_range: Some(LRange {
+                    start: Position {
+                        line: 115,
+                        character: 11,
+                    },
+                    end: Position {
+                        line: 115,
+                        character: 13,
+                    },
+                }),
+                target_uri: uri.to_string(),
+                target_range: LRange {
+                    start: Position {
+                        line: 82,
+                        character: 4,
+                    },
+                    end: Position {
+                        line: 83,
+                        character: 0,
+                    },
+                },
+                target_selection_range: LRange {
+                    start: Position {
+                        line: 82,
+                        character: 10,
+                    },
+                    end: Position {
+                        line: 82,
+                        character: 12,
+                    },
+                },
+            },
+            LocationLink {
+                origin_selection_range: Some(LRange {
+                    start: Position {
+                        line: 170,
+                        character: 4,
+                    },
+                    end: Position {
+                        line: 170,
+                        character: 13,
+                    },
+                }),
+                target_uri: uri.to_string(),
+                target_range: LRange {
+                    start: Position {
+                        line: 164,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 165,
+                        character: 0,
+                    },
+                },
+                target_selection_range: LRange {
+                    start: Position {
+                        line: 164,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 164,
+                        character: 9,
+                    },
+                },
+            },
+        ]) {
+            let result = find_def("tests/samples/a/a.cmm", loc);
+            assert!(result.is_some_and(|r| match r {
+                GotoDefinitionResult::Final(links)
+                | GotoDefinitionResult::PartialMacro(_, _, _, links) => links.contains(&link),
+            }));
+        }
+    }
+
+    #[test]
+    fn can_find_macro_definition_covering_subscript_call() {
+        let mut callers: Vec<Uri> = Vec::new();
+        for file in ["tests/samples/c.cmm"].into_iter() {
+            callers.push(
+                Url::from_file_path(path::absolute(file).expect("File must exist."))
+                    .unwrap()
+                    .to_string(),
+            );
+        }
+
+        for ((file, parents, origin, backtrace), _link) in [
+            (
+                "tests/samples/a/a.cmm",
+                callers.clone(),
+                MacroReferenceOrigin {
+                    name: "&local_macro".to_string(),
+                    span: LRange {
+                        start: Position {
+                            line: 17,
+                            character: 6,
+                        },
+                        end: Position {
+                            line: 17,
+                            character: 18,
+                        },
+                    },
+                    uri: Url::from_file_path(
+                        path::absolute("tests/samples/c.cmm").expect("File must exist."),
+                    )
+                    .unwrap()
+                    .to_string(),
+                },
+                Url::from_file_path(
+                    path::absolute("tests/samples/c.cmm").expect("File must exist."),
+                )
+                .unwrap()
+                .to_string(),
+            ),
+            (
+                "tests/samples/c.cmm",
+                callers.clone(),
+                MacroReferenceOrigin {
+                    name: "&from_c_cmm".to_string(),
+                    span: LRange {
+                        start: Position {
+                            line: 139,
+                            character: 7,
+                        },
+                        end: Position {
+                            line: 139,
+                            character: 18,
+                        },
+                    },
+                    uri: Url::from_file_path(
+                        path::absolute("tests/samples/a/a.cmm").expect("File must exist."),
+                    )
+                    .unwrap()
+                    .to_string(),
+                },
+                Url::from_file_path(
+                    path::absolute("tests/samples/a/a.cmm").expect("File must exist."),
+                )
+                .unwrap()
+                .to_string(),
+            ),
+        ]
+        .into_iter()
+        .zip([
+            LocationLink {
+                origin_selection_range: Some(LRange {
+                    start: Position {
+                        line: 17,
+                        character: 6,
+                    },
+                    end: Position {
+                        line: 17,
+                        character: 18,
+                    },
+                }),
+                target_uri: Url::from_file_path(
+                    path::absolute("tests/samples/a/a.cmm").expect("File must exist."),
+                )
+                .unwrap()
+                .to_string(),
+                target_range: LRange {
+                    start: Position {
+                        line: 42,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 43,
+                        character: 0,
+                    },
+                },
+                target_selection_range: LRange {
+                    start: Position {
+                        line: 42,
+                        character: 6,
+                    },
+                    end: Position {
+                        line: 42,
+                        character: 18,
+                    },
+                },
+            },
+            LocationLink {
+                origin_selection_range: Some(LRange {
+                    start: Position {
+                        line: 139,
+                        character: 7,
+                    },
+                    end: Position {
+                        line: 139,
+                        character: 18,
+                    },
+                }),
+                target_uri: Url::from_file_path(
+                    path::absolute("tests/samples/a/a.cmm").expect("File must exist."),
+                )
+                .unwrap()
+                .to_string(),
+                target_range: LRange {
+                    start: Position {
+                        line: 22,
+                        character: 4,
+                    },
+                    end: Position {
+                        line: 23,
+                        character: 0,
+                    },
+                },
+                target_selection_range: LRange {
+                    start: Position {
+                        line: 22,
+                        character: 10,
+                    },
+                    end: Position {
+                        line: 22,
+                        character: 21,
+                    },
+                },
+            },
+        ]) {
+            let (Some(GotoDefinitionResult::Final(loc)), successors) =
+                find_external_macro_def(file, parents, origin, backtrace)
+            else {
+                panic!();
+            };
+
+            assert!(matches!(&loc[..], _link));
+            assert_eq!(successors, callers);
+        }
+    }
+
+    #[test]
+    fn can_find_macro_global_macro_definition() {
+        let file_idx = utils::create_file_idx();
+        let dirs = T32DefaultDirs::default();
+
+        let files = utils::files();
+        let mut members: Vec<(TextDoc, Tree, LangExpressions)> = Vec::new();
+
+        for uri in files {
+            let (doc, tree, expr) =
+                doc::read_doc(uri.clone(), &file_idx, &dirs).expect("Must not fail.");
+            members.push((doc, tree, expr));
+        }
+
+        let docs = TextDocs::from_workspace(members);
+
+        let globals = docs.get_all_global_macros().expect("Must not fail.");
+
+        let links = find_global_macro_definitions(
+            &docs,
+            globals,
+            MacroReferenceOrigin {
+                name: "&global_macro".to_string(),
+                span: LRange {
+                    start: Position {
+                        line: 31,
+                        character: 7,
+                    },
+                    end: Position {
+                        line: 31,
+                        character: 20,
+                    },
+                },
+                uri: Url::from_file_path(
+                    path::absolute("tests/samples/c.cmm").expect("File must exist."),
+                )
+                .unwrap()
+                .to_string(),
+            },
+        );
+
+        let _uri = utils::to_file_uri("tests/samples/a/a.cmm");
+
+        assert!(matches!(
+            &links[..],
+            [LocationLink {
+                origin_selection_range: Some(LRange {
+                    start: Position {
+                        line: 31,
+                        character: 7,
+                    },
+                    end: Position {
+                        line: 31,
+                        character: 20,
+                    },
+                }),
+                target_uri: _uri,
+                target_range: LRange {
+                    start: Position {
+                        line: 41,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 42,
+                        character: 0,
+                    },
+                },
+                target_selection_range: LRange {
+                    start: Position {
+                        line: 41,
+                        character: 7,
+                    },
+                    end: Position {
+                        line: 41,
+                        character: 20,
+                    },
+                },
+            }]
+        ));
+    }
+
+    fn find_external_macro_def(
+        file: &str,
+        callers: Vec<Uri>,
+        origin: MacroReferenceOrigin,
+        backtrace: Uri,
+    ) -> (Option<GotoDefinitionResult>, Vec<Uri>) {
+        let uri = Url::from_file_path(path::absolute(file).expect("File must exist.")).unwrap();
+
+        let file_idx = workspace::index_files(utils::files());
+        let dirs = T32DefaultDirs::default();
+
+        let (doc, tree, t32) = doc::read_doc(uri, &file_idx, &dirs).unwrap();
+
+        find_external_macro_definition(
+            TextDocData { doc, tree },
+            GotoDefLangContext::from(t32),
+            callers,
+            origin,
+            backtrace,
+        )
+    }
+
+    #[test]
+    fn can_find_private_macro_definition() {
+        let loc = find_def(
+            "tests/samples/a/a.cmm",
+            Position {
+                line: 8,
+                character: 0,
+            },
+        );
+
+        let file = env::current_dir()
+            .unwrap()
+            .join("tests")
+            .join("samples")
+            .join("a")
+            .join("a.cmm");
+        let _uri: Url = Url::from_file_path(path::absolute(file).unwrap()).unwrap();
+
+        let GotoDefinitionResult::Final(loc) = loc.expect("Must not be empty.") else {
+            panic!();
+        };
+
+        assert!(matches!(
+            &loc[..],
+            [LocationLink {
+                origin_selection_range: Some(LRange {
+                    start: Position {
+                        line: 8,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 8,
+                        character: 14,
+                    },
+                }),
+                target_uri: _uri,
+                target_range: LRange {
+                    start: Position {
+                        line: 6,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 7,
+                        character: 0,
+                    },
+                },
+                target_selection_range: LRange {
+                    start: Position {
+                        line: 6,
+                        character: 8,
+                    },
+                    end: Position {
+                        line: 6,
+                        character: 22,
+                    },
+                },
+            }]
+        ));
+    }
+
+    #[test]
+    fn can_find_macro_definition_with_docstring() {
+        let loc = find_def(
+            "tests/samples/a/a.cmm",
+            Position {
+                line: 22,
+                character: 21,
+            },
+        );
+
+        let file = env::current_dir()
+            .unwrap()
+            .join("tests")
+            .join("samples")
+            .join("a")
+            .join("a.cmm");
+        let _uri: Url = Url::from_file_path(path::absolute(file).unwrap()).unwrap();
+
+        let GotoDefinitionResult::Final(loc) = loc.expect("Must not be empty.") else {
+            panic!();
+        };
+        assert!(matches!(
+            &loc[..],
+            [LocationLink {
+                origin_selection_range: Some(LRange {
+                    start: Position {
+                        line: 22,
+                        character: 13,
+                    },
+                    end: Position {
+                        line: 22,
+                        character: 26,
+                    },
+                }),
+                target_uri: _uri,
+                target_range: LRange {
+                    start: Position {
+                        line: 15,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 19,
+                        character: 0,
+                    },
+                },
+                target_selection_range: LRange {
+                    start: Position {
+                        line: 18,
+                        character: 12,
+                    },
+                    end: Position {
+                        line: 18,
+                        character: 25,
+                    },
+                },
+            }]
+        ));
+    }
+
+    #[test]
+    fn can_break_recursion_loops_for_subroutine_macro_defs() {
+        let loc = find_def(
+            "tests/samples/a/a.cmm",
+            Position {
+                line: 127,
+                character: 13,
+            },
+        );
+        assert!(loc.is_none());
+    }
+
+    #[test]
+    fn can_find_subscript_call_target() {
+        let loc = find_def(
+            "tests/samples/a/a.cmm",
+            Position {
+                line: 49,
+                character: 8,
+            },
+        );
+
+        let file = env::current_dir()
+            .unwrap()
+            .join("tests")
+            .join("samples")
+            .join("a")
+            .join("a.cmm");
+        let _uri: Url = Url::from_file_path(path::absolute(file).unwrap()).unwrap();
+
+        let GotoDefinitionResult::Final(loc) = loc.expect("Must not be empty.") else {
+            panic!();
+        };
+        assert!(matches!(
+            &loc[0],
+            LocationLink {
+                origin_selection_range: Some(LRange {
+                    start: Position {
+                        line: 49,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 50,
+                        character: 0,
+                    },
+                }),
+                target_uri: _uri,
+                target_range: LRange {
+                    start: Position {
+                        line: 0,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 0,
+                        character: 1,
+                    },
+                },
+                target_selection_range: LRange {
+                    start: Position {
+                        line: 0,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 0,
+                        character: 1,
+                    },
+                },
+            }
+        ));
     }
 }

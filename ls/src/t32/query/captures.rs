@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: EUPL-1.2
 
+pub const CAPTURE_BLOCK: &'static str = "block";
 pub const CAPTURE_COMMENT: &'static str = "comment";
 pub const CAPTURE_CONDITIONAL: &'static str = "conditional";
 pub const CAPTURE_CONDITIONAL_TERNARY: &'static str = "conditional.ternary";

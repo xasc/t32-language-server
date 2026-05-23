@@ -352,6 +352,23 @@ pub fn make_did_open_text_doc_notification(uri: String) -> String {
 }
 
 #[allow(dead_code)]
+pub fn make_did_open_text_doc_notification_with_text(uri: String, text: String) -> String {
+    let content = json!({
+        "jsonrpc": "2.0",
+        "method": "textDocument/didOpen",
+        "params": {
+            "textDocument": {
+                "uri": uri,
+                "languageId": "practice",
+                "version": 1,
+                "text": text,
+            }
+        }
+    });
+    build_msg(&content.to_string())
+}
+
+#[allow(dead_code)]
 pub fn make_did_rename_files_notification() -> String {
     let dir = env::current_dir().unwrap().join("tests").join("samples");
 
@@ -447,6 +464,32 @@ pub fn make_semantic_tokens_doc_range_request(id: isize, uri: String) -> String 
         "jsonrpc": "2.0",
         "id": id,
         "method": "textDocument/semanticTokens/range",
+        "params": {
+            "textDocument": {
+                "uri": uri,
+            },
+            "range": {
+                "start": {
+                    "line": 1,
+                    "character": 0,
+                },
+                "end": {
+                    "line": 2,
+                    "character": 0,
+                }
+
+            }
+        }
+    });
+    build_msg(&content.to_string())
+}
+
+#[allow(dead_code)]
+pub fn make_folding_range_request(id: isize, uri: String) -> String {
+    let content = json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "method": "textDocument/foldingRange",
         "params": {
             "textDocument": {
                 "uri": uri,

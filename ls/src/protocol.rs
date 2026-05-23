@@ -2,11 +2,13 @@
 //
 // SPDX-License-Identifier: EUPL-1.2
 
-use std::fmt;
+use std::{fmt, str::FromStr};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use serde_repr::{Deserialize_repr, Serialize_repr};
+
+use crate::{ls::TextDoc, t32::MacroDefinition, utils::BRange};
 
 type DocumentUri = String;
 type DocumentSelector = Vec<DocumentFilter>;
@@ -259,7 +261,7 @@ pub enum SemanticTokenTypes {
     Decorator = 23,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum FoldingRangeKind {
     Comment,
@@ -975,9 +977,8 @@ pub struct TextDocumentClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     publish_diagnostics: Option<PublishDiagnosticsClientCapabilities>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
-    folding_range: Option<FoldingRangeClientCapabilities>,
+    pub folding_range: Option<FoldingRangeClientCapabilities>,
 
     #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1439,40 +1440,39 @@ pub struct DiagnosticTagSupportCapability {
     value_set: Vec<DiagnosticTag>,
 }
 
-#[expect(unused)]
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FoldingRangeClientCapabilities {
+    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 
+    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     range_limit: Option<u32>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    line_folding_only: Option<bool>,
+    pub line_folding_only: Option<bool>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    folding_range_kind: Option<FoldingRangeKindCapabilities>,
+    pub folding_range_kind: Option<FoldingRangeKindCapabilities>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    folding_range: Option<FoldingRangeCapabilities>,
+    pub folding_range: Option<FoldingRangeCapabilities>,
 }
 
-#[expect(unused)]
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FoldingRangeKindCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
-    value_set: Vec<FoldingRangeKind>,
+    pub value_set: Vec<FoldingRangeKind>,
 }
 
-#[expect(unused)]
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FoldingRangeCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
-    collapsed_text: Option<bool>,
+    pub collapsed_text: Option<bool>,
 }
 
 #[expect(unused)]
@@ -2663,6 +2663,98 @@ pub struct SemanticTokens {
     pub data: Vec<u32>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FoldingRangeParams {
+    pub text_document: TextDocumentIdentifier,
+
+    #[expect(unused)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub work_done_token: Option<ProgressToken>,
+
+    #[expect(unused)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub partial_result_token: Option<ProgressToken>,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FoldingRange {
+    pub start_line: u32,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_character: Option<u32>,
+
+    pub end_line: u32,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end_character: Option<u32>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<FoldingRangeKind>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub collapsed_text: Option<String>,
+}
+
+impl LocationLink {
+    pub fn build(
+        doc: &TextDoc,
+        origin: Option<BRange>,
+        uri: Uri,
+        target_range: BRange,
+        target_sel: BRange,
+    ) -> Self {
+        LocationLink {
+            origin_selection_range: match origin {
+                Some(range) => Some(doc.to_range(range.inner().start, range.inner().end)),
+                None => None,
+            },
+            target_uri: uri,
+            target_range: doc.to_range(target_range.inner().start, target_range.inner().end),
+            target_selection_range: doc.to_range(target_sel.inner().start, target_sel.inner().end),
+        }
+    }
+
+    pub fn from_macro_def(doc: &TextDoc, origin: BRange, r#macro: MacroDefinition) -> Self {
+        let (target_range, target_sel): (BRange, BRange) =
+            if let Some(docstring) = r#macro.docstring {
+                (
+                    BRange::from(docstring.inner().start..r#macro.cmd.inner().end),
+                    r#macro.r#macro,
+                )
+            } else {
+                (r#macro.cmd, r#macro.r#macro)
+            };
+
+        LocationLink::build(
+            &doc,
+            Some(origin.into()),
+            doc.uri.clone(),
+            target_range,
+            target_sel,
+        )
+    }
+
+    pub fn from_ext_macro_def(doc: &TextDoc, origin: Range, r#macro: MacroDefinition) -> Self {
+        let (target_range, target_sel) = if let Some(docstring) = r#macro.docstring {
+            (
+                BRange::from(docstring.inner().start..r#macro.cmd.inner().end),
+                r#macro.r#macro,
+            )
+        } else {
+            (r#macro.cmd, r#macro.r#macro)
+        };
+
+        LocationLink {
+            origin_selection_range: Some(origin),
+            target_uri: doc.uri.clone(),
+            target_range: doc.to_range(target_range.inner().start, target_range.inner().end),
+            target_selection_range: doc.to_range(target_sel.inner().start, target_sel.inner().end),
+        }
+    }
+}
+
 impl Range {
     pub fn contains(&self, other: &Range) -> bool {
         let Self {
@@ -2692,5 +2784,122 @@ impl fmt::Display for NumberOrString {
             NumberOrString::String(s) => write!(f, "{}", s),
             NumberOrString::Number(n) => write!(f, "{}", n),
         }
+    }
+}
+
+impl FromStr for SemanticTokenModifiers {
+    type Err = ();
+
+    fn from_str(val: &str) -> Result<Self, Self::Err> {
+        match val {
+            "declaration" => Ok(Self::Declaration),
+            "definition" => Ok(Self::Definition),
+            "readonly" => Ok(Self::Readonly),
+            "static" => Ok(Self::Static),
+            "deprecated" => Ok(Self::Deprecated),
+            "abstract" => Ok(Self::Abstract),
+            "async" => Ok(Self::Async),
+            "modification" => Ok(Self::Modification),
+            "documentation" => Ok(Self::Documentation),
+            "defaultLibrary" => Ok(Self::DefaultLibrary),
+            _ => Err(()),
+        }
+    }
+}
+
+impl FromStr for SemanticTokenTypes {
+    type Err = ();
+
+    fn from_str(val: &str) -> Result<Self, Self::Err> {
+        match val {
+            "namespace" => Ok(Self::Namespace),
+            "type" => Ok(Self::Type),
+            "class" => Ok(Self::Class),
+            "enum" => Ok(Self::Enum),
+            "interface" => Ok(Self::Interface),
+            "struct" => Ok(Self::Struct),
+            "typeParameter" => Ok(Self::TypeParameter),
+            "parameter" => Ok(Self::Parameter),
+            "variable" => Ok(Self::Variable),
+            "property" => Ok(Self::Property),
+            "enumMember" => Ok(Self::EnumMember),
+            "event" => Ok(Self::Event),
+            "function" => Ok(Self::Function),
+            "method" => Ok(Self::Method),
+            "macro" => Ok(Self::Macro),
+            "keyword" => Ok(Self::Keyword),
+            "modifier" => Ok(Self::Modifier),
+            "comment" => Ok(Self::Comment),
+            "string" => Ok(Self::String),
+            "number" => Ok(Self::Number),
+            "regexp" => Ok(Self::Regexp),
+            "operator" => Ok(Self::Operator),
+            "decorator" => Ok(Self::Decorator),
+            "label" => Ok(Self::Label),
+            _ => Err(()),
+        }
+    }
+}
+
+impl FromStr for TraceValue {
+    type Err = ();
+
+    fn from_str(val: &str) -> Result<Self, Self::Err> {
+        match val {
+            "off" => Ok(TraceValue::Off),
+            "messages" => Ok(TraceValue::Messages),
+            "verbose" => Ok(TraceValue::Verbose),
+            _ => Err(()),
+        }
+    }
+}
+
+impl SemanticTokenTypes {
+    pub const fn num() -> usize {
+        [
+            Self::Namespace,
+            Self::Type,
+            Self::Class,
+            Self::Enum,
+            Self::Interface,
+            Self::Struct,
+            Self::TypeParameter,
+            Self::Parameter,
+            Self::Variable,
+            Self::Property,
+            Self::EnumMember,
+            Self::Event,
+            Self::Function,
+            Self::Method,
+            Self::Macro,
+            Self::Keyword,
+            Self::Modifier,
+            Self::Comment,
+            Self::String,
+            Self::Number,
+            Self::Regexp,
+            Self::Operator,
+            Self::Decorator,
+            Self::Label,
+        ]
+        .len()
+    }
+}
+
+impl SemanticTokenModifiers {
+    pub const fn num() -> usize {
+        [
+            Self::Declaration,
+            Self::Definition,
+            Self::Readonly,
+            Self::Static,
+            Self::Deprecated,
+            Self::Abstract,
+            Self::Async,
+            Self::Modification,
+            Self::Documentation,
+            Self::DefaultLibrary,
+        ]
+        .len()
     }
 }

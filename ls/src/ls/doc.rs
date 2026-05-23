@@ -154,7 +154,7 @@ pub fn resolve_call_expressions(
 
         for (expr, kind) in scripts.into_iter() {
             if let Some(calls) =
-                resolve_subscript_call_targets(text, &tree, expr.target.start, files, dirs)
+                resolve_subscript_call_targets(text, &tree, expr.target.inner().start, files, dirs)
             {
                 for call in calls.into_iter() {
                     locations.push(expr.clone());
@@ -262,7 +262,7 @@ mod test {
             assert!(
                 subroutines
                     .iter()
-                    .find_map(|s| (doc.text[s.name.clone()] == **name).then_some(()))
+                    .find_map(|s| (doc.text[s.name.clone().to_inner()] == **name).then_some(()))
                     .is_some()
             );
         }
@@ -286,7 +286,7 @@ mod test {
             assert!(
                 subroutines
                     .iter()
-                    .find_map(|s| (doc.text[s.name.clone()] == **name).then_some(()))
+                    .find_map(|s| (doc.text[s.name.clone().to_inner()] == **name).then_some(()))
                     .is_some()
             );
         }
@@ -314,7 +314,9 @@ mod test {
         assert!(
             globals
                 .iter()
-                .find_map(|s| (doc.text[s.r#macro.clone()] == *"&global_macro").then_some(()))
+                .find_map(
+                    |s| (doc.text[s.r#macro.clone().to_inner()] == *"&global_macro").then_some(())
+                )
                 .is_some()
         );
     }
@@ -377,8 +379,8 @@ mod test {
         ) = read_doc(file, &file_idx, &dirs).expect("Must not fail.");
 
         for def in [MacroDefinition {
-            cmd: 1707usize..1722usize,
-            r#macro: 1715usize..1721usize,
+            cmd: BRange::from(1707usize..1722usize),
+            r#macro: BRange::from(1715usize..1721usize),
             docstring: None,
         }] {
             assert!(privates.contains(&def));
@@ -407,7 +409,9 @@ mod test {
         assert!(
             locals
                 .iter()
-                .find_map(|s| (doc.text[s.r#macro.clone()] == *"&local_macro").then_some(()))
+                .find_map(
+                    |s| (doc.text[s.r#macro.clone().to_inner()] == *"&local_macro").then_some(())
+                )
                 .is_some()
         );
     }
@@ -434,7 +438,9 @@ mod test {
         assert!(
             privates
                 .iter()
-                .find_map(|s| (doc.text[s.r#macro.clone()] == *"&private_macro").then_some(()))
+                .find_map(
+                    |s| (doc.text[s.r#macro.clone().to_inner()] == *"&private_macro").then_some(())
+                )
                 .is_some()
         );
     }
@@ -455,13 +461,13 @@ mod test {
         assert!(
             parameters
                 .iter()
-                .find_map(|s| (doc.text[s.r#macro.clone()] == *"&b").then_some(()))
+                .find_map(|s| (doc.text[s.r#macro.clone().to_inner()] == *"&b").then_some(()))
                 .is_some()
         );
         assert!(
             parameters
                 .iter()
-                .find_map(|s| (doc.text[s.r#macro.clone()] == *"&x").then_some(()))
+                .find_map(|s| (doc.text[s.r#macro.clone().to_inner()] == *"&x").then_some(()))
                 .is_some()
         );
     }
@@ -488,14 +494,14 @@ mod test {
         assert!(
             subroutines
                 .iter()
-                .find_map(|s| (doc.text[s.target.clone()] == *"subA").then_some(()))
+                .find_map(|s| (doc.text[s.target.clone().to_inner()] == *"subA").then_some(()))
                 .is_some()
         );
         assert!(
             subroutines
                 .iter()
                 .find_map(|s| (s.docstring.is_some()
-                    && doc.text[s.docstring.as_ref().unwrap().clone()]
+                    && doc.text[s.docstring.as_ref().unwrap().clone().to_inner()]
                         == *"// This is a subroutine call\n")
                     .then_some(()))
                 .is_some()
@@ -527,7 +533,7 @@ mod test {
                 .unwrap()
                 .locations
                 .iter()
-                .find_map(|c| (doc.text[c.target.clone()] == *"../b/b.cmm").then_some(()))
+                .find_map(|c| (doc.text[c.target.clone().to_inner()] == *"../b/b.cmm").then_some(()))
                 .is_some()
         );
         assert!(
@@ -536,7 +542,7 @@ mod test {
                 .unwrap()
                 .locations
                 .iter()
-                .find_map(|c| (doc.text[c.target.clone()] == *"../c.cmm").then_some(()))
+                .find_map(|c| (doc.text[c.target.clone().to_inner()] == *"../c.cmm").then_some(()))
                 .is_some()
         );
         assert!(
@@ -546,7 +552,7 @@ mod test {
                 .locations
                 .iter()
                 .find_map(|c| (c.docstring.is_some()
-                    && doc.text[c.docstring.as_ref().unwrap().clone()]
+                    && doc.text[c.docstring.as_ref().unwrap().clone().to_inner()]
                         == *"// This is subscript call\n")
                     .then_some(()))
                 .is_some()

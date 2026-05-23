@@ -26,39 +26,179 @@
 //!       files with a corresponding macro definitions.
 //!
 
+use std::cmp::Ordering;
+
 use url::Url;
 
 use serde_json::json;
+
+use tree_sitter::{Node, TreeCursor};
 
 use crate::{
     config::Config,
     ls::{
         ReturnCode,
-        doc::{TextDocData, TextDocs},
-        language::{
-            FileLocation, FindDefintionsForMacroRefResult, FindMacroReferencesResult,
-            FindReferencesPartialResult, FindReferencesResult, MacroDefinitionLocation,
-            MacroReferenceOrigin, find_external_definitions_for_macro_ref,
-            find_infile_macro_references, find_macro_references_from_origin, find_references,
-        },
+        doc::{TextDoc, TextDocData, TextDocs},
         lsp::Message,
         request::Notification,
         response::{FindReferencesResponse, NullResponse, Response},
         tasks::{
             ExtMacroDefLookups, FileCallMap, FindMacroReferencesPhase, MacroDefinitionLocationMap,
             OngoingTask, Task, TaskDone, TaskProgress, Tasks, find_ongoing_task_by_id,
-            trace_doc_unknown, try_schedule,
+            lang::MacroReferenceOrigin, trace_doc_unknown, try_schedule,
         },
         workspace::FileIndex,
     },
-    protocol::{Location, LogTraceParams, NumberOrString, ReferenceParams, TraceValue, Uri},
-    t32::{
-        FindMacroRefsLangContext, FindRefsLangContext, GotoDefLangContext, MacroScope,
-        PathShorthandDirs, resolve_script,
+    protocol::{
+        Location, LogTraceParams, NumberOrString, Position, Range as LRange, ReferenceParams,
+        TraceValue, Uri,
     },
-    utils::FileLocationMap,
+    t32::{
+        self, FindMacroRefsLangContext, FindRefsLangContext, GotoDefLangContext, MacroDefinition,
+        MacroDefinitionResult, MacroScope, NodeKind, PathShorthandDirs, resolve_script,
+    },
+    utils::{BRange, FileLocationMap},
 };
 
+#[derive(Debug, PartialEq)]
+pub enum FindDefintionsForMacroRefResult {
+    Final(Vec<MacroDefinitionLocation>, Uri),
+    Partial(Vec<MacroDefinitionLocation>, Uri, Vec<Uri>),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum FindReferencesPartialResult {
+    Command(String),
+    MacroDefsComplete {
+        origin: MacroReferenceOrigin,
+        definitions: Vec<(FileLocation, Option<MacroScope>)>,
+    },
+    MacroDefsIncomplete {
+        origin: MacroReferenceOrigin,
+        definitions: Vec<(FileLocation, Option<MacroScope>)>,
+    },
+    FileTarget {
+        origin_uri: Uri,
+        target: String,
+    },
+}
+
+#[derive(Debug, PartialEq)]
+pub enum FindReferencesResult {
+    Final(Vec<Location>),
+    Partial(FindReferencesPartialResult),
+}
+
+#[derive(Clone, Debug)]
+pub enum MacroDefinitionLocation {
+    Private(BRange),
+    Local(BRange),
+    Global(BRange),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct FileLocation {
+    pub uri: Uri,
+    pub range: BRange,
+}
+
+#[derive(Debug)]
+pub struct FindMacroReferencesResult {
+    pub uri: Uri,
+    pub references: Vec<LRange>,
+    pub subscripts: Vec<Uri>,
+}
+
+impl FindMacroReferencesResult {
+    pub fn build(uri: Uri, locations: Vec<LRange>, subscripts: Vec<Uri>) -> Self {
+        FindMacroReferencesResult {
+            uri,
+            references: locations,
+            subscripts,
+        }
+    }
+}
+
+impl MacroDefinitionLocation {
+    pub fn split(self) -> (MacroScope, BRange) {
+        match self {
+            Self::Private(span) => (MacroScope::Private, span),
+            Self::Local(span) => (MacroScope::Local, span),
+            Self::Global(span) => (MacroScope::Global, span),
+        }
+    }
+}
+
+impl Eq for MacroDefinitionLocation {}
+
+impl Ord for MacroDefinitionLocation {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match self {
+            MacroDefinitionLocation::Private(span)
+            | MacroDefinitionLocation::Local(span)
+            | MacroDefinitionLocation::Global(span) => match other {
+                MacroDefinitionLocation::Private(other_span)
+                | MacroDefinitionLocation::Local(other_span)
+                | MacroDefinitionLocation::Global(other_span) => {
+                    let cmp = span.cmp(other_span);
+                    if cmp != Ordering::Equal {
+                        return cmp;
+                    }
+                }
+            },
+        }
+        match self {
+            MacroDefinitionLocation::Private(_) => match other {
+                MacroDefinitionLocation::Private(_) => Ordering::Equal,
+                MacroDefinitionLocation::Local(_) | MacroDefinitionLocation::Global(_) => {
+                    Ordering::Less
+                }
+            },
+            MacroDefinitionLocation::Local(_) => match other {
+                MacroDefinitionLocation::Private(_) => Ordering::Greater,
+                MacroDefinitionLocation::Local(_) => Ordering::Equal,
+                MacroDefinitionLocation::Global(_) => Ordering::Less,
+            },
+            MacroDefinitionLocation::Global(_) => match other {
+                MacroDefinitionLocation::Private(_) | MacroDefinitionLocation::Local(_) => {
+                    Ordering::Greater
+                }
+                MacroDefinitionLocation::Global(_) => Ordering::Equal,
+            },
+        }
+    }
+}
+
+impl PartialEq for MacroDefinitionLocation {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl PartialOrd for MacroDefinitionLocation {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl MacroDefinitionLocation {
+    pub fn from_macro_def(scope: MacroScope, definition: MacroDefinition) -> Self {
+        match scope {
+            MacroScope::Private => Self::Private(BRange::from(definition.r#macro)),
+            MacroScope::Local => Self::Local(BRange::from(definition.r#macro)),
+            MacroScope::Global => Self::Global(BRange::from(definition.r#macro)),
+        }
+    }
+
+    pub fn from_span(scope: Option<&MacroScope>, span: BRange) -> Self {
+        match scope {
+            Some(MacroScope::Private) => Self::Private(span),
+            // Assume block-global, if no other scope is provided.
+            Some(MacroScope::Local) | None => Self::Local(span),
+            Some(MacroScope::Global) => Self::Global(span),
+        }
+    }
+}
 pub fn process_find_references_req(
     id: NumberOrString,
     params: ReferenceParams,
@@ -793,6 +933,355 @@ fn next_lookups_find_external_macro_defs(
     progress.ack_ready();
 }
 
+/// Retrieves references for `(macro)`, `(subroutine_call_expression)`,
+/// `(labeled_expression)`, `(subroutine_block)`, and `(command_expression)`
+/// nodes.
+///    - Macro references may be located in other files if `LOCAL` was used
+///      to define the macro. `GLOBAL` macros are handled separately.
+///    - Subroutine references are restricted to the current file.
+///    - Subscript calls should return all similar calls in other script files.
+///      Similarly, for all other commands the instances in other files should
+///      be included. Both are not covered here.
+///
+fn find_references(
+    textdoc: TextDocData,
+    t32: FindRefsLangContext,
+    position: Position,
+) -> Option<FindReferencesResult> {
+    let offset = textdoc.doc.to_byte_offset(&position);
+
+    let lang = textdoc.tree.language();
+    let allowed_kinds = t32::get_find_ref_ids(&lang);
+
+    let cursor = textdoc.tree.walk();
+    let origin = t32::find_deepest_node(cursor, offset, &allowed_kinds)?;
+
+    let node = origin.node();
+
+    match t32::id_into_node(&lang, node.kind_id()) {
+        NodeKind::CommandExpression => {
+            // Selecting one of the command arguments in a `DO` or `RUN`
+            // command is sufficient to trigger retrieval of all references
+            // to the same file. However, if the command is selected, then
+            // all references with the same command will be returned.
+            if command_argument_selected(origin.clone(), offset)
+                && let Some(target) =
+                    t32::find_command_file_target(&textdoc.doc.text, origin.clone())
+            {
+                debug_assert_eq!(
+                    origin.node().kind_id(),
+                    NodeKind::CommandExpression.into_id(&lang)
+                );
+                Some(FindReferencesResult::Partial(
+                    FindReferencesPartialResult::FileTarget {
+                        origin_uri: textdoc.doc.uri,
+                        target,
+                    },
+                ))
+            } else {
+                Some(FindReferencesResult::Partial(
+                    FindReferencesPartialResult::Command(t32::find_command_identifier(
+                        &textdoc.doc.text,
+                        origin,
+                    )?),
+                ))
+            }
+        }
+        NodeKind::LabeledExpression => {
+            if !position_aligned_with_node_start(&position, &textdoc.doc, &node) {
+                return None;
+            }
+
+            if t32.subroutines.is_empty() {
+                return None;
+            }
+
+            let mut loc: Vec<Location> = Vec::new();
+
+            let refs = if let Some(refs) = t32::find_subroutine_references(
+                &textdoc.doc.text,
+                &t32.subroutines,
+                &origin,
+                &textdoc.tree,
+            ) {
+                Some(refs)
+            } else {
+                t32::find_label_references(&textdoc.doc.text, &t32.labels, &origin, &textdoc.tree)
+            };
+
+            for r#ref in refs? {
+                loc.push(Location {
+                    uri: textdoc.doc.uri.clone(),
+                    range: textdoc.doc.to_range(r#ref.inner().start, r#ref.inner().end),
+                });
+            }
+            Some(FindReferencesResult::Final(loc))
+        }
+        NodeKind::Macro => {
+            let t32 = GotoDefLangContext::from(t32);
+            match t32::goto_infile_macro_definition(&textdoc.doc.text, &textdoc.tree, &t32, origin)?
+            {
+                MacroDefinitionResult::Final(defs) => {
+                    debug_assert!(defs.len() > 0);
+                    let name = textdoc.doc.text[defs[0].r#macro.clone().to_inner()].to_string();
+
+                    let mut origins: Vec<(FileLocation, Option<MacroScope>)> = Vec::new();
+                    for def in defs {
+                        let scope = t32::get_macro_scope(&t32.macros, &def.r#macro);
+                        origins.push((
+                            FileLocation {
+                                uri: textdoc.doc.uri.clone(),
+                                range: BRange::from(def.r#macro),
+                            },
+                            scope,
+                        ));
+                    }
+
+                    Some(FindReferencesResult::Partial(
+                        FindReferencesPartialResult::MacroDefsComplete {
+                            origin: MacroReferenceOrigin {
+                                name,
+                                span: textdoc.doc.to_range(node.start_byte(), node.end_byte()),
+                                uri: textdoc.doc.uri,
+                            },
+                            definitions: origins,
+                        },
+                    ))
+                }
+                MacroDefinitionResult::Partial(defs) => {
+                    let mut origins: Vec<(FileLocation, Option<MacroScope>)> = Vec::new();
+                    for def in defs {
+                        let scope = t32::get_macro_scope(&t32.macros, &def.r#macro);
+                        origins.push((
+                            FileLocation {
+                                uri: textdoc.doc.uri.clone(),
+                                range: BRange::from(def.r#macro),
+                            },
+                            scope,
+                        ));
+                    }
+
+                    Some(FindReferencesResult::Partial(
+                        FindReferencesPartialResult::MacroDefsIncomplete {
+                            origin: MacroReferenceOrigin {
+                                name: textdoc.doc.text[node.byte_range()].to_string(),
+                                span: textdoc.doc.to_range(node.start_byte(), node.end_byte()),
+                                uri: textdoc.doc.uri,
+                            },
+                            definitions: origins,
+                        },
+                    ))
+                }
+                MacroDefinitionResult::Indeterminate => Some(FindReferencesResult::Partial(
+                    FindReferencesPartialResult::MacroDefsIncomplete {
+                        origin: MacroReferenceOrigin {
+                            name: textdoc.doc.text[node.byte_range()].to_string(),
+                            span: textdoc.doc.to_range(node.start_byte(), node.end_byte()),
+                            uri: textdoc.doc.uri,
+                        },
+                        definitions: Vec::new(),
+                    },
+                )),
+            }
+        }
+        NodeKind::SubroutineCallExpression => {
+            if t32.subroutines.is_empty() {
+                return None;
+            }
+
+            let mut loc: Vec<Location> = Vec::new();
+            for r#ref in t32::find_subroutine_call_references(
+                &textdoc.doc.text,
+                &t32.subroutines,
+                origin,
+                &textdoc.tree,
+            )? {
+                loc.push(Location {
+                    uri: textdoc.doc.uri.clone(),
+                    range: textdoc.doc.to_range(r#ref.inner().start, r#ref.inner().end),
+                });
+            }
+            Some(FindReferencesResult::Final(loc))
+        }
+        NodeKind::SubroutineBlock => {
+            if !position_aligned_with_node_start(&position, &textdoc.doc, &node) {
+                return None;
+            }
+
+            if t32.subroutines.is_empty() {
+                return None;
+            }
+
+            let mut loc: Vec<Location> = Vec::new();
+            for r#ref in t32::find_subroutine_references(
+                &textdoc.doc.text,
+                &t32.subroutines,
+                &origin,
+                &textdoc.tree,
+            )? {
+                loc.push(Location {
+                    uri: textdoc.doc.uri.clone(),
+                    range: textdoc.doc.to_range(r#ref.inner().start, r#ref.inner().end),
+                });
+            }
+            Some(FindReferencesResult::Final(loc))
+        }
+        _ => None,
+    }
+}
+
+fn find_external_definitions_for_macro_ref(
+    textdoc: TextDocData,
+    t32: GotoDefLangContext,
+    callers: Vec<Uri>,
+    origin: MacroReferenceOrigin,
+    backtrace: Uri,
+) -> FindDefintionsForMacroRefResult {
+    let Some(subscripts) = &t32.calls.scripts else {
+        return FindDefintionsForMacroRefResult::Final(Vec::new(), textdoc.doc.uri);
+    };
+
+    let MacroReferenceOrigin { name: r#macro, .. } = origin;
+
+    let targets: Vec<BRange> = t32::locate_calls_to_file_target(subscripts, &backtrace);
+    if targets.is_empty() {
+        return FindDefintionsForMacroRefResult::Final(Vec::new(), textdoc.doc.uri);
+    }
+
+    match t32::goto_external_macro_definition(
+        &textdoc.doc.text,
+        &textdoc.tree,
+        &t32,
+        &r#macro,
+        targets,
+    ) {
+        Some(MacroDefinitionResult::Final(defs)) => {
+            let locations: Vec<MacroDefinitionLocation> = {
+                let mut locs: Vec<MacroDefinitionLocation> = Vec::with_capacity(defs.len());
+                for def in defs {
+                    let Some(scope) = t32::get_macro_scope(&t32.macros, &def.r#macro) else {
+                        unreachable!(
+                            "Retrieved macro definition must already have been registered."
+                        );
+                    };
+                    locs.push(MacroDefinitionLocation::from_macro_def(scope, def));
+                }
+                locs
+            };
+            FindDefintionsForMacroRefResult::Final(locations, textdoc.doc.uri)
+        }
+        Some(MacroDefinitionResult::Partial(defs)) => {
+            let locations: Vec<MacroDefinitionLocation> = {
+                let mut locs: Vec<MacroDefinitionLocation> = Vec::with_capacity(defs.len());
+                for def in defs {
+                    let Some(scope) = t32::get_macro_scope(&t32.macros, &def.r#macro) else {
+                        unreachable!(
+                            "Retrieved macro definition must already have been registered."
+                        );
+                    };
+                    locs.push(MacroDefinitionLocation::from_macro_def(scope, def));
+                }
+                locs
+            };
+            FindDefintionsForMacroRefResult::Partial(locations, textdoc.doc.uri, callers)
+        }
+        Some(MacroDefinitionResult::Indeterminate) => {
+            if callers.is_empty() {
+                FindDefintionsForMacroRefResult::Final(Vec::new(), textdoc.doc.uri)
+            } else {
+                FindDefintionsForMacroRefResult::Partial(Vec::new(), textdoc.doc.uri, callers)
+            }
+        }
+        None => FindDefintionsForMacroRefResult::Final(Vec::new(), textdoc.doc.uri),
+    }
+}
+
+fn find_macro_references_from_origin(
+    textdoc: TextDocData,
+    t32: FindMacroRefsLangContext,
+    name: String,
+    origins: Vec<MacroDefinitionLocation>,
+) -> FindMacroReferencesResult {
+    let mut locs: Vec<LRange> = Vec::new();
+    let mut callees: Vec<Uri> = Vec::new();
+
+    for origin in origins {
+        let (lifetime, loc) = origin.split();
+
+        let (spans, mut scripts) = t32::find_macro_definition_references(
+            &textdoc.doc.text,
+            &textdoc.tree,
+            &t32,
+            &name,
+            lifetime,
+            loc,
+        );
+
+        locs.reserve(spans.len());
+        for span in spans {
+            let inner = span.to_inner();
+            locs.push(textdoc.doc.to_range(inner.start, inner.end));
+        }
+        scripts.retain(|s| !callees.contains(s));
+        callees.append(&mut scripts);
+    }
+    FindMacroReferencesResult::build(textdoc.doc.uri, locs, callees)
+}
+
+fn find_infile_macro_references(
+    textdoc: TextDocData,
+    t32: FindMacroRefsLangContext,
+    name: String,
+) -> FindMacroReferencesResult {
+    let doc = &textdoc.doc;
+
+    // It does not matter here what exact scope the respective macro has.
+    // Either `GLOBAL` or `LOCAL` will do.
+    let (spans, scripts) =
+        t32::find_stack_macro_references(&doc.text, &textdoc.tree, &t32, MacroScope::Local, &name);
+
+    let mut locs: Vec<LRange> = Vec::with_capacity(spans.len());
+    for span in spans {
+        let inner = span.to_inner();
+        locs.push(textdoc.doc.to_range(inner.start, inner.end));
+    }
+    FindMacroReferencesResult::build(textdoc.doc.uri, locs, scripts)
+}
+
+fn command_argument_selected(mut cursor: TreeCursor, offset: usize) -> bool {
+    debug_assert_eq!(
+        cursor.node().kind_id(),
+        NodeKind::CommandExpression.into_id(&cursor.node().language())
+    );
+
+    if cursor.goto_first_child_for_byte(offset).is_none() {
+        return false;
+    }
+
+    let node = cursor.node();
+    let lang = node.language();
+
+    // Selection is on command
+    if node.kind_id() != NodeKind::ArgumentList.into_id(&lang) {
+        return false;
+    }
+
+    if cursor.goto_first_child_for_byte(offset).is_none() {
+        return false;
+    }
+
+    if cursor.node().byte_range().contains(&offset) {
+        true
+    } else {
+        false
+    }
+}
+
+fn position_aligned_with_node_start(position: &Position, doc: &TextDoc, node: &Node) -> bool {
+    let start = doc.to_position(node.start_byte());
+    start.line == position.line
+}
+
 fn log_find_ref_req(id: NumberOrString) -> Message {
     Message::Notification(Notification::LogTraceNotification {
         params: LogTraceParams {
@@ -822,13 +1311,13 @@ mod tests {
     use super::*;
 
     use std::{
+        path,
         time::{Duration, Instant},
-        u32,
     };
 
     use crate::{
-        config,
-        ls::{TaskCounterInternal, TaskSystem, tasks::TaskProgress},
+        config::{self, CodeFoldingSupport, T32DefaultDirs},
+        ls::{TaskCounterInternal, TaskSystem, doc, tasks::TaskProgress, workspace},
         protocol::{self, Position, Range},
         utils::{BRange, create_doc_store, create_file_idx, files, to_file_uri},
     };
@@ -838,6 +1327,7 @@ mod tests {
             parent_pid: Some(0u32),
             pid_check_interval: Duration::from_secs(5),
             channel: config::ChannelKind::Stdio,
+            code_folding: CodeFoldingSupport::default(),
             workspace: config::Workspace::Root(None),
             workspace_folders_supported: false,
             position_encoding: protocol::PositionEncodingKind::Utf16,
@@ -2028,5 +2518,685 @@ mod tests {
                     },
                 },]),
             }));
+    }
+
+    fn find_refs(file: &str, position: Position) -> Option<FindReferencesResult> {
+        let uri = Url::from_file_path(path::absolute(file).expect("File must exist.")).unwrap();
+
+        let file_idx = workspace::index_files(files());
+        let dirs = T32DefaultDirs::default();
+
+        let (doc, tree, t32) = doc::read_doc(uri, &file_idx, &dirs).unwrap();
+
+        find_references(
+            TextDocData { doc, tree },
+            FindRefsLangContext::from(t32),
+            position,
+        )
+    }
+
+    #[test]
+    fn can_find_references_for_subroutine_call() {
+        let refs = find_refs(
+            "tests/samples/a/a.cmm",
+            Position {
+                line: 67,
+                character: 10,
+            },
+        );
+
+        let Some(FindReferencesResult::Final(refs)) = refs else {
+            panic!();
+        };
+
+        let uri = to_file_uri("tests/samples/a/a.cmm");
+
+        for (loc, expected) in refs.into_iter().zip([
+            Location {
+                uri: uri.clone(),
+                range: LRange {
+                    start: Position {
+                        line: 54,
+                        character: 11,
+                    },
+                    end: Position {
+                        line: 54,
+                        character: 15,
+                    },
+                },
+            },
+            Location {
+                uri: uri.clone(),
+                range: LRange {
+                    start: Position {
+                        line: 67,
+                        character: 10,
+                    },
+                    end: Position {
+                        line: 67,
+                        character: 14,
+                    },
+                },
+            },
+            Location {
+                uri: uri.clone(),
+                range: LRange {
+                    start: Position {
+                        line: 75,
+                        character: 10,
+                    },
+                    end: Position {
+                        line: 75,
+                        character: 14,
+                    },
+                },
+            },
+        ]) {
+            assert_eq!(loc, expected);
+        }
+    }
+
+    #[test]
+    fn can_find_references_for_subroutine_defintion() {
+        let uri = to_file_uri("tests/samples/a/a.cmm");
+
+        for (loc, expected) in [
+            Position {
+                line: 113,
+                character: 11,
+            },
+            Position {
+                line: 80,
+                character: 0,
+            },
+        ]
+        .into_iter()
+        .zip([
+            [
+                Location {
+                    uri: uri.clone(),
+                    range: LRange {
+                        start: Position {
+                            line: 113,
+                            character: 11,
+                        },
+                        end: Position {
+                            line: 113,
+                            character: 15,
+                        },
+                    },
+                },
+                Location {
+                    uri: uri.clone(),
+                    range: LRange {
+                        start: Position {
+                            line: 110,
+                            character: 10,
+                        },
+                        end: Position {
+                            line: 110,
+                            character: 14,
+                        },
+                    },
+                },
+            ],
+            [
+                Location {
+                    uri: uri.clone(),
+                    range: LRange {
+                        start: Position {
+                            line: 80,
+                            character: 0,
+                        },
+                        end: Position {
+                            line: 80,
+                            character: 4,
+                        },
+                    },
+                },
+                Location {
+                    uri: uri.clone(),
+                    range: LRange {
+                        start: Position {
+                            line: 118,
+                            character: 6,
+                        },
+                        end: Position {
+                            line: 118,
+                            character: 10,
+                        },
+                    },
+                },
+            ],
+        ]) {
+            let refs = find_refs("tests/samples/a/a.cmm", loc);
+
+            let Some(FindReferencesResult::Final(refs)) = refs else {
+                panic!();
+            };
+
+            for (loc, expected) in refs.into_iter().zip(expected) {
+                assert_eq!(loc, expected);
+            }
+        }
+    }
+
+    #[test]
+    fn can_find_references_for_label() {
+        let refs = find_refs(
+            "tests/samples/a/a.cmm",
+            Position {
+                line: 157,
+                character: 3,
+            },
+        );
+
+        let Some(FindReferencesResult::Final(refs)) = refs else {
+            panic!();
+        };
+
+        let uri = to_file_uri("tests/samples/a/a.cmm");
+        for (loc, expected) in refs.into_iter().zip([
+            Location {
+                uri: uri.clone(),
+                range: LRange {
+                    start: Position {
+                        line: 157,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 157,
+                        character: 6,
+                    },
+                },
+            },
+            Location {
+                uri: uri.clone(),
+                range: LRange {
+                    start: Position {
+                        line: 160,
+                        character: 5,
+                    },
+                    end: Position {
+                        line: 160,
+                        character: 11,
+                    },
+                },
+            },
+        ]) {
+            assert_eq!(loc, expected);
+        }
+    }
+
+    #[test]
+    fn can_find_infile_references_for_macro_definition() {
+        let file_idx = create_file_idx();
+        let dirs = T32DefaultDirs::default();
+
+        let uri =
+            Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
+                .unwrap();
+        let (doc, tree, t32) = doc::read_doc(uri, &file_idx, &dirs).unwrap();
+
+        for ((name, range, scope), (refs, scripts)) in [
+            (
+                "&private_macro",
+                BRange::from(134usize..148usize),
+                MacroScope::Private,
+            ),
+            (
+                "&local_macro",
+                BRange::from(509usize..521usize),
+                MacroScope::Local,
+            ),
+            (
+                "&implicit",
+                BRange::from(1586usize..1595usize),
+                MacroScope::Local,
+            ),
+            ("&x", BRange::from(919usize..921usize), MacroScope::Local),
+            (
+                "&param",
+                BRange::from(1715usize..1721usize),
+                MacroScope::Local,
+            ),
+        ]
+        .into_iter()
+        .zip(
+            [
+                (
+                    vec![
+                        LRange {
+                            start: Position {
+                                line: 6,
+                                character: 8,
+                            },
+                            end: Position {
+                                line: 6,
+                                character: 22,
+                            },
+                        },
+                        LRange {
+                            start: Position {
+                                line: 8,
+                                character: 0,
+                            },
+                            end: Position {
+                                line: 8,
+                                character: 14,
+                            },
+                        },
+                        LRange {
+                            start: Position {
+                                line: 11,
+                                character: 3,
+                            },
+                            end: Position {
+                                line: 11,
+                                character: 17,
+                            },
+                        },
+                        LRange {
+                            start: Position {
+                                line: 164,
+                                character: 10,
+                            },
+                            end: Position {
+                                line: 164,
+                                character: 24,
+                            },
+                        },
+                    ],
+                    Vec::<Uri>::new(),
+                ),
+                (
+                    vec![
+                        LRange {
+                            start: Position {
+                                line: 38,
+                                character: 4,
+                            },
+                            end: Position {
+                                line: 38,
+                                character: 16,
+                            },
+                        },
+                        LRange {
+                            start: Position {
+                                line: 42,
+                                character: 6,
+                            },
+                            end: Position {
+                                line: 42,
+                                character: 18,
+                            },
+                        },
+                    ],
+                    vec![
+                        to_file_uri("tests/samples/b/b.cmm"),
+                        to_file_uri("tests/samples/c.cmm"),
+                    ],
+                ),
+                (
+                    vec![
+                        LRange {
+                            start: Position {
+                                line: 164,
+                                character: 0,
+                            },
+                            end: Position {
+                                line: 164,
+                                character: 9,
+                            },
+                        },
+                        LRange {
+                            start: Position {
+                                line: 170,
+                                character: 4,
+                            },
+                            end: Position {
+                                line: 170,
+                                character: 13,
+                            },
+                        },
+                        LRange {
+                            start: Position {
+                                line: 170,
+                                character: 14,
+                            },
+                            end: Position {
+                                line: 170,
+                                character: 23,
+                            },
+                        },
+                    ],
+                    Vec::new(),
+                ),
+                (
+                    vec![
+                        LRange {
+                            start: Position {
+                                line: 82,
+                                character: 10,
+                            },
+                            end: Position {
+                                line: 82,
+                                character: 12,
+                            },
+                        },
+                        LRange {
+                            start: Position {
+                                line: 84,
+                                character: 11,
+                            },
+                            end: Position {
+                                line: 84,
+                                character: 13,
+                            },
+                        },
+                        LRange {
+                            start: Position {
+                                line: 91,
+                                character: 11,
+                            },
+                            end: Position {
+                                line: 91,
+                                character: 13,
+                            },
+                        },
+                        LRange {
+                            start: Position {
+                                line: 98,
+                                character: 15,
+                            },
+                            end: Position {
+                                line: 98,
+                                character: 17,
+                            },
+                        },
+                        LRange {
+                            start: Position {
+                                line: 100,
+                                character: 11,
+                            },
+                            end: Position {
+                                line: 100,
+                                character: 13,
+                            },
+                        },
+                        LRange {
+                            start: Position {
+                                line: 107,
+                                character: 11,
+                            },
+                            end: Position {
+                                line: 107,
+                                character: 13,
+                            },
+                        },
+                        LRange {
+                            start: Position {
+                                line: 109,
+                                character: 10,
+                            },
+                            end: Position {
+                                line: 109,
+                                character: 12,
+                            },
+                        },
+                        LRange {
+                            start: Position {
+                                line: 115,
+                                character: 11,
+                            },
+                            end: Position {
+                                line: 115,
+                                character: 13,
+                            },
+                        },
+                    ],
+                    Vec::new(),
+                ),
+                (
+                    vec![
+                        LRange {
+                            start: Position {
+                                line: 176,
+                                character: 12,
+                            },
+                            end: Position {
+                                line: 176,
+                                character: 18,
+                            },
+                        },
+                        LRange {
+                            start: Position {
+                                line: 177,
+                                character: 15,
+                            },
+                            end: Position {
+                                line: 177,
+                                character: 21,
+                            },
+                        },
+                        LRange {
+                            start: Position {
+                                line: 179,
+                                character: 11,
+                            },
+                            end: Position {
+                                line: 179,
+                                character: 17,
+                            },
+                        },
+                    ],
+                    Vec::new(),
+                ),
+            ]
+            .into_iter(),
+        ) {
+            let result = find_macro_references_from_origin(
+                TextDocData {
+                    doc: doc.clone(),
+                    tree: tree.clone(),
+                },
+                FindMacroRefsLangContext::from(t32.clone()),
+                name.to_string(),
+                vec![MacroDefinitionLocation::from_span(
+                    Some(&scope),
+                    BRange::from(range),
+                )],
+            );
+
+            assert_eq!(result.references.len(), refs.len());
+            for r#ref in result.references {
+                assert!(refs.contains(&r#ref));
+            }
+
+            assert_eq!(result.subscripts.len(), scripts.len());
+            for file in result.subscripts {
+                assert!(scripts.contains(&file));
+            }
+        }
+    }
+
+    #[test]
+    fn can_find_references_for_macros_on_stack() {
+        let file_idx = create_file_idx();
+        let dirs = T32DefaultDirs::default();
+
+        let uri =
+            Url::from_file_path(path::absolute("tests/samples/a/a.cmm").expect("File must exist."))
+                .unwrap();
+        let (doc, tree, t32) = doc::read_doc(uri, &file_idx, &dirs).unwrap();
+
+        let result = find_infile_macro_references(
+            TextDocData { doc, tree },
+            FindMacroRefsLangContext::from(t32),
+            "&from_c_cmm".to_string(),
+        );
+
+        assert!(result.references.contains(&LRange {
+            start: Position {
+                line: 139,
+                character: 7
+            },
+            end: Position {
+                line: 139,
+                character: 18
+            },
+        }));
+
+        for target in [
+            to_file_uri("tests/samples/b/b.cmm"),
+            to_file_uri("tests/samples/c.cmm"),
+        ] {
+            assert!(result.subscripts.contains(&target));
+        }
+    }
+
+    #[test]
+    fn can_find_external_definitions_for_macro_ref() {
+        let file_idx = create_file_idx();
+        let dirs = T32DefaultDirs::default();
+
+        let origin = MacroReferenceOrigin {
+            name: "&from_c_cmm".to_string(),
+            span: LRange {
+                start: Position {
+                    line: 162,
+                    character: 7,
+                },
+                end: Position {
+                    line: 162,
+                    character: 18,
+                },
+            },
+            uri: Url::from_file_path(
+                path::absolute("tests/samples/a/a.cmm").expect("File must exist."),
+            )
+            .unwrap()
+            .to_string(),
+        };
+
+        for ((uri, origin, callers, backtrace), result) in [
+            (
+                Url::from_file_path(
+                    path::absolute("tests/samples/a/d/d.cmm").expect("File must exist."),
+                )
+                .unwrap(),
+                origin.clone(),
+                vec![
+                    Url::from_file_path(
+                        path::absolute("tests/samples/c.cmm").expect("File must exist."),
+                    )
+                    .unwrap()
+                    .to_string(),
+                ],
+                Url::from_file_path(
+                    path::absolute("tests/samples/a/a.cmm").expect("File must exist."),
+                )
+                .unwrap()
+                .to_string(),
+            ),
+            (
+                Url::from_file_path(
+                    path::absolute("tests/samples/c.cmm").expect("File must exist."),
+                )
+                .unwrap(),
+                origin.clone(),
+                vec![
+                    Url::from_file_path(
+                        path::absolute("tests/samples/c.cmm").expect("File must exist."),
+                    )
+                    .unwrap()
+                    .to_string(),
+                ],
+                Url::from_file_path(
+                    path::absolute("tests/samples/a/d/d.cmm").expect("File must exist."),
+                )
+                .unwrap()
+                .to_string(),
+            ),
+        ]
+        .into_iter()
+        .zip([
+            FindDefintionsForMacroRefResult::Partial(
+                Vec::new(),
+                Url::from_file_path(
+                    path::absolute("tests/samples/a/d/d.cmm").expect("File must exist."),
+                )
+                .unwrap()
+                .to_string(),
+                vec![
+                    Url::from_file_path(
+                        path::absolute("tests/samples/c.cmm").expect("File must exist."),
+                    )
+                    .unwrap()
+                    .to_string(),
+                ],
+            ),
+            FindDefintionsForMacroRefResult::Final(
+                vec![MacroDefinitionLocation::Local(BRange::from(497..508))],
+                Url::from_file_path(
+                    path::absolute("tests/samples/c.cmm").expect("File must exist."),
+                )
+                .unwrap()
+                .to_string(),
+            ),
+        ]) {
+            let (doc, tree, t32) = doc::read_doc(uri, &file_idx, &dirs).unwrap();
+
+            let defs = find_external_definitions_for_macro_ref(
+                TextDocData { doc, tree },
+                t32.into(),
+                callers,
+                origin,
+                backtrace,
+            );
+            assert_eq!(defs, result);
+        }
+    }
+
+    #[test]
+    fn can_return_subscript_call_file_target_for_find_reference_req() {
+        let file = "tests/samples/a/a.cmm";
+        let refs = find_refs(
+            &file,
+            Position {
+                line: 49,
+                character: 6,
+            },
+        );
+
+        assert!(refs.is_some_and(|r| r
+            == FindReferencesResult::Partial(FindReferencesPartialResult::FileTarget {
+                origin_uri: to_file_uri(file),
+                target: "../b/b.cmm".to_string()
+            })));
+    }
+
+    #[test]
+    fn can_return_command_identifier_for_find_references_req() {
+        let command = find_refs(
+            "tests/samples/b/b.cmm",
+            Position {
+                line: 4,
+                character: 2,
+            },
+        );
+        let arguments = find_refs(
+            "tests/samples/b/b.cmm",
+            Position {
+                line: 4,
+                character: 17,
+            },
+        );
+
+        assert_eq!(command, arguments);
+        assert!(command.is_some_and(|c| c
+            == FindReferencesResult::Partial(FindReferencesPartialResult::Command(
+                "SILENT.PRINT".to_string()
+            ))));
     }
 }

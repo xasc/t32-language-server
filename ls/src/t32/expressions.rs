@@ -103,30 +103,30 @@ pub enum SubscriptCallKind {
 
 #[derive(Clone, Debug)]
 pub struct Label {
-    pub name: Range<usize>,
-    pub expression: Range<usize>,
-    pub docstring: Option<Range<usize>>,
+    pub name: BRange,
+    pub expression: BRange,
+    pub docstring: Option<BRange>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct MacroDefinition {
-    pub cmd: Range<usize>,
-    pub r#macro: Range<usize>,
-    pub docstring: Option<Range<usize>>,
+    pub cmd: BRange,
+    pub r#macro: BRange,
+    pub docstring: Option<BRange>,
 }
 
 #[derive(Clone, Debug)]
 pub struct Subroutine {
-    pub name: Range<usize>,
-    pub definition: Range<usize>,
-    pub docstring: Option<Range<usize>>,
+    pub name: BRange,
+    pub definition: BRange,
+    pub docstring: Option<BRange>,
 }
 
 #[derive(Clone, Debug)]
 pub struct CallExpression {
-    pub target: Range<usize>,
-    pub call: Range<usize>,
-    pub docstring: Option<Range<usize>>,
+    pub target: BRange,
+    pub call: BRange,
+    pub docstring: Option<BRange>,
 }
 
 #[derive(Clone, Debug)]
@@ -150,10 +150,10 @@ pub struct Command {
 
 #[derive(Clone, Debug)]
 pub struct ParameterDeclaration {
-    pub cmd: Range<usize>,
-    pub r#macro: Range<usize>,
+    pub cmd: BRange,
+    pub r#macro: BRange,
     pub kind: ParameterDeclarationKind,
-    pub docstring: Option<Range<usize>>, // TODO: Detect inline docstring after expression.
+    pub docstring: Option<BRange>, // TODO: Detect inline docstring after expression.
 }
 
 #[derive(Clone, Debug)]
@@ -170,9 +170,9 @@ impl Ord for MacroDefinition {
         let Self { r#macro: this, .. } = self;
         let Self { r#macro: other, .. } = other;
 
-        if this.start > other.start || this.end > other.end {
+        if this.inner().start > other.inner().start || this.inner().end > other.inner().end {
             Ordering::Greater
-        } else if this.start < other.start || this.end < other.end {
+        } else if this.inner().start < other.inner().start || this.inner().end < other.inner().end {
             Ordering::Less
         } else {
             Ordering::Equal
@@ -200,10 +200,10 @@ pub fn find_call_target_definition(
     );
 
     let CallExpression { target, .. } = extract_subroutine_call(&mut call)?;
-    let name = &text[target];
+    let name = &text[target.to_inner()];
 
     for subroutine in subroutines {
-        if text[subroutine.name.clone()] == *name {
+        if text[subroutine.name.clone().to_inner()] == *name {
             return Some(subroutine.clone());
         }
     }
@@ -258,7 +258,7 @@ pub fn find_file_target(calls: &SubscriptCalls, command: TreeCursor) -> Option<U
         .zip(calls.targets.iter())
         .filter(|c| c.1.is_some())
     {
-        if span.contains(&loc.target.start) {
+        if span.contains(&loc.target.inner().start) {
             return Some(target.as_ref().unwrap().clone());
         }
     }
@@ -445,7 +445,7 @@ pub fn find_all_commands_and_parameter_declarations(
                 let docstring = find_docstring(&mut cursor);
                 if let Some(docstr) = docstring {
                     let len = commands.len();
-                    commands[len - 1].docstring = Some(BRange::from(docstr));
+                    commands[len - 1].docstring = Some(docstr);
                 }
             }
             debug_assert_eq!(
@@ -598,10 +598,10 @@ pub fn find_all_references_for_subroutine(
     text: &str,
     subroutine: &Subroutine,
     tree: &Tree,
-) -> Vec<Range<usize>> {
-    let mut refs: Vec<Range<usize>> = vec![subroutine.name.clone()];
+) -> Vec<BRange> {
+    let mut refs: Vec<BRange> = vec![subroutine.name.clone()];
 
-    let name = &text[subroutine.name.clone()];
+    let name = &text[subroutine.name.clone().to_inner()];
     debug_assert!(name.len() > 0);
 
     let mut cursor = tree.walk();
@@ -621,7 +621,7 @@ pub fn find_all_references_for_subroutine(
 
         if id == id_call {
             if let Some(r#ref) = matches_call_to_subroutine(text, name, &mut cursor) {
-                refs.push(r#ref);
+                refs.push(BRange::from(r#ref));
             }
             debug_assert_eq!(cursor.node().kind_id(), id_call);
         } else if block_openers.contains(&id) {
@@ -639,10 +639,10 @@ pub fn find_all_references_for_subroutine(
     refs
 }
 
-pub fn find_all_references_for_label(text: &str, label: &Label, tree: &Tree) -> Vec<Range<usize>> {
-    let mut refs: Vec<Range<usize>> = vec![label.name.clone()];
+pub fn find_all_references_for_label(text: &str, label: &Label, tree: &Tree) -> Vec<BRange> {
+    let mut refs: Vec<BRange> = vec![label.name.clone()];
 
-    let name = &text[label.name.clone()];
+    let name = &text[label.name.clone().to_inner()];
     debug_assert!(name.len() > 0);
 
     let mut cursor = tree.walk();
@@ -664,7 +664,7 @@ pub fn find_all_references_for_label(text: &str, label: &Label, tree: &Tree) -> 
         if id == command {
             // TODO: Add support for `ON ERROR GOTO <label>`
             if let Some(target) = extract_goto_target(text, &mut cursor)
-                && text[target.clone()] == *name
+                && text[target.clone().to_inner()] == *name
             {
                 refs.push(target);
             }
@@ -700,7 +700,7 @@ pub fn goto_subroutine(tree: &Tree, offset: usize) -> TreeCursor<'_> {
     }
 }
 
-pub fn find_docstring(cursor: &mut TreeCursor) -> Option<Range<usize>> {
+pub fn find_docstring(cursor: &mut TreeCursor) -> Option<BRange> {
     let target = cursor.node();
     let lang = target.language();
 
@@ -740,10 +740,9 @@ pub fn find_docstring(cursor: &mut TreeCursor) -> Option<Range<usize>> {
     }
 
     match docstring {
-        Some(range) if start_on_adjacent_lines(&range, &target.range()) => Some(Range {
-            start: range.start_byte,
-            end: range.end_byte,
-        }),
+        Some(range) if start_on_adjacent_lines(&range, &target.range()) => {
+            Some(BRange::from(range.start_byte..range.end_byte))
+        }
         _ => None,
     }
 }
@@ -802,8 +801,8 @@ fn extract_subroutine_def(cursor: &mut TreeCursor) -> Option<Subroutine> {
 
     cursor.goto_parent();
     Some(Subroutine {
-        name: name.byte_range(),
-        definition: def.byte_range(),
+        name: BRange::from(name.byte_range()),
+        definition: BRange::from(def.byte_range()),
         docstring: None,
     })
 }
@@ -900,8 +899,8 @@ fn try_extract_subroutine_def_from_label(
         if cursor.node().kind_id() == NodeKind::Block.into_id(&lang) {
             cursor.goto_parent();
             return Some(Subroutine {
-                name: name.byte_range(),
-                definition: def.byte_range(),
+                name: BRange::from(name.byte_range()),
+                definition: BRange::from(def.byte_range()),
                 docstring: None,
             });
         } else {
@@ -915,8 +914,8 @@ fn try_extract_subroutine_def_from_label(
                 cursor.goto_parent();
                 cursor.goto_parent();
                 return Some(Subroutine {
-                    name: name.byte_range(),
-                    definition: def.byte_range(),
+                    name: BRange::from(name.byte_range()),
+                    definition: BRange::from(def.byte_range()),
                     docstring: None,
                 });
             }
@@ -953,11 +952,8 @@ fn try_extract_subroutine_def_from_label(
 
                     cursor.clone_from(&start);
                     return Some(Subroutine {
-                        name: name.byte_range(),
-                        definition: Range {
-                            start: def.start_byte(),
-                            end,
-                        },
+                        name: BRange::from(name.byte_range()),
+                        definition: BRange::from(def.start_byte()..end),
                         docstring: None,
                     });
                 } else if cmd.eq_ignore_ascii_case(KEYWORD_GOTO)
@@ -1012,12 +1008,12 @@ fn extract_label(cursor: &mut TreeCursor) -> Option<Label> {
         NodeKind::Identifier.into_id(&cursor.node().language())
     );
 
-    let name = cursor.node().byte_range();
+    let name = BRange::from(cursor.node().byte_range());
     cursor.goto_parent();
 
     Some(Label {
         name,
-        expression: expression.byte_range(),
+        expression: BRange::from(expression.byte_range()),
         docstring: None,
     })
 }
@@ -1037,7 +1033,7 @@ fn extract_subroutine_call(cursor: &mut TreeCursor) -> Option<CallExpression> {
         );
         return None;
     };
-    let span = target.byte_range();
+    let span = BRange::from(target.byte_range());
 
     debug_assert!(
         target.kind_id() == NodeKind::Identifier.into_id(&target.language())
@@ -1047,7 +1043,7 @@ fn extract_subroutine_call(cursor: &mut TreeCursor) -> Option<CallExpression> {
 
     Some(CallExpression {
         target: span,
-        call: call.byte_range(),
+        call: BRange::from(call.byte_range()),
         docstring: None,
     })
 }
@@ -1148,8 +1144,8 @@ pub fn extract_script_call(
 
     Some((
         CallExpression {
-            target,
-            call: call.byte_range(),
+            target: BRange::from(target),
+            call: BRange::from(call.byte_range()),
             docstring: None,
         },
         kind.expect("Type must be retrieved."),
@@ -1175,7 +1171,7 @@ pub fn find_command_identifier(text: &str, command: TreeCursor) -> Option<String
     Some(text[cursor.node().byte_range()].to_string())
 }
 
-fn extract_goto_target(text: &str, cursor: &mut TreeCursor) -> Option<Range<usize>> {
+fn extract_goto_target(text: &str, cursor: &mut TreeCursor) -> Option<BRange> {
     let goto = cursor.node();
 
     debug_assert_eq!(
@@ -1204,7 +1200,7 @@ fn extract_goto_target(text: &str, cursor: &mut TreeCursor) -> Option<Range<usiz
     }
     cursor.goto_parent();
 
-    Some(target)
+    Some(BRange::from(target))
 }
 
 fn extract_subscript_call_kind(command: &str) -> Option<SubscriptCallKind> {
@@ -1297,22 +1293,22 @@ mod tests {
         let dirs = PathShorthandDirs::new(&dirs, &script_path.parent().expect("Must not fail."));
 
         // → ~~~~/same.cmm
-        let res =
-            locate_subscript(&doc.text, &tree, 110, &file_idx, &dirs).expect("Must yield a result.");
+        let res = locate_subscript(&doc.text, &tree, 110, &file_idx, &dirs)
+            .expect("Must yield a result.");
 
         assert_eq!(res.len(), 1);
         assert!(res.contains(&utils::to_file_uri("tests/samples/same.cmm")));
 
         // → ~~~~/a/same.cmm
-        let res =
-            locate_subscript(&doc.text, &tree, 127, &file_idx, &dirs).expect("Must yield a result.");
+        let res = locate_subscript(&doc.text, &tree, 127, &file_idx, &dirs)
+            .expect("Must yield a result.");
 
         assert_eq!(res.len(), 1);
         assert!(res.contains(&utils::to_file_uri("tests/samples/a/same.cmm")));
 
         // → ~~~~/b/same.cmm
-        let res =
-            locate_subscript(&doc.text, &tree, 149, &file_idx, &dirs).expect("Must yield a result.");
+        let res = locate_subscript(&doc.text, &tree, 149, &file_idx, &dirs)
+            .expect("Must yield a result.");
 
         assert_eq!(res.len(), 1);
         assert!(res.contains(&utils::to_file_uri("tests/samples/b/same.cmm")));
@@ -1334,8 +1330,8 @@ mod tests {
         let dirs = PathShorthandDirs::new(&dirs, &script_path.parent().expect("Must not fail."));
 
         // → ~~~~/a/d/d.cmm
-        let res =
-            locate_subscript(&doc.text, &tree, 171, &file_idx, &dirs).expect("Must yield a result.");
+        let res = locate_subscript(&doc.text, &tree, 171, &file_idx, &dirs)
+            .expect("Must yield a result.");
 
         assert_eq!(res.len(), 1);
         assert!(res.contains(&utils::to_file_uri("tests/samples/a/d/d.cmm")));

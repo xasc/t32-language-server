@@ -1,0 +1,29 @@
+; SPDX-FileCopyrightText: 2024 Christoph Sax <c_sax@mailbox.org>
+;
+; SPDX-License-Identifier: EUPL-1.2
+
+PRINT "1"
+
+; Comment A
+; Comment B
+; Comment C
+; COMMENT D
+   ; COMMENT E
+
+PRINT "2"
+
+; COMMENT F
+; COMMENT G
+
+; COMMENT H
+
+IF &a
+(
+    // COMMENT I
+    PRINT "3"
+)
+
+WHILE &a
+(
+    PRINT "4"
+)
