@@ -19,6 +19,12 @@ VS Code and VSCodium.
 Features
 --------
 
+### Code Folding
+
+Long multi-line comments and PRACTICE blocks can be collapsed.
+
+![Sample screenshot for code folds](https://raw.githubusercontent.com/xasc/t32-language-server/main/vscode/images/folds.png)
+
 ### Cross-references
 
 "Go to Definition" and "Find All References" locates macro, subroutines,
