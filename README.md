@@ -44,6 +44,7 @@ Features
 -  Go to definition for PRACTICE macros and subroutines.
 -  Locates PRACTICE macros and file references across all scripts in a project.
 -  Semantic tokens for improved syntax highlighting.
+-  Code folding for PRACTICE blocks and comments.
 
 
 Quick start
