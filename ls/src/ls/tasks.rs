@@ -2,27 +2,29 @@
 //
 // SPDX-License-Identifier: EUPL-1.2
 
+pub mod startup;
+
 mod docsync;
 mod lang;
+mod progress;
 mod runners;
 mod workspace;
 
 pub use runners::{Task, TaskDone, TaskSystem};
-pub use workspace::{categorize_files, discover_files};
 
 use std::time::{Duration, Instant};
 
 use serde_json::json;
+use tree_sitter::Tree;
 
 use crate::{
     ReturnCode,
-    config::Config,
+    config::{Config, Workspace},
     ls::{
-        State, Tasks,
+        self, RunState, Tasks,
         doc::{TextDoc, TextDocData, TextDocStatus, TextDocs},
         log_notif,
         lsp::Message,
-        mainloop::{trace_doc_cannot_read, trace_doc_change},
         request::{Notification, Request},
         response::{
             ErrorResponse, FindReferencesResponse, FoldingRangeResponse, GoToDefinitionResponse,
@@ -45,12 +47,12 @@ use crate::{
             },
             workspace::{process_files_did_rename_notif, process_rename_files_result},
         },
-        workspace::{FileIndex, ResolvedRenameFileOperations},
+        workspace::{FileIndex, ResolvedRenameFileOperations, WorkspaceMembers},
     },
     protocol::{
         DidCloseTextDocumentParams, DidOpenTextDocumentParams, ErrorCodes, FileRename, Location,
-        LocationLink, LogTraceParams, NumberOrString, ResponseError, SetTraceParams,
-        TextDocumentItem, TraceValue, Uri,
+        LocationLink, LogTraceParams, NumberOrString, ProgressParams, ProgressToken, ResponseError,
+        SetTraceParams, TextDocumentItem, TraceValue, Uri, WorkDoneProgressCancelParams,
     },
     t32::{LANGUAGE_ID, lang_id_supported},
     utils::FileLocationMap,
@@ -103,8 +105,22 @@ pub enum OngoingTask {
         uri: Uri,
         onset: Instant,
     },
+    WindowWorkDoneProgress {
+        id: NumberOrString,
+        token: ProgressToken,
+        onset: Instant,
+        work: NumberOrString,
+        phase: WorkDoneProgressPhase,
+    },
+    WorkspaceDiscovery {
+        id: NumberOrString,
+        onset: Instant,
+        progress: TaskProgress,
+        phase: WorkspaceDiscoveryPhase,
+    },
 }
 
+#[derive(Debug, PartialEq)]
 pub enum OngoingTaskHandle {
     Identifier(NumberOrString),
     Uri(Uri),
@@ -116,9 +132,29 @@ pub enum ProgressCounter {
     Counting(u32),
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum WorkDoneProgressPhase {
+    Ready(ProgressParams),
+    Announced(ProgressParams),
+    Aborted,
+    Initialized(ProgressParams),
+    Reporting {
+        reported: u32,
+        next: Option<ProgressParams>,
+    },
+    Finished(Option<ProgressParams>),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum WorkspaceDiscoveryPhase {
+    Scanning(Workspace, Option<WorkspaceMembers>),
+    Indexing(WorkspaceMembers, Option<FileIndex>),
+    Parsing(WorkspaceMembers, FileIndex),
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct TaskProgress {
-    completed: ProgressCounter,
+    pub completed: ProgressCounter,
     pub total: u32,
     cycles: u32,
     max_cycles: u32,
@@ -223,7 +259,7 @@ impl MacroDefinitionLocationMap {
 }
 
 impl OngoingTask {
-    fn get_id(&self) -> &NumberOrString {
+    pub fn get_id(&self) -> &NumberOrString {
         match self {
             OngoingTask::CodeFolds(id, ..)
             | OngoingTask::DidRenameFiles(id, ..)
@@ -232,12 +268,16 @@ impl OngoingTask {
             | OngoingTask::GoToExternalMacroDef { id, .. }
             | OngoingTask::GoToDefinition(id, ..)
             | OngoingTask::SemanticTokensFull(id, ..)
-            | OngoingTask::SemanticTokensRange(id, ..) => id,
-            OngoingTask::TextDocUpdate { .. } => unreachable!("Other types have not ID field."),
+            | OngoingTask::SemanticTokensRange(id, ..)
+            | OngoingTask::WindowWorkDoneProgress { id, .. }
+            | OngoingTask::WorkspaceDiscovery { id, .. } => id,
+            OngoingTask::TextDocUpdate { .. } => {
+                unreachable!("Other types have not ID field.")
+            }
         }
     }
 
-    fn get_onset(&self) -> &Instant {
+    pub fn get_onset(&self) -> &Instant {
         match self {
             OngoingTask::CodeFolds(_, onset)
             | OngoingTask::DidRenameFiles(_, onset)
@@ -247,27 +287,30 @@ impl OngoingTask {
             | OngoingTask::GoToDefinition(.., onset)
             | OngoingTask::SemanticTokensFull(_, onset)
             | OngoingTask::SemanticTokensRange(_, onset)
-            | OngoingTask::TextDocUpdate { onset, .. } => onset,
+            | OngoingTask::TextDocUpdate { onset, .. }
+            | OngoingTask::WindowWorkDoneProgress { onset, .. }
+            | OngoingTask::WorkspaceDiscovery { onset, .. } => onset,
         }
     }
 
-    fn aborted(&self) -> bool {
+    pub fn aborted(&self) -> bool {
         match self {
             OngoingTask::FindMacroReferences { progress, .. }
-            | OngoingTask::GoToExternalMacroDef { progress, .. } => progress.aborted(),
+            | OngoingTask::GoToExternalMacroDef { progress, .. }
+            | OngoingTask::WorkspaceDiscovery { progress, .. } => progress.aborted(),
             OngoingTask::CodeFolds(..)
             | OngoingTask::DidRenameFiles(..)
             | OngoingTask::FindReferences(..)
             | OngoingTask::GoToDefinition(..)
             | OngoingTask::SemanticTokensFull { .. }
             | OngoingTask::SemanticTokensRange { .. }
-            | OngoingTask::TextDocUpdate { .. } => false,
+            | OngoingTask::TextDocUpdate { .. }
+            | OngoingTask::WindowWorkDoneProgress { .. } => false,
         }
     }
 }
 
 impl ProgressCounter {
-    #[expect(unused)]
     pub fn value(&self) -> u32 {
         match self {
             Self::Ready => 0u32,
@@ -286,12 +329,9 @@ impl TaskProgress {
         }
     }
 
-    #[expect(unused)]
-    pub fn with_limit(progress: Self, max_cycles: u32) -> Self {
-        TaskProgress {
-            max_cycles,
-            ..progress
-        }
+    pub fn with_limit(mut self, max_cycles: u32) -> Self {
+        self.max_cycles = max_cycles;
+        self
     }
 
     #[cfg(test)]
@@ -351,7 +391,7 @@ impl TaskProgress {
         }
     }
 
-    pub fn abort(&mut self) {
+    pub fn mark_completed(&mut self) {
         self.total = 0
     }
 }
@@ -509,15 +549,73 @@ pub fn recv_completed_tasks(
         let finished = process_completed_task(done, cfg, ts, docs, files, outgoing)?;
 
         if finished && let Some(h) = handle {
-            mark_ongoing_task_completed(h, &mut ts.ongoing);
+            conclude_work_done_progress(&h, &mut ts.ongoing);
+            mark_ongoing_task_completed(&h, &mut ts.ongoing);
         }
     }
     Ok(compl_recv)
 }
 
+pub fn recv_responses(
+    trace_level: TraceValue,
+    incoming: &mut [Option<Message>],
+    ts: &mut Tasks,
+    outgoing: &mut Vec<Option<Message>>,
+) {
+    for msg in incoming {
+        let Some(Message::Response(resp)) = msg else {
+            continue;
+        };
+
+        match resp {
+            Response::NullResponse(NullResponse { id }) => {
+                let idx = find_ongoing_task_by_id(id, &ts.ongoing);
+                if trace_level != TraceValue::Off && idx.is_none() {
+                    warn_response_id_unknown(id.clone());
+                } else {
+                    eval_client_success_response(
+                        trace_level,
+                        &mut ts.ongoing[idx.unwrap()]
+                            .as_mut()
+                            .expect("Not empty slots allowed."),
+                        outgoing,
+                    );
+                }
+            }
+            Response::ErrorResponse(ErrorResponse { id, .. }) => {
+                if id.is_none() {
+                    continue;
+                }
+                let id = id.as_ref().unwrap();
+
+                let idx = find_ongoing_task_by_id(id, &ts.ongoing);
+                if trace_level != TraceValue::Off && idx.is_none() {
+                    warn_response_id_unknown(id.clone());
+                } else {
+                    eval_client_error_response(
+                        trace_level,
+                        &mut ts.ongoing[idx.unwrap()]
+                            .as_mut()
+                            .expect("Not empty slots allowed."),
+                        outgoing,
+                    );
+                }
+            }
+            Response::FoldingRangeResponse(..)
+            | Response::FindReferencesResponse(..)
+            | Response::GoToDefinitionResponse(..)
+            | Response::InitializeResponse(..)
+            | Response::SemanticTokensFullResponse(..)
+            | Response::SemanticTokensRangeResponse(..) => {
+                unreachable!("Response types are not forwarded.")
+            }
+        }
+    }
+}
+
 pub fn schedule_tasks(
     incoming: &mut [Option<Message>],
-    g: &mut State,
+    g: &mut RunState,
     cfg: &mut Config,
     outgoing: &mut Vec<Option<Message>>,
 ) -> Result<(), ReturnCode> {
@@ -554,7 +652,8 @@ fn process_completed_task(
     match done {
         TaskDone::CodeFolds(id, folds) => {
             if cfg.trace_level != TraceValue::Off {
-                let idx = find_ongoing_task_by_id(&id, &ts.ongoing);
+                let idx =
+                    find_ongoing_task_by_id(&id, &ts.ongoing).expect("Must be a registered task.");
                 let Some(OngoingTask::CodeFolds(_, onset)) = &ts.ongoing[idx] else {
                     unreachable!("No other type possible.");
                 };
@@ -612,7 +711,8 @@ fn process_completed_task(
             recv_find_external_definitions_for_macro_reference_sync(&id, result, &mut ts.ongoing);
 
             if cfg.trace_level != TraceValue::Off {
-                let idx = find_ongoing_task_by_id(&id, &ts.ongoing);
+                let idx =
+                    find_ongoing_task_by_id(&id, &ts.ongoing).expect("Must be a registered task.");
 
                 let onset = match &ts.ongoing[idx] {
                     Some(OngoingTask::FindMacroReferences { onset, .. }) => onset,
@@ -630,7 +730,8 @@ fn process_completed_task(
         }
         TaskDone::FindMacroReferences(id, locations) => {
             if cfg.trace_level != TraceValue::Off {
-                let idx = find_ongoing_task_by_id(&id, &ts.ongoing);
+                let idx =
+                    find_ongoing_task_by_id(&id, &ts.ongoing).expect("Must be a registered task.");
 
                 let onset = match &ts.ongoing[idx] {
                     Some(OngoingTask::FindMacroReferences { onset, .. }) => onset,
@@ -660,7 +761,8 @@ fn process_completed_task(
 
             recv_find_macro_def_references_sync(&id, result, &mut ts.ongoing);
             if cfg.trace_level != TraceValue::Off {
-                let idx = find_ongoing_task_by_id(&id, &ts.ongoing);
+                let idx =
+                    find_ongoing_task_by_id(&id, &ts.ongoing).expect("Must be a registered task.");
                 let Some(OngoingTask::FindMacroReferences { onset, .. }) = &ts.ongoing[idx] else {
                     unreachable!("Must not retrieve any other variant.");
                 };
@@ -682,7 +784,8 @@ fn process_completed_task(
 
             recv_find_subscript_macro_references_sync(&id, result, &mut ts.ongoing);
             if cfg.trace_level != TraceValue::Off {
-                let idx = find_ongoing_task_by_id(&id, &ts.ongoing);
+                let idx =
+                    find_ongoing_task_by_id(&id, &ts.ongoing).expect("Must be a registered task.");
                 let Some(OngoingTask::FindMacroReferences { onset, .. }) = &ts.ongoing[idx] else {
                     unreachable!("No other type possible.");
                 };
@@ -701,7 +804,8 @@ fn process_completed_task(
                 process_find_references_result(cfg, docs, files, &id, result, ts, outgoing)
             {
                 if cfg.trace_level != TraceValue::Off {
-                    let idx = find_ongoing_task_by_id(&id, &ts.ongoing);
+                    let idx = find_ongoing_task_by_id(&id, &ts.ongoing)
+                        .expect("Must be a registered task.");
                     let Some(OngoingTask::FindReferences(_, onset)) = &ts.ongoing[idx] else {
                         unreachable!("Must not retrieve any other variant.");
                     };
@@ -724,7 +828,8 @@ fn process_completed_task(
                 process_goto_definition_result(docs, &id, goto_def, cfg.trace_level, ts, outgoing)
             {
                 if cfg.trace_level != TraceValue::Off {
-                    let idx = find_ongoing_task_by_id(&id, &ts.ongoing);
+                    let idx = find_ongoing_task_by_id(&id, &ts.ongoing)
+                        .expect("Must be a registered task.");
                     let Some(OngoingTask::GoToDefinition(_, onset)) = &ts.ongoing[idx] else {
                         unreachable!("Must not retrieve any other variant.");
                     };
@@ -750,7 +855,8 @@ fn process_completed_task(
             };
 
             if cfg.trace_level != TraceValue::Off {
-                let idx = find_ongoing_task_by_id(&id, &ts.ongoing);
+                let idx =
+                    find_ongoing_task_by_id(&id, &ts.ongoing).expect("Must be a registered task.");
                 let Some(OngoingTask::GoToExternalMacroDef { onset, .. }) = &ts.ongoing[idx] else {
                     unreachable!("No other type possible.");
                 };
@@ -769,7 +875,8 @@ fn process_completed_task(
         TaskDone::GoToExternalMacroDefSync(id, defs, script, callers) => {
             recv_goto_external_macro_def_sync(&id, &script, defs, callers, &mut ts.ongoing);
             if cfg.trace_level != TraceValue::Off {
-                let idx = find_ongoing_task_by_id(&id, &ts.ongoing);
+                let idx =
+                    find_ongoing_task_by_id(&id, &ts.ongoing).expect("Must be a registered task.");
                 let Some(OngoingTask::GoToExternalMacroDef { onset, .. }) = &ts.ongoing[idx] else {
                     unreachable!("No other type possible.");
                 };
@@ -783,7 +890,8 @@ fn process_completed_task(
         }
         TaskDone::SemanticTokensFull(id, tokens) => {
             if cfg.trace_level != TraceValue::Off {
-                let idx = find_ongoing_task_by_id(&id, &ts.ongoing);
+                let idx =
+                    find_ongoing_task_by_id(&id, &ts.ongoing).expect("Must be a registered task.");
                 let Some(OngoingTask::SemanticTokensFull(_, onset)) = &ts.ongoing[idx] else {
                     unreachable!("No other type possible.");
                 };
@@ -803,7 +911,8 @@ fn process_completed_task(
         }
         TaskDone::SemanticTokensRange(id, tokens) => {
             if cfg.trace_level != TraceValue::Off {
-                let idx = find_ongoing_task_by_id(&id, &ts.ongoing);
+                let idx =
+                    find_ongoing_task_by_id(&id, &ts.ongoing).expect("Must be a registered task.");
                 let Some(OngoingTask::SemanticTokensRange(_, onset)) = &ts.ongoing[idx] else {
                     unreachable!("No other type possible.");
                 };
@@ -837,265 +946,88 @@ fn process_completed_task(
             docs.update(doc, tree, globals);
             Ok(true)
         }
-        TaskDone::WorkspaceFileScan(res) => {
-            match res {
-                Ok((doc, tree, globals)) => {
-                    if cfg.trace_level != TraceValue::Off {
-                        let onset = get_task_onset_by_doc(&doc.uri, &ts.ongoing);
-                        outgoing.push(Some(trace_doc_change(&doc, &tree, Instant::now() - *onset)));
-                    }
-                    docs.add(doc, tree, globals, TextDocStatus::Closed);
-                }
-                Err(uri) => {
-                    if cfg.trace_level != TraceValue::Off {
-                        outgoing.push(Some(trace_doc_cannot_read(&uri)));
-                    }
-                }
+        TaskDone::WindowWorkDoneProgress(id, aborted) => {
+            if cfg.trace_level != TraceValue::Off {
+                let onset = get_task_onset_by_id(&id, &ts.ongoing);
+                outgoing.push(Some(trace_window_workdone(
+                    Instant::now() - *onset,
+                    id.clone(),
+                    aborted,
+                )));
             }
             Ok(true)
         }
-        TaskDone::WorkspaceFileDiscovery(_) | TaskDone::WorkspaceFileIndexNew(_) => {
-            unreachable!("Workspace file scan tasks are only executed once after server start.")
+        TaskDone::WorkspaceFileParseSync(id, file_data) => {
+            let mut uri: Option<Uri> = None;
+            if cfg.trace_level != TraceValue::Off
+                && let Ok((doc, _, _)) = &file_data
+            {
+                uri = Some(doc.uri.clone());
+            }
+
+            workspace::recv_workspace_file_parsing_sync(
+                cfg.trace_level,
+                &id,
+                file_data,
+                docs,
+                &mut ts.ongoing,
+                outgoing,
+            );
+
+            if cfg.trace_level != TraceValue::Off {
+                let idx =
+                    find_ongoing_task_by_id(&id, &ts.ongoing).expect("Must be a registered task.");
+                let Some(OngoingTask::WorkspaceDiscovery { onset, .. }) = &ts.ongoing[idx] else {
+                    unreachable!("Must not retrieve any other variant.");
+                };
+
+                outgoing.push(Some(trace_workspace_discovery_sync(
+                    Instant::now() - *onset,
+                    id,
+                    if uri.is_some() {
+                        Some(format!("File \"{}\"has been parsed.", uri.unwrap()))
+                    } else {
+                        None
+                    },
+                )));
+            }
+            Ok(false)
+        }
+        TaskDone::WorkspaceFileDiscovery(id) => {
+            docs.sync();
+
+            if cfg.trace_level != TraceValue::Off {
+                let onset = get_task_onset_by_id(&id, &ts.ongoing);
+
+                outgoing.push(Some(trace_workspace_indexed(
+                    Instant::now() - *onset,
+                    id.clone(),
+                    &cfg.workspace,
+                )));
+            }
+            Ok(true)
+        }
+        TaskDone::WorkspaceFileDiscoverySync(..) | TaskDone::WorkspaceFileIndexSync(..) => {
+            unreachable!("These tasks have already been completed before main loop entry.")
         }
     }
 }
 
-fn mark_ongoing_task_completed(handle: OngoingTaskHandle, ongoing: &mut Vec<Option<OngoingTask>>) {
+pub fn mark_ongoing_task_completed(
+    handle: &OngoingTaskHandle,
+    ongoing: &mut Vec<Option<OngoingTask>>,
+) {
     let idx = match handle {
-        OngoingTaskHandle::Identifier(id) => find_ongoing_task_by_id(&id, ongoing),
-        OngoingTaskHandle::Uri(uri) => find_ongoing_task_by_doc(&uri, ongoing),
+        OngoingTaskHandle::Identifier(id) => {
+            find_ongoing_task_by_id(id, ongoing).expect("Must be a registered task.")
+        }
+        OngoingTaskHandle::Uri(uri) => find_ongoing_task_by_doc(uri, ongoing),
     };
     ongoing.remove(idx);
 }
-
-pub fn try_schedule(
-    ts: &mut TaskSystem,
-    job: Task,
-    ongoing: &mut Vec<Option<OngoingTask>>,
-    blocked: &mut Vec<Task>,
-) -> Result<(), ReturnCode> {
-    if task_blocked(&job, ongoing) {
-        blocked.push(job);
-        return Ok(());
-    }
-    ts.schedule(&job)?;
-    add_task_status_tracking(&job, ongoing);
-
-    Ok(())
-}
-
-fn try_schedule_blocked(
-    ts: &mut TaskSystem,
-    ongoing: &mut Vec<Option<OngoingTask>>,
-    blocked: &mut Vec<Task>,
-) -> Result<(), ReturnCode> {
-    for job in blocked.iter() {
-        if task_blocked(job, &ongoing) {
-            continue;
-        }
-        ts.schedule(job)?;
-        add_task_status_tracking(job, ongoing);
-    }
-    blocked.retain(|t| task_blocked(t, &ongoing));
-
-    Ok(())
-}
-
-/// Some requests like document updates can only be processed one at a time.
-/// This functions checks whether there is an ongoing task that would block
-/// the scheduling of the new one.
-/// Document lookup operations like *Go to Definition* should use the latest
-/// document version, so we delay the corresponding task until the document
-/// update has been completed.
-/// Rename operations delay all file updates, because they may target a file
-/// which is in the process of being renamed.
-fn task_blocked(job: &Task, ongoing: &[Option<OngoingTask>]) -> bool {
-    match job {
-        Task::DidRenameFiles(_, RenameFileOperations { old, .. }, ..) => {
-            // Continue with rename operations even though other requests that
-            // query file data are ongoing.
-            ongoing.iter().any(|o| match o {
-                Some(task) => match task {
-                    OngoingTask::DidRenameFiles(..) => true,
-                    OngoingTask::TextDocUpdate { uri: file, .. } => old.contains(&file),
-                    OngoingTask::CodeFolds(..)
-                    | OngoingTask::FindMacroReferences { .. }
-                    | OngoingTask::FindReferences(..)
-                    | OngoingTask::GoToDefinition(..)
-                    | OngoingTask::GoToExternalMacroDef { .. }
-                    | OngoingTask::SemanticTokensFull { .. }
-                    | OngoingTask::SemanticTokensRange { .. } => false,
-                },
-                None => unreachable!("Not empty slots allowed."),
-            })
-        }
-        Task::CodeFolds(
-            _,
-            _,
-            _,
-            TextDocData {
-                doc: TextDoc { uri, .. },
-                ..
-            },
-            ..,
-        )
-        | Task::FindExternalDefinitionsForMacroRef {
-            textdoc:
-                TextDocData {
-                    doc: TextDoc { uri, .. },
-                    ..
-                },
-            ..
-        }
-        | Task::FindMacroReferencesFromDefinitions {
-            textdoc:
-                TextDocData {
-                    doc: TextDoc { uri, .. },
-                    ..
-                },
-            ..
-        }
-        | Task::FindMacroReferencesInSubscripts {
-            textdoc:
-                TextDocData {
-                    doc: TextDoc { uri, .. },
-                    ..
-                },
-            ..
-        }
-        | Task::FindReferences {
-            textdoc:
-                TextDocData {
-                    doc: TextDoc { uri, .. },
-                    ..
-                },
-            ..
-        }
-        | Task::GoToExternalMacroDef {
-            textdoc:
-                TextDocData {
-                    doc: TextDoc { uri, .. },
-                    ..
-                },
-            ..
-        }
-        | Task::GoToDefinition(
-            _,
-            TextDocData {
-                doc: TextDoc { uri, .. },
-                ..
-            },
-            ..,
-        )
-        | Task::SemanticTokensFull(
-            _,
-            _,
-            _,
-            TextDocData {
-                doc: TextDoc { uri, .. },
-                ..
-            },
-            ..,
-        )
-        | Task::SemanticTokensRange(
-            _,
-            _,
-            _,
-            TextDocData {
-                doc: TextDoc { uri, .. },
-                ..
-            },
-            ..,
-        )
-        | Task::TextDocEdit(
-            TextDocData {
-                doc: TextDoc { uri, .. },
-                ..
-            },
-            ..,
-        )
-        | Task::TextDocNew(TextDocumentItem { uri, .. }, ..) => ongoing.iter().any(|o| match o {
-            // Wait with requests that retrieve file data only until file
-            // renaming and file data updates have completed.
-            Some(task) => match task {
-                OngoingTask::DidRenameFiles(..) => true,
-                OngoingTask::TextDocUpdate { uri: file, .. } => file == uri,
-                OngoingTask::CodeFolds(..)
-                | OngoingTask::FindMacroReferences { .. }
-                | OngoingTask::FindReferences(..)
-                | OngoingTask::GoToDefinition(..)
-                | OngoingTask::GoToExternalMacroDef { .. }
-                | OngoingTask::SemanticTokensFull { .. }
-                | OngoingTask::SemanticTokensRange { .. } => false,
-            },
-            None => unreachable!("Not empty slots allowed."),
-        }),
-        Task::WorkspaceFileScan(url, ..) => ongoing.iter().any(|o| match o {
-            // Delay workspace scan only until file renaming and file data updates have completed.
-            Some(task) => match task {
-                OngoingTask::DidRenameFiles(..) => true,
-                OngoingTask::TextDocUpdate { uri: file, .. } => file == url.as_str(),
-                OngoingTask::CodeFolds(..)
-                | OngoingTask::FindMacroReferences { .. }
-                | OngoingTask::FindReferences(..)
-                | OngoingTask::GoToDefinition(..)
-                | OngoingTask::GoToExternalMacroDef { .. }
-                | OngoingTask::SemanticTokensFull { .. }
-                | OngoingTask::SemanticTokensRange { .. } => false,
-            },
-            None => unreachable!("Not empty slots allowed."),
-        }),
-        // Complete these requests as fast as possible.
-        Task::WorkspaceFileDiscovery(..) | Task::WorkspaceFileIndexNew(..) => false,
-    }
-}
-
-/// Document updates need to be processed in the order in which they were
-/// received. Hence, we need to monitor for which documents we are currently
-/// processing an update.
-/// No status tracking for multi-stage tasks is performed.
-fn add_task_status_tracking(job: &Task, ongoing: &mut Vec<Option<OngoingTask>>) {
-    let t = match job {
-        Task::CodeFolds(id, ..) => OngoingTask::CodeFolds(id.clone(), Instant::now()),
-        Task::DidRenameFiles(id, ..) => OngoingTask::DidRenameFiles(id.clone(), Instant::now()),
-        Task::FindReferences { id, .. } => OngoingTask::FindReferences(id.clone(), Instant::now()),
-        Task::GoToDefinition(id, ..) => OngoingTask::GoToDefinition(id.clone(), Instant::now()),
-        Task::SemanticTokensFull(id, ..) => {
-            OngoingTask::SemanticTokensFull(id.clone(), Instant::now())
-        }
-        Task::SemanticTokensRange(id, ..) => {
-            OngoingTask::SemanticTokensRange(id.clone(), Instant::now())
-        }
-        Task::TextDocNew(TextDocumentItem { uri, .. }, ..)
-        | Task::TextDocEdit(
-            TextDocData {
-                doc: TextDoc { uri, .. },
-                ..
-            },
-            ..,
-        ) => OngoingTask::TextDocUpdate {
-            uri: uri.clone(),
-            onset: Instant::now(),
-        },
-        Task::WorkspaceFileScan(url, ..) => OngoingTask::TextDocUpdate {
-            uri: url.to_string(),
-            onset: Instant::now(),
-        },
-
-        Task::FindExternalDefinitionsForMacroRef { .. }
-        | Task::FindMacroReferencesFromDefinitions { .. }
-        | Task::FindMacroReferencesInSubscripts { .. }
-        | Task::GoToExternalMacroDef { .. }
-        | Task::WorkspaceFileDiscovery(..)
-        | Task::WorkspaceFileIndexNew(..) => return,
-        //_ => return,
-    };
-    ongoing.push(Some(t));
-}
-
-fn process_msg(
+pub fn process_msg(
     msg: Message,
-    g: &mut State,
+    g: &mut RunState,
     cfg: &mut Config,
     outgoing: &mut Vec<Option<Message>>,
 ) -> Result<(), ReturnCode> {
@@ -1103,7 +1035,9 @@ fn process_msg(
         // All new requests after a shutdown request was received should
         // be trigger an `InvalidRequest` error.
         m if g.shutdown_request_recv && m.is_request() => {
-            outgoing.push(Some(error_shutdown_seq(m.get_request().get_id().clone())));
+            outgoing.push(Some(ls::error_shutdown_seq(
+                m.get_request().get_id().clone(),
+            )));
         }
         Message::Notification(Notification::DidCloseTextDocumentNotification {
             params: DidCloseTextDocumentParams { text_document },
@@ -1204,12 +1138,249 @@ fn process_msg(
         Message::Notification(Notification::ExitNotification { .. }) => {
             g.exit_requested = true;
         }
+        Message::Notification(Notification::WorkDoneProgressCancelNotification {
+            params: WorkDoneProgressCancelParams { token },
+        }) => {
+            progress::cancel_server_workdone_progress(
+                cfg.trace_level,
+                token,
+                &mut g.tasks.ongoing,
+                outgoing,
+            );
+        }
+        // Ignore these messages silently.
         Message::Notification(Notification::InitializedNotification { .. })
         | Message::Notification(Notification::LogTraceNotification { .. })
+        | Message::Notification(Notification::WorkDoneProgressNotification { .. })
         | Message::Response(_)
-        | Message::Request(Request::InitializeRequest { .. }) => (),
+        | Message::Request(Request::InitializeRequest { .. })
+        | Message::Request(Request::WindowWorkDoneProgressCreate { .. }) => (),
     }
     Ok(())
+}
+
+pub fn try_schedule(
+    ts: &mut TaskSystem,
+    job: Task,
+    ongoing: &mut Vec<Option<OngoingTask>>,
+    blocked: &mut Vec<Task>,
+) -> Result<(), ReturnCode> {
+    if task_blocked(&job, ongoing) {
+        blocked.push(job);
+        return Ok(());
+    }
+    ts.schedule(&job)?;
+    add_task_status_tracking(&job, ongoing);
+
+    Ok(())
+}
+
+fn try_schedule_blocked(
+    ts: &mut TaskSystem,
+    ongoing: &mut Vec<Option<OngoingTask>>,
+    blocked: &mut Vec<Task>,
+) -> Result<(), ReturnCode> {
+    let mut exec: Vec<usize> = Vec::new();
+
+    for (ii, job) in blocked.iter().enumerate() {
+        if task_blocked(job, &ongoing) {
+            continue;
+        }
+        ts.schedule(job)?;
+        add_task_status_tracking(job, ongoing);
+
+        exec.push(ii);
+    }
+
+    for ii in exec.iter().rev() {
+        blocked.swap_remove(*ii);
+    }
+
+    Ok(())
+}
+
+/// Some requests like document updates can only be processed one at a time.
+/// This functions checks whether there is an ongoing task that would block
+/// the scheduling of the new one.
+/// Document lookup operations like *Go to Definition* should use the latest
+/// document version, so we delay the corresponding task until the document
+/// update has been completed.
+/// Rename operations delay all file updates, because they may target a file
+/// which is in the process of being renamed. Until the complete workspace
+/// has been indexed, file rename operations have to wait.
+fn task_blocked(job: &Task, ongoing: &[Option<OngoingTask>]) -> bool {
+    match job {
+        Task::DidRenameFiles(_, RenameFileOperations { old, .. }, ..) => {
+            // Continue with rename operations even though other requests that
+            // query file data are ongoing.
+            ongoing.iter().any(|o| match o {
+                Some(task) => match task {
+                    OngoingTask::DidRenameFiles(..) | OngoingTask::WorkspaceDiscovery { .. } => {
+                        true
+                    }
+                    OngoingTask::TextDocUpdate { uri: file, .. } => old.contains(&file),
+
+                    OngoingTask::CodeFolds(..)
+                    | OngoingTask::FindMacroReferences { .. }
+                    | OngoingTask::FindReferences(..)
+                    | OngoingTask::GoToDefinition(..)
+                    | OngoingTask::GoToExternalMacroDef { .. }
+                    | OngoingTask::SemanticTokensFull { .. }
+                    | OngoingTask::SemanticTokensRange { .. }
+                    | OngoingTask::WindowWorkDoneProgress { .. } => false,
+                },
+                None => unreachable!("Not empty slots allowed."),
+            })
+        }
+        Task::CodeFolds(
+            _,
+            _,
+            _,
+            TextDocData {
+                doc: TextDoc { uri, .. },
+                ..
+            },
+            ..,
+        )
+        | Task::FindExternalDefinitionsForMacroRef {
+            textdoc:
+                TextDocData {
+                    doc: TextDoc { uri, .. },
+                    ..
+                },
+            ..
+        }
+        | Task::FindMacroReferencesFromDefinitions {
+            textdoc:
+                TextDocData {
+                    doc: TextDoc { uri, .. },
+                    ..
+                },
+            ..
+        }
+        | Task::FindMacroReferencesInSubscripts {
+            textdoc:
+                TextDocData {
+                    doc: TextDoc { uri, .. },
+                    ..
+                },
+            ..
+        }
+        | Task::FindReferences {
+            textdoc:
+                TextDocData {
+                    doc: TextDoc { uri, .. },
+                    ..
+                },
+            ..
+        }
+        | Task::GoToExternalMacroDef {
+            textdoc:
+                TextDocData {
+                    doc: TextDoc { uri, .. },
+                    ..
+                },
+            ..
+        }
+        | Task::GoToDefinition(
+            _,
+            TextDocData {
+                doc: TextDoc { uri, .. },
+                ..
+            },
+            ..,
+        )
+        | Task::SemanticTokensFull(
+            _,
+            _,
+            _,
+            TextDocData {
+                doc: TextDoc { uri, .. },
+                ..
+            },
+            ..,
+        )
+        | Task::SemanticTokensRange(
+            _,
+            _,
+            _,
+            TextDocData {
+                doc: TextDoc { uri, .. },
+                ..
+            },
+            ..,
+        )
+        | Task::TextDocEdit(
+            TextDocData {
+                doc: TextDoc { uri, .. },
+                ..
+            },
+            ..,
+        )
+        | Task::TextDocNew(TextDocumentItem { uri, .. }, ..) => ongoing.iter().any(|o| match o {
+            // Wait with requests that retrieve file data only until file
+            // renaming and file data updates have completed. The results of
+            // workspace discovery can be discarded if the discovery process
+            // takes too long.
+            Some(task) => match task {
+                OngoingTask::DidRenameFiles(..) => true,
+                OngoingTask::TextDocUpdate { uri: file, .. } => file == uri,
+                OngoingTask::CodeFolds(..)
+                | OngoingTask::FindMacroReferences { .. }
+                | OngoingTask::FindReferences(..)
+                | OngoingTask::GoToDefinition(..)
+                | OngoingTask::GoToExternalMacroDef { .. }
+                | OngoingTask::SemanticTokensFull { .. }
+                | OngoingTask::SemanticTokensRange { .. }
+                | OngoingTask::WindowWorkDoneProgress { .. }
+                | OngoingTask::WorkspaceDiscovery { .. } => false,
+            },
+            None => unreachable!("Not empty slots allowed."),
+        }),
+        // Complete as fast as possible.
+        Task::WorkspaceFileScan(..) => false,
+        Task::WorkspaceFileDiscovery(..) | Task::WorkspaceFileIndexNew(..) => {
+            unreachable!("These tasks are not scheduled after the server has booted.")
+        }
+    }
+}
+
+/// Document updates need to be processed in the order in which they were
+/// received. Hence, we need to monitor for which documents we are currently
+/// processing an update.
+/// No status tracking for multi-stage tasks is performed.
+fn add_task_status_tracking(job: &Task, ongoing: &mut Vec<Option<OngoingTask>>) {
+    let t = match job {
+        Task::CodeFolds(id, ..) => OngoingTask::CodeFolds(id.clone(), Instant::now()),
+        Task::DidRenameFiles(id, ..) => OngoingTask::DidRenameFiles(id.clone(), Instant::now()),
+        Task::FindReferences { id, .. } => OngoingTask::FindReferences(id.clone(), Instant::now()),
+        Task::GoToDefinition(id, ..) => OngoingTask::GoToDefinition(id.clone(), Instant::now()),
+        Task::SemanticTokensFull(id, ..) => {
+            OngoingTask::SemanticTokensFull(id.clone(), Instant::now())
+        }
+        Task::SemanticTokensRange(id, ..) => {
+            OngoingTask::SemanticTokensRange(id.clone(), Instant::now())
+        }
+        Task::TextDocNew(TextDocumentItem { uri, .. }, ..)
+        | Task::TextDocEdit(
+            TextDocData {
+                doc: TextDoc { uri, .. },
+                ..
+            },
+            ..,
+        ) => OngoingTask::TextDocUpdate {
+            uri: uri.clone(),
+            onset: Instant::now(),
+        },
+        Task::FindExternalDefinitionsForMacroRef { .. }
+        | Task::FindMacroReferencesFromDefinitions { .. }
+        | Task::FindMacroReferencesInSubscripts { .. }
+        | Task::GoToExternalMacroDef { .. }
+        | Task::WorkspaceFileDiscovery(..)
+        | Task::WorkspaceFileIndexNew(..)
+        | Task::WorkspaceFileScan(..) => return,
+    };
+    ongoing.push(Some(t));
 }
 
 fn progress_multi_part_tasks(
@@ -1252,6 +1423,22 @@ fn progress_multi_part_tasks(
                     )?
                 }
             },
+            OngoingTask::WorkspaceDiscovery { .. } => {
+                workspace::progress_workspace_file_parsing(
+                    &cfg.t32_dirs,
+                    job,
+                    &mut tasks,
+                    &mut ts.completed,
+                );
+            }
+            OngoingTask::WindowWorkDoneProgress { .. } => {
+                progress::broadcast_work_done(
+                    job,
+                    &mut ts.counters.tasks_ext,
+                    outgoing,
+                    &mut ts.completed,
+                );
+            }
             OngoingTask::CodeFolds(..)
             | OngoingTask::DidRenameFiles(..)
             | OngoingTask::FindReferences(..)
@@ -1268,8 +1455,97 @@ fn progress_multi_part_tasks(
     Ok(())
 }
 
+fn conclude_work_done_progress(handle: &OngoingTaskHandle, ongoing: &mut Vec<Option<OngoingTask>>) {
+    let id: &NumberOrString = match handle {
+        OngoingTaskHandle::Identifier(id) => id,
+        OngoingTaskHandle::Uri(_) => return,
+    };
+
+    let workspace_discovery_done: bool = {
+        let idx = find_ongoing_task_by_id(id, ongoing).expect("Must be a registered task.");
+
+        ongoing[idx].as_ref().is_some_and(|t| {
+            if let OngoingTask::WorkspaceDiscovery { .. } = t {
+                true
+            } else {
+                false
+            }
+        })
+    };
+
+    if workspace_discovery_done {
+        let Some(idx) = progress::find_workdone_progress_by_id(&id, ongoing) else {
+            return;
+        };
+        workspace::conclude_workspace_file_parsing_progress(&mut ongoing[idx]);
+    }
+}
+
+fn eval_client_success_response(
+    trace_level: TraceValue,
+    job: &mut OngoingTask,
+    outgoing: &mut Vec<Option<Message>>,
+) {
+    match job {
+        OngoingTask::WindowWorkDoneProgress { .. } => {
+            progress::confirm_server_workdone_progress(trace_level, job, outgoing);
+        }
+        // These requests are sent from client to server, so the server is
+        // never the one responding.
+        OngoingTask::CodeFolds(..)
+        | OngoingTask::DidRenameFiles(..)
+        | OngoingTask::FindMacroReferences { .. }
+        | OngoingTask::FindReferences(..)
+        | OngoingTask::GoToDefinition(..)
+        | OngoingTask::GoToExternalMacroDef { .. }
+        | OngoingTask::SemanticTokensFull(..)
+        | OngoingTask::SemanticTokensRange(..)
+        | OngoingTask::TextDocUpdate { .. }
+        | OngoingTask::WorkspaceDiscovery { .. } => {
+            debug_assert!(1 == 0);
+        }
+    }
+}
+
+fn eval_client_error_response(
+    trace_level: TraceValue,
+    job: &mut OngoingTask,
+    outgoing: &mut Vec<Option<Message>>,
+) {
+    match job {
+        OngoingTask::WindowWorkDoneProgress { .. } => {
+            progress::abort_server_workdone_progress(trace_level, job, outgoing);
+        }
+        // These requests are sent from client to server, so the server is
+        // never the one responding.
+        OngoingTask::CodeFolds(..)
+        | OngoingTask::DidRenameFiles(..)
+        | OngoingTask::FindMacroReferences { .. }
+        | OngoingTask::FindReferences(..)
+        | OngoingTask::GoToDefinition(..)
+        | OngoingTask::GoToExternalMacroDef { .. }
+        | OngoingTask::SemanticTokensFull(..)
+        | OngoingTask::SemanticTokensRange(..)
+        | OngoingTask::TextDocUpdate { .. }
+        | OngoingTask::WorkspaceDiscovery { .. } => {
+            debug_assert!(1 == 0);
+        }
+    }
+}
+
 fn get_task_onset_by_doc<'a>(doc: &str, ongoing: &'a [Option<OngoingTask>]) -> &'a Instant {
     let idx = find_ongoing_task_by_doc(doc, ongoing);
+    let Some(task) = &ongoing[idx] else {
+        unreachable!("No empty slots allowed.")
+    };
+    task.get_onset()
+}
+
+fn get_task_onset_by_id<'a>(
+    id: &NumberOrString,
+    ongoing: &'a [Option<OngoingTask>],
+) -> &'a Instant {
+    let idx = find_ongoing_task_by_id(id, ongoing).expect("Must be a registered task.");
     let Some(task) = &ongoing[idx] else {
         unreachable!("No empty slots allowed.")
     };
@@ -1284,23 +1560,28 @@ fn get_rename_task_onset<'a>(ongoing: &'a [Option<OngoingTask>]) -> &'a Instant 
     task.get_onset()
 }
 
-fn find_ongoing_task_by_id(identifier: &NumberOrString, ongoing: &[Option<OngoingTask>]) -> usize {
-    ongoing
-        .iter()
-        .position(|t| match t {
-            Some(OngoingTask::CodeFolds(id, ..))
-            | Some(OngoingTask::DidRenameFiles(id, ..))
-            | Some(OngoingTask::FindReferences(id, ..))
-            | Some(OngoingTask::FindMacroReferences { id, .. })
-            | Some(OngoingTask::GoToDefinition(id, ..))
-            | Some(OngoingTask::GoToExternalMacroDef { id, .. })
-            | Some(OngoingTask::SemanticTokensFull(id, _))
-            | Some(OngoingTask::SemanticTokensRange(id, _)) => id == identifier,
-            None | Some(OngoingTask::TextDocUpdate { .. }) => {
-                unreachable!("No other tasks can by selected by id.")
-            }
-        })
-        .expect("Must be a registered task.")
+fn find_ongoing_task_by_id(
+    identifier: &NumberOrString,
+    ongoing: &[Option<OngoingTask>],
+) -> Option<usize> {
+    ongoing.iter().position(|t| match t {
+        Some(OngoingTask::CodeFolds(id, ..))
+        | Some(OngoingTask::DidRenameFiles(id, ..))
+        | Some(OngoingTask::FindReferences(id, ..))
+        | Some(OngoingTask::FindMacroReferences { id, .. })
+        | Some(OngoingTask::GoToDefinition(id, ..))
+        | Some(OngoingTask::GoToExternalMacroDef { id, .. })
+        | Some(OngoingTask::SemanticTokensFull(id, _))
+        | Some(OngoingTask::SemanticTokensRange(id, _))
+        | Some(OngoingTask::WindowWorkDoneProgress { id, .. })
+        | Some(OngoingTask::WorkspaceDiscovery { id, .. }) => id == identifier,
+
+        Some(OngoingTask::TextDocUpdate { .. }) => false,
+
+        None => {
+            unreachable!("No other tasks can by selected by id.")
+        }
+    })
 }
 
 fn find_ongoing_task_by_doc(doc: &str, ongoing: &[Option<OngoingTask>]) -> usize {
@@ -1309,7 +1590,17 @@ fn find_ongoing_task_by_doc(doc: &str, ongoing: &[Option<OngoingTask>]) -> usize
         .position(|t| match t {
             Some(OngoingTask::TextDocUpdate { uri, .. }) => uri == doc,
             None => unreachable!("Not empty slots allowed."),
-            _ => unreachable!("No other tasks can be selected by document."),
+
+            Some(OngoingTask::CodeFolds(..))
+            | Some(OngoingTask::DidRenameFiles(..))
+            | Some(OngoingTask::FindMacroReferences { .. })
+            | Some(OngoingTask::FindReferences { .. })
+            | Some(OngoingTask::GoToDefinition(..))
+            | Some(OngoingTask::GoToExternalMacroDef { .. })
+            | Some(OngoingTask::SemanticTokensFull { .. })
+            | Some(OngoingTask::SemanticTokensRange { .. })
+            | Some(OngoingTask::WindowWorkDoneProgress { .. })
+            | Some(OngoingTask::WorkspaceDiscovery { .. }) => false,
         })
         .expect("Must be a registered task.")
 }
@@ -1339,18 +1630,6 @@ fn error_lang_id_unsupported(lang_id: &str) -> Message {
     }))
 }
 
-fn error_shutdown_seq(id: NumberOrString) -> Message {
-    Message::Response(Response::ErrorResponse(ErrorResponse {
-        id: Some(id),
-        error: ResponseError {
-            code: ErrorCodes::InvalidRequest as i64,
-            message: "ERROR: Server has received shutdown request. Cannot handle request."
-                .to_string(),
-            data: None,
-        },
-    }))
-}
-
 fn trace_folding_range(duration: Duration, id: NumberOrString) -> Message {
     Message::Notification(Notification::LogTraceNotification {
         params: LogTraceParams {
@@ -1369,6 +1648,25 @@ fn trace_dir_unknown(uri: &str) -> Message {
         params: LogTraceParams {
             message: format!("WARNING: Directory \"{}\" is not known.", uri),
             verbose: None,
+        },
+    })
+}
+pub fn trace_doc_change(doc: &TextDoc, tree: &Tree, duration: Duration) -> Message {
+    Message::Notification(Notification::LogTraceNotification {
+        params: LogTraceParams {
+            message: format!(
+                "INFO: Text document \"{}\" was updated to version {} in {:.4} seconds.",
+                doc.uri,
+                doc.version,
+                duration.as_secs_f32()
+            ),
+            verbose: Some(
+                json!({
+                    "text": doc.text,
+                    "tree": tree.root_node().to_sexp(),
+                })
+                .to_string(),
+            ),
         },
     })
 }
@@ -1505,19 +1803,6 @@ fn trace_sem_tokens_full(duration: Duration, id: NumberOrString) -> Message {
     })
 }
 
-fn trace_sem_tokens_range(duration: Duration, id: NumberOrString) -> Message {
-    Message::Notification(Notification::LogTraceNotification {
-        params: LogTraceParams {
-            message: format!(
-                "INFO: Semantic tokens for file range request with ID {} completed in {:.4} seconds.",
-                id,
-                duration.as_secs_f32()
-            ),
-            verbose: None,
-        },
-    })
-}
-
 fn trace_goto_ext_def_sync(duration: Duration, id: NumberOrString, file: Uri) -> Message {
     Message::Notification(Notification::LogTraceNotification {
         params: LogTraceParams {
@@ -1532,6 +1817,19 @@ fn trace_goto_ext_def_sync(duration: Duration, id: NumberOrString, file: Uri) ->
     })
 }
 
+fn trace_sem_tokens_range(duration: Duration, id: NumberOrString) -> Message {
+    Message::Notification(Notification::LogTraceNotification {
+        params: LogTraceParams {
+            message: format!(
+                "INFO: Semantic tokens for file range request with ID {} completed in {:.4} seconds.",
+                id,
+                duration.as_secs_f32()
+            ),
+            verbose: None,
+        },
+    })
+}
+
 fn trace_task_aborted(duration: Duration, id: &NumberOrString) -> Message {
     Message::Notification(Notification::LogTraceNotification {
         params: LogTraceParams {
@@ -1539,6 +1837,79 @@ fn trace_task_aborted(duration: Duration, id: &NumberOrString) -> Message {
                 "WARNING: Processing of request with ID {} aborted after {:.4} seconds.",
                 id,
                 duration.as_secs_f32()
+            ),
+            verbose: None,
+        },
+    })
+}
+fn trace_window_workdone(duration: Duration, id: NumberOrString, aborted: bool) -> Message {
+    Message::Notification(Notification::LogTraceNotification {
+        params: LogTraceParams {
+            message: format!(
+                "INFO: Window workdone progress with ID {} {} {:.4} seconds.",
+                id,
+                if aborted {
+                    "aborted after"
+                } else {
+                    "completed in"
+                },
+                duration.as_secs_f32()
+            ),
+            verbose: None,
+        },
+    })
+}
+
+fn trace_workspace_discovery_sync(
+    duration: Duration,
+    id: NumberOrString,
+    details: Option<String>,
+) -> Message {
+    Message::Notification(Notification::LogTraceNotification {
+        params: LogTraceParams {
+            message: format!(
+                "INFO: Workspace discovery sync with ID {} completed in {:.4} seconds.",
+                id,
+                duration.as_secs_f32()
+            ),
+            verbose: details,
+        },
+    })
+}
+fn trace_workspace_indexed(
+    duration: Duration,
+    id: NumberOrString,
+    workspace: &Workspace,
+) -> Message {
+    Message::Notification(Notification::LogTraceNotification {
+        params: LogTraceParams {
+            message: format!(
+                "INFO: Workspace discovery with ID {} completed in {:.4} seconds.",
+                id,
+                duration.as_secs_f32()
+            ),
+            verbose: Some(json!(workspace).to_string()),
+        },
+    })
+}
+fn warn_response_id_unknown(id: NumberOrString) -> Message {
+    Message::Notification(Notification::LogTraceNotification {
+        params: LogTraceParams {
+            message: format!(
+                "WARNING: Response ID {} is not known. Cannot find request with matching ID.",
+                id
+            ),
+            verbose: None,
+        },
+    })
+}
+
+fn warn_response_already_processed(id: NumberOrString) -> Message {
+    Message::Notification(Notification::LogTraceNotification {
+        params: LogTraceParams {
+            message: format!(
+                "WARNING: Response ID {} is not known. Cannot find request with matching ID.",
+                id
             ),
             verbose: None,
         },

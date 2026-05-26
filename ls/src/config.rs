@@ -58,7 +58,7 @@ pub enum OperationMode {
     StdioTransport,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub enum Workspace {
     Root(Option<Uri>),
     Folders(Option<Vec<WorkspaceFolder>>),
@@ -86,11 +86,12 @@ pub struct Config {
     pub parent_pid: Option<u32>,
     pub pid_check_interval: Duration,
     pub position_encoding: PositionEncodingKind,
-    pub workspace: Workspace,
-    pub workspace_folders_supported: bool,
     pub semantic_tokens: SemanticTokenSupport,
+    pub server_progress_supported: bool,
     pub t32_dirs: T32DefaultDirs,
     pub trace_level: TraceValue,
+    pub workspace: Workspace,
+    pub workspace_folders_supported: bool,
 }
 
 #[derive(Debug)]
@@ -238,21 +239,22 @@ impl Config {
         }
 
         Ok(Config {
-            parent_pid: ppid,
-            pid_check_interval: Duration::from_secs(5),
+            code_folding: CodeFoldingSupport::default(),
             channel: ChannelKind::Stdio,
-            workspace: Workspace::Root(None),
-            workspace_folders_supported: false,
-            position_encoding: PositionEncodingKind::Utf16,
             location_links: LocationLinkSupport {
                 definitions_supported: false,
             },
             did_rename_files_supported: false,
-            trace_level,
             mode,
+            parent_pid: ppid,
+            pid_check_interval: Duration::from_secs(5),
+            position_encoding: PositionEncodingKind::Utf16,
             semantic_tokens: SemanticTokenSupport::default(),
+            server_progress_supported: false,
             t32_dirs: T32DefaultDirs::build(t32_system_dir, t32_temp_dir),
-            code_folding: CodeFoldingSupport::default(),
+            trace_level,
+            workspace: Workspace::Root(None),
+            workspace_folders_supported: false,
         })
     }
 

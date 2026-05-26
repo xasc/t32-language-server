@@ -250,7 +250,7 @@ This language server implements [version 3.18 of the language server protocol].
 | `textDocument/codeLens`                  | ➖             |
 | `codeLens/resolve`                       | ➖             |
 | `workspace/codeLens/refresh`             | ➖             |
-| `textDocument/foldingRange`              | ➖             |
+| `textDocument/foldingRange`              | ✅             |
 | `workspace/foldingRange/refresh`         | ➖             |
 | `textDocument/selectionRange`            | ➖             |
 | `textDocument/documentSymbol`            | ➖             |
@@ -314,6 +314,6 @@ This language server implements [version 3.18 of the language server protocol].
 | `window/showMessageRequest`       | ➖             |
 | `window/showDocument`             | ➖             |
 | `window/logMessage`               | ➖             |
-| `window/workDoneProgress/create`  | ➖             |
-| `window/workDoneProgress/cancel`  | ➖             |
+| `window/workDoneProgress/create`  | ✅             |
+| `window/workDoneProgress/cancel`  | ✅             |
 | `telemetry/event`                 | ➖             |

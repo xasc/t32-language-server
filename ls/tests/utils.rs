@@ -115,6 +115,28 @@ pub fn start_ls_with_semantic_tokens(args: &[&str]) -> Child {
 }
 
 #[allow(dead_code)]
+pub fn start_ls_with_server_workdone_progress(args: &[&str]) -> Child {
+    let mut params = vec!["run", "--quiet", "--"];
+    params.extend_from_slice(&args);
+
+    let mut ls = Command::new("cargo")
+        .args(params)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("Must be able to start language server.");
+
+    if let Some(cin) = &mut ls.stdin {
+        let pid = process::id();
+
+        let init = make_initialize_request_with_server_workdone_progress(1, pid);
+
+        to_stdin(cin, &init);
+    }
+    ls
+}
+
+#[allow(dead_code)]
 pub fn stop_ls(proc: &mut Child, stdin: Option<&mut ChildStdin>, try_shutdown: Option<isize>) {
     if let Some(cin) = stdin {
         if let Some(id) = try_shutdown {
@@ -166,6 +188,32 @@ pub fn make_initialize_request_with_multi_root_workspace(id: isize, pid: u32) ->
                 "name": "workspace",
             }],
             "capabilities": {},
+        }
+    });
+
+    build_msg(&content.to_string())
+}
+
+#[allow(dead_code)]
+pub fn make_initialize_request_with_server_workdone_progress(id: isize, pid: u32) -> String {
+    let dir = env::current_dir().unwrap().join("tests").join("samples");
+    let workspace: Url = Url::from_directory_path(path::absolute(dir).unwrap()).unwrap();
+
+    let content = json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "method": "initialize",
+        "params": {
+            "processId": pid,
+            "workspaceFolders": [{
+                "uri": workspace.as_str(),
+                "name": "workspace",
+            }],
+            "capabilities": {
+                "window": {
+                    "workDoneProgress": true,
+                }
+            },
         }
     });
 

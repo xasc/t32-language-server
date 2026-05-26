@@ -7,12 +7,13 @@ use std::fmt;
 use crate::protocol::{
     DefinitionParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, FoldingRangeParams, InitializeParams, InitializedParams,
-    LogTraceParams, NumberOrString, ReferenceParams, RenameFilesParams, SemanticTokensParams,
-    SemanticTokensRangeParams, SetTraceParams,
+    LogTraceParams, NumberOrString, ProgressParams, ReferenceParams, RenameFilesParams,
+    SemanticTokensParams, SemanticTokensRangeParams, SetTraceParams, WorkDoneProgressCancelParams,
+    WorkDoneProgressCreateParams,
 };
 
 // Requests from client to server.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Request {
     FindReferences {
         id: NumberOrString,
@@ -41,9 +42,13 @@ pub enum Request {
     ShutdownRequest {
         id: NumberOrString,
     },
+    WindowWorkDoneProgressCreate {
+        id: NumberOrString,
+        params: WorkDoneProgressCreateParams,
+    },
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Notification {
     DidCloseTextDocumentNotification {
         params: DidCloseTextDocumentParams,
@@ -59,7 +64,6 @@ pub enum Notification {
     },
     ExitNotification {},
     InitializedNotification {
-        #[expect(unused)]
         params: InitializedParams,
     },
     LogTraceNotification {
@@ -67,6 +71,12 @@ pub enum Notification {
     },
     SetTraceNotification {
         params: SetTraceParams,
+    },
+    WorkDoneProgressNotification {
+        params: ProgressParams,
+    },
+    WorkDoneProgressCancelNotification {
+        params: WorkDoneProgressCancelParams,
     },
 }
 
@@ -80,6 +90,7 @@ impl Request {
             Request::SemanticTokensFull { id, .. } => id,
             Request::SemanticTokensRange { id, .. } => id,
             Request::ShutdownRequest { id } => id,
+            Request::WindowWorkDoneProgressCreate { id, .. } => id,
         }
     }
 }

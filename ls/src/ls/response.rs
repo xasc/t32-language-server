@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     config::version_str,
+    ls::request::Notification,
     protocol::{
         DefinitionOptions, DefinitionProvider, DocumentFilter, FileOperationFilter,
         FileOperationPattern, FileOperationPatternKind, FileOperationPatternOptions,
@@ -20,8 +21,14 @@ use crate::{
     t32::{LANGUAGE_ID, SUFFIXES},
 };
 
+#[derive(Debug)]
+pub enum ReceiveError {
+    Response(ErrorResponse),
+    Notification(Notification),
+}
+
 // Responses sent from server to client
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub enum Response {
     ErrorResponse(ErrorResponse),
     FoldingRangeResponse(FoldingRangeResponse),
@@ -33,7 +40,7 @@ pub enum Response {
     SemanticTokensRangeResponse(SemanticTokensRangeResponse),
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct ErrorResponse {
     pub id: Option<NumberOrString>,
     pub error: ResponseError,
@@ -45,42 +52,42 @@ pub struct FindReferencesResponse {
     pub result: Option<Vec<Location>>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct FoldingRangeResponse {
     pub id: NumberOrString,
     pub result: Option<Vec<FoldingRange>>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct GoToDefinitionResponse {
     pub id: NumberOrString,
     pub result: Option<LocationResult>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct SemanticTokensFullResponse {
     pub id: NumberOrString,
     pub result: Option<SemanticTokens>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct SemanticTokensRangeResponse {
     pub id: NumberOrString,
     pub result: Option<SemanticTokens>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct InitializeResponse {
     pub id: NumberOrString,
     pub result: InitializeResult,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct NullResponse {
     pub id: NumberOrString,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum LocationResult {
     Single(Location),

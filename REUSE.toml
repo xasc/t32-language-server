@@ -23,6 +23,24 @@ SPDX-FileCopyrightText = "2024 Christoph Sax <c_sax@mailbox.org>"
 SPDX-License-Identifier = "EUPL-1.2"
 
 [[annotations]]
+path = "vscode/images/folds.png"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2024 Christoph Sax <c_sax@mailbox.org>"
+SPDX-License-Identifier = "EUPL-1.2"
+
+[[annotations]]
+path = "vscode/images/sample_xrefs.png"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2024 Christoph Sax <c_sax@mailbox.org>"
+SPDX-License-Identifier = "EUPL-1.2"
+
+[[annotations]]
+path = "vscode/images/semantic_tokens.png"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2024 Christoph Sax <c_sax@mailbox.org>"
+SPDX-License-Identifier = "EUPL-1.2"
+
+[[annotations]]
 path = "vscode/images/logo.png"
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2024 Christoph Sax <c_sax@mailbox.org>"

@@ -195,7 +195,6 @@ impl TextDocData {
 }
 
 impl<'a> TextDocs {
-    #[cfg(test)]
     pub fn new() -> Self {
         TextDocs {
             docs: DocStore {
@@ -272,24 +271,24 @@ impl<'a> TextDocs {
         store
     }
 
-    pub fn add(&mut self, doc: TextDoc, tree: Tree, expr: LangExpressions, status: TextDocStatus) {
+    pub fn add(&mut self, doc: TextDoc, tree: Tree, t32: LangExpressions, status: TextDocStatus) {
         if let Some(targets) = self.get_called_subscripts(&doc.uri) {
             self.remove_caller(&doc.uri, &targets.clone());
         }
-        self.update_macro_index(&doc, &expr.macro_refs);
-        self.update_file_target_index(&doc, expr.calls.scripts.as_ref());
-        self.update_command_index(&doc, &expr);
+        self.update_macro_index(&doc, &t32.macro_refs);
+        self.update_file_target_index(&doc, t32.calls.scripts.as_ref());
+        self.update_command_index(&doc, &t32);
 
         let uri = doc.uri.clone();
-        self.insert_or_update(doc, tree, expr, status);
+        self.insert_or_update(doc, tree, t32, status);
 
         self.update_callers(&uri, self.get_call_relations());
     }
 
-    pub fn update(&mut self, doc: TextDoc, tree: Tree, expr: LangExpressions) {
-        self.update_macro_index(&doc, &expr.macro_refs);
-        self.update_file_target_index(&doc, expr.calls.scripts.as_ref());
-        self.update_command_index(&doc, &expr);
+    pub fn update(&mut self, doc: TextDoc, tree: Tree, t32: LangExpressions) {
+        self.update_macro_index(&doc, &t32.macro_refs);
+        self.update_file_target_index(&doc, t32.calls.scripts.as_ref());
+        self.update_command_index(&doc, &t32);
 
         if let Some(val) = self.registry.get(&doc.uri) {
             debug_assert_eq!(val.0, TextDocStatus::Open);
@@ -300,14 +299,14 @@ impl<'a> TextDocs {
 
                     self.docs.open[val.1] = Some(doc);
                     self.trees.open[val.1] = Some(tree);
-                    self.t32.open[val.1] = Some(expr);
+                    self.t32.open[val.1] = Some(t32);
                 }
                 TextDocStatus::Closed => {
                     debug_assert_eq!(self.docs.open[val.1].as_ref().unwrap().uri, doc.uri);
 
                     self.docs.closed[val.1] = Some(doc);
                     self.trees.closed[val.1] = Some(tree);
-                    self.t32.closed[val.1] = Some(expr);
+                    self.t32.closed[val.1] = Some(t32);
                 }
             }
             return;
@@ -353,6 +352,11 @@ impl<'a> TextDocs {
             self.registry
                 .insert(uri.to_string(), DocIndex(TextDocStatus::Closed, slot));
         }
+    }
+
+    pub fn sync(&mut self) {
+        let calls = self.get_call_relations();
+        self.register_all_callers(calls);
     }
 
     pub fn rename_files(&mut self, renamed: &RenameFileOperations) {

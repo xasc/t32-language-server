@@ -139,7 +139,7 @@ pub fn recv_goto_external_macro_def_sync(
     mut callers: Vec<Uri>,
     ongoing: &mut Vec<Option<OngoingTask>>,
 ) {
-    let idx = find_ongoing_task_by_id(&id, ongoing);
+    let idx = find_ongoing_task_by_id(&id, ongoing).expect("Must be a registered task.");
 
     let Some(OngoingTask::GoToExternalMacroDef {
         progress,
@@ -177,7 +177,7 @@ pub fn recv_goto_external_macro_def_sync(
 
     progress.advance();
     if progress.ready() && undone.is_empty() {
-        progress.abort();
+        progress.mark_completed();
     }
 }
 
@@ -268,7 +268,7 @@ fn prepare_goto_external_macro_def_req(
         callees.push(origin.uri.clone());
     }
 
-    let idx = find_ongoing_task_by_id(&id, &ongoing);
+    let idx = find_ongoing_task_by_id(&id, &ongoing).expect("Must be a registered task.");
     let Some(OngoingTask::GoToDefinition(_, onset)) = ongoing[idx].take() else {
         unreachable!("Must not retrieve any other variant.");
     };
@@ -587,7 +587,7 @@ mod tests {
     use crate::{
         config::T32DefaultDirs,
         ls::doc::{self, TextDoc},
-        ls::{Task, TaskCounterInternal, TaskSystem, workspace},
+        ls::{Task, TaskCounters, TaskSystem, workspace},
         protocol::{Position, Range as LRange},
         t32::LangExpressions,
         utils,
@@ -622,7 +622,7 @@ mod tests {
             blocked: Vec::new(),
             ongoing: vec![Some(OngoingTask::GoToDefinition(id.clone(), onset.clone()))],
             completed: Vec::new(),
-            counter: TaskCounterInternal::new(),
+            counters: TaskCounters::new(),
         };
 
         let uri_a = utils::to_file_uri("tests/samples/a/a.cmm");

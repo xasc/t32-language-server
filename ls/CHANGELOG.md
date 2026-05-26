@@ -13,6 +13,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+[Unreleased]
+------------
+
+### Added
+
+-  Progress reporting can be initiated by the server.
+-  Progress reporting for workspace indexing.
+
+### Changed
+
+-  The server can process client requests while workspace indexing is still
+   ongoing. The server is only blocking to queue workspace indexing. Indexing
+   results are resolved during normal server operation.
+
+
 [0.13.0] - 2026-05-25
 ---------------------
 

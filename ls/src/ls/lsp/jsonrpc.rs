@@ -19,14 +19,15 @@ use crate::{
     ls::request::{Notification, Request},
     ls::response::{
         ErrorResponse, FindReferencesResponse, FoldingRangeResponse, GoToDefinitionResponse,
-        InitializeResponse, NullResponse, Response, SemanticTokensFullResponse,
+        InitializeResponse, NullResponse, ReceiveError, Response, SemanticTokensFullResponse,
         SemanticTokensRangeResponse,
     },
     protocol::{
         DefinitionParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
         DidOpenTextDocumentParams, ErrorCodes, FoldingRangeParams, InitializeParams,
-        InitializedParams, NumberOrString, ReferenceParams, RenameFilesParams, ResponseError,
-        SemanticTokensParams, SemanticTokensRangeParams, SetTraceParams,
+        InitializedParams, LogTraceParams, NumberOrString, ReferenceParams, RenameFilesParams,
+        ResponseError, SemanticTokensParams, SemanticTokensRangeParams, SetTraceParams,
+        WorkDoneProgressCancelParams,
     },
 };
 
@@ -209,25 +210,25 @@ impl<'de> de::Deserialize<'de> for ResponseMessage {
                 while let Some(key) = map.next_key()? {
                     match key {
                         Field::Jsonrpc => {
-                            if jsonrpc.is_none() {
+                            if jsonrpc.is_some() {
                                 return Err(de::Error::duplicate_field("jsonrpc"));
                             }
                             jsonrpc = Some(map.next_value()?);
                         }
                         Field::Id => {
-                            if id.is_none() {
+                            if id.is_some() {
                                 return Err(de::Error::duplicate_field("id"));
                             }
                             id = Some(map.next_value()?);
                         }
                         Field::Result => {
-                            if result.is_none() {
+                            if result.is_some() {
                                 return Err(de::Error::duplicate_field("result"));
                             }
                             result = Some(map.next_value()?);
                         }
                         Field::Error => {
-                            if error.is_none() {
+                            if error.is_some() {
                                 return Err(de::Error::duplicate_field("error"));
                             }
                             error = Some(map.next_value()?);
@@ -267,9 +268,7 @@ pub fn parse_message(buf: &[u8]) -> Result<LineMessage, ResponseError> {
                     match err.inner().classify() {
                         Category::Io => unreachable!(), // Byte buffer must be valid.
                         Category::Syntax => return Err(precise_error_syntax(err.path().to_string(), err.into_inner(), Some(buf))),
-                        Category::Data => {
-                            return Err(precise_error_data(err.path().to_string(), err.into_inner(), Some(buf)));
-                        }
+                        Category::Data => return Err(precise_error_data(err.path().to_string(), err.into_inner(), Some(buf))),
                         Category::Eof => return Err(precise_error_incomplete(err.path().to_string(), err.into_inner(), buf.len())),
                     }
                 }
@@ -291,33 +290,33 @@ pub fn parse_message(buf: &[u8]) -> Result<LineMessage, ResponseError> {
     }
 }
 
-pub fn deserialize_msg(msg: LineMessage) -> Result<Message, ErrorResponse> {
+pub fn deserialize_msg(msg: LineMessage) -> Result<Message, ReceiveError> {
     let ver = msg.get_jsonrpc();
     if ver != JSONRPC_VER {
         let ver = ver.to_string();
-        return Err(ErrorResponse {
+        return Err(ReceiveError::Response(ErrorResponse {
             id: msg.get_id(),
             error: error_jsonrcp_ver(&ver),
-        });
+        }));
     }
 
     match msg {
         LineMessage::RequestMessage(m) => deserialize_request(m),
         LineMessage::NotificationMessage(n) => deserialize_notif(n),
-        _ => unreachable!(),
+        LineMessage::ResponseMessage(r) => deserialize_response(r),
     }
 }
 
 pub fn serialize_msg(msg: Message) -> String {
     let repr = match msg {
         Message::Response(resp) => serialize_response(resp),
-        Message::Notification(n) => serialize_nofif(n),
-        Message::Request(_) => todo!(),
+        Message::Notification(notif) => serialize_notif(notif),
+        Message::Request(req) => serialize_request(req),
     };
     serde_json::to_string(&repr).expect("Serialization must not fail.")
 }
 
-fn deserialize_request(msg: RequestMessage) -> Result<Message, ErrorResponse> {
+fn deserialize_request(msg: RequestMessage) -> Result<Message, ReceiveError> {
     const INITIALIZE: &'static str = "initialize";
     const SHUTDOWN: &'static str = "shutdown";
     const TEXTDOC_DEFINITION: &'static str = "textDocument/definition";
@@ -332,10 +331,10 @@ fn deserialize_request(msg: RequestMessage) -> Result<Message, ErrorResponse> {
                 id: msg.id,
                 params,
             })),
-            Err(err) => Err(ErrorResponse {
+            Err(err) => Err(ReceiveError::Response(ErrorResponse {
                 id: Some(msg.id),
                 error: err,
-            }),
+            })),
         },
         SHUTDOWN => Ok(Message::Request(Request::ShutdownRequest { id: msg.id })),
         TEXTDOC_DEFINITION => match deserialize_msg_params::<DefinitionParams>(msg.params) {
@@ -343,30 +342,30 @@ fn deserialize_request(msg: RequestMessage) -> Result<Message, ErrorResponse> {
                 id: msg.id,
                 params,
             })),
-            Err(err) => Err(ErrorResponse {
+            Err(err) => Err(ReceiveError::Response(ErrorResponse {
                 id: Some(msg.id),
                 error: err,
-            }),
+            })),
         },
         TEXTDOC_FOLDING_RANGE => match deserialize_msg_params::<FoldingRangeParams>(msg.params) {
             Ok(params) => Ok(Message::Request(Request::FoldingRange {
                 id: msg.id,
                 params,
             })),
-            Err(err) => Err(ErrorResponse {
+            Err(err) => Err(ReceiveError::Response(ErrorResponse {
                 id: Some(msg.id),
                 error: err,
-            }),
+            })),
         },
         TEXTDOC_REFERENCES => match deserialize_msg_params::<ReferenceParams>(msg.params) {
             Ok(params) => Ok(Message::Request(Request::FindReferences {
                 id: msg.id,
                 params,
             })),
-            Err(err) => Err(ErrorResponse {
+            Err(err) => Err(ReceiveError::Response(ErrorResponse {
                 id: Some(msg.id),
                 error: err,
-            }),
+            })),
         },
         TEXTDOC_SEMANTIC_TOKENS_FULL => {
             match deserialize_msg_params::<SemanticTokensParams>(msg.params) {
@@ -374,10 +373,10 @@ fn deserialize_request(msg: RequestMessage) -> Result<Message, ErrorResponse> {
                     id: msg.id,
                     params,
                 })),
-                Err(err) => Err(ErrorResponse {
+                Err(err) => Err(ReceiveError::Response(ErrorResponse {
                     id: Some(msg.id),
                     error: err,
-                }),
+                })),
             }
         }
         TEXTDOC_SEMANTIC_TOKENS_RANGE => {
@@ -386,20 +385,20 @@ fn deserialize_request(msg: RequestMessage) -> Result<Message, ErrorResponse> {
                     id: msg.id,
                     params,
                 })),
-                Err(err) => Err(ErrorResponse {
+                Err(err) => Err(ReceiveError::Response(ErrorResponse {
                     id: Some(msg.id),
                     error: err,
-                }),
+                })),
             }
         }
-        method => Err(ErrorResponse {
+        method => Err(ReceiveError::Response(ErrorResponse {
             id: Some(msg.id),
             error: error_type_req(method),
-        }),
+        })),
     }
 }
 
-fn deserialize_notif(msg: NotificationMessage) -> Result<Message, ErrorResponse> {
+fn deserialize_notif(msg: NotificationMessage) -> Result<Message, ReceiveError> {
     const EXIT: &'static str = "exit";
     const FILES_DID_RENAME: &'static str = "workspace/didRenameFiles";
     const INITIALIZED: &'static str = "initialized";
@@ -407,6 +406,7 @@ fn deserialize_notif(msg: NotificationMessage) -> Result<Message, ErrorResponse>
     const TEXTDOC_DID_CLOSE: &'static str = "textDocument/didClose";
     const TEXTDOC_DID_CHANGE: &'static str = "textDocument/didChange";
     const TEXTDOC_DID_OPEN: &'static str = "textDocument/didOpen";
+    const WINDOW_WORK_DONE_PROGRESS_CANCEL: &'static str = "window/workDoneProgress/cancel";
 
     match msg.method.as_str() {
         EXIT => Ok(Message::Notification(Notification::ExitNotification {})),
@@ -414,38 +414,38 @@ fn deserialize_notif(msg: NotificationMessage) -> Result<Message, ErrorResponse>
             Ok(params) => Ok(Message::Notification(
                 Notification::DidRenameFilesNotification { params },
             )),
-            Err(err) => Err(ErrorResponse {
+            Err(err) => Err(ReceiveError::Response(ErrorResponse {
                 id: None,
                 error: err,
-            }),
+            })),
         },
         INITIALIZED => match deserialize_msg_params::<InitializedParams>(msg.params) {
             Ok(params) => Ok(Message::Notification(
                 Notification::InitializedNotification { params },
             )),
-            Err(err) => Err(ErrorResponse {
+            Err(err) => Err(ReceiveError::Response(ErrorResponse {
                 id: None,
                 error: err,
-            }),
+            })),
         },
         SET_TRACE => match deserialize_msg_params::<SetTraceParams>(msg.params) {
             Ok(params) => Ok(Message::Notification(Notification::SetTraceNotification {
                 params,
             })),
-            Err(err) => Err(ErrorResponse {
+            Err(err) => Err(ReceiveError::Response(ErrorResponse {
                 id: None,
                 error: err,
-            }),
+            })),
         },
         TEXTDOC_DID_CLOSE => {
             match deserialize_msg_params::<DidCloseTextDocumentParams>(msg.params) {
                 Ok(params) => Ok(Message::Notification(
                     Notification::DidCloseTextDocumentNotification { params },
                 )),
-                Err(err) => Err(ErrorResponse {
+                Err(err) => Err(ReceiveError::Response(ErrorResponse {
                     id: None,
                     error: err,
-                }),
+                })),
             }
         }
         TEXTDOC_DID_CHANGE => {
@@ -453,25 +453,65 @@ fn deserialize_notif(msg: NotificationMessage) -> Result<Message, ErrorResponse>
                 Ok(params) => Ok(Message::Notification(
                     Notification::DidChangeTextDocumentNotification { params },
                 )),
-                Err(err) => Err(ErrorResponse {
+                Err(err) => Err(ReceiveError::Response(ErrorResponse {
                     id: None,
                     error: err,
-                }),
+                })),
             }
         }
         TEXTDOC_DID_OPEN => match deserialize_msg_params::<DidOpenTextDocumentParams>(msg.params) {
             Ok(params) => Ok(Message::Notification(
                 Notification::DidOpenTextDocumentNotification { params },
             )),
-            Err(err) => Err(ErrorResponse {
+            Err(err) => Err(ReceiveError::Response(ErrorResponse {
                 id: None,
                 error: err,
-            }),
+            })),
         },
-        method => Err(ErrorResponse {
+        WINDOW_WORK_DONE_PROGRESS_CANCEL => {
+            match deserialize_msg_params::<WorkDoneProgressCancelParams>(msg.params) {
+                Ok(params) => Ok(Message::Notification(
+                    Notification::WorkDoneProgressCancelNotification { params },
+                )),
+                Err(err) => Err(ReceiveError::Response(ErrorResponse {
+                    id: None,
+                    error: err,
+                })),
+            }
+        }
+        method => Err(ReceiveError::Response(ErrorResponse {
             id: None,
             error: error_type_notif(method),
-        }),
+        })),
+    }
+}
+
+fn deserialize_response(msg: ResponseMessage) -> Result<Message, ReceiveError> {
+    debug_assert!(
+        (msg.result.is_none() && msg.error.is_some())
+            || (msg.result.is_some() && msg.error.is_none())
+            || msg.result.is_none()
+    );
+
+    if let Some(err) = msg.error {
+        return Ok(Message::Response(Response::ErrorResponse(ErrorResponse {
+            id: msg.id,
+            error: err,
+        })));
+    }
+
+    if msg.id.is_none() {
+        return Err(ReceiveError::Notification(notif_warn_resp_id_missing()));
+    }
+
+    match msg.result {
+        None | Some(Value::Null) => Ok(Message::Response(Response::NullResponse(NullResponse {
+            id: msg.id.unwrap(),
+        }))),
+        Some(res) => Err(ReceiveError::Notification(notif_err_resp_result_type(
+            msg.id.unwrap(),
+            res,
+        ))),
     }
 }
 
@@ -486,19 +526,27 @@ fn deserialize_msg_params<T: DeserializeOwned>(params: Option<Value>) -> Result<
     }
 }
 
-fn serialize_nofif(msg: Notification) -> LineMessage {
+fn serialize_notif(msg: Notification) -> LineMessage {
     const LOG_TRACE: &'static str = "$/logTrace";
+    const WORK_DONE_PROGRESS: &'static str = "$/progress";
 
-    match msg {
-        Notification::LogTraceNotification { params } => {
-            LineMessage::NotificationMessage(NotificationMessage {
-                jsonrpc: JSONRPC_VER.to_string(),
-                method: LOG_TRACE.to_string(),
-                params: Some(serde_json::to_value(params).expect("Serialization must not fail.")),
-            })
-        }
-        _ => unreachable!("Notification type must not be sent to client."),
-    }
+    let (method, params): (&str, Value) = match msg {
+        Notification::LogTraceNotification { params } => (
+            LOG_TRACE,
+            serde_json::to_value(params).expect("Serialization must not fail."),
+        ),
+        Notification::WorkDoneProgressNotification { params } => (
+            WORK_DONE_PROGRESS,
+            serde_json::to_value(params).expect("Serialization must not fail."),
+        ),
+        _ => unreachable!("Other notification types must not be sent to the client."),
+    };
+
+    LineMessage::NotificationMessage(NotificationMessage {
+        jsonrpc: JSONRPC_VER.to_string(),
+        method: method.to_string(),
+        params: Some(params),
+    })
 }
 
 fn serialize_response(msg: Response) -> LineMessage {
@@ -543,6 +591,26 @@ fn serialize_response(msg: Response) -> LineMessage {
         id,
         result,
         error,
+    })
+}
+
+fn serialize_request(msg: Request) -> LineMessage {
+    const WINDOW_WORK_DONE_PROGRESS_CREATE: &'static str = "window/workDoneProgress/create";
+
+    let (id, method, params): (NumberOrString, String, Option<Value>) = match msg {
+        Request::WindowWorkDoneProgressCreate { id, params } => (
+            id,
+            WINDOW_WORK_DONE_PROGRESS_CREATE.to_string(),
+            Some(serde_json::to_value(params).expect("Serialization must not fail.")),
+        ),
+        _ => unreachable!("Other request types must not be sent to the client."),
+    };
+
+    LineMessage::RequestMessage(RequestMessage {
+        jsonrpc: JSONRPC_VER.to_string(),
+        id,
+        method,
+        params,
     })
 }
 
@@ -653,7 +721,7 @@ fn precise_error_data(path: String, err: Error, buf: Option<&[u8]>) -> ResponseE
             message: String::from(format!(
                 "Data error: {}: Semantically incorrect data in message content due to {}.",
                 path,
-                err.to_string()
+                err.to_string(),
             )),
             data: None,
         }
@@ -789,13 +857,38 @@ fn request_params<T: DeserializeOwned>(params: Value) -> Result<T, ResponseError
     }
 }
 
+fn notif_warn_resp_id_missing() -> Notification {
+    Notification::LogTraceNotification {
+        params: LogTraceParams {
+            message: "WARNING: Received response message without ID. Cannot process.".to_string(),
+            verbose: None,
+        },
+    }
+}
+
+fn notif_err_resp_result_type(id: NumberOrString, res: Value) -> Notification {
+    Notification::LogTraceNotification {
+        params: LogTraceParams {
+            message: format!(
+                "ERROR: Response message with ID \"{}\" has unknown result type.",
+                id
+            ),
+            verbose: Some(res.to_string()),
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     use crate::{
         ls::response::{GoToDefinitionResponse, InitializeResponse, LocationResult, Response},
-        protocol::{self, Location, LocationLink, LogTraceParams, Position, Range},
+        protocol::{
+            self, Location, LocationLink, LogTraceParams, Position, ProgressParams, Range,
+            WorkDoneProgressBegin, WorkDoneProgressCreateParams, WorkDoneProgressEnd,
+            WorkDoneProgressReport, WorkDoneProgressValue,
+        },
     };
     use serde_json::json;
 
@@ -805,6 +898,14 @@ mod tests {
 
         let rc = parse_message(content.as_bytes());
         assert!(matches!(rc.err(), Some(ResponseError { .. })));
+    }
+
+    #[test]
+    fn can_parse_null_response() {
+        let content = r#"{"jsonrpc":"2.0","id":0,"result":null}"#;
+
+        let rc = parse_message(content.as_bytes());
+        assert!(matches!(rc.ok(), Some(LineMessage::ResponseMessage { .. })));
     }
 
     #[test]
@@ -1073,6 +1174,89 @@ mod tests {
     }
 
     #[test]
+    fn can_create_workdone_progress_cancel_notif() {
+        let msg = LineMessage::NotificationMessage(NotificationMessage {
+            jsonrpc: "2.0".to_string(),
+            method: "window/workDoneProgress/cancel".to_string(),
+            params: Some(json!({
+                "token": 5,
+            })),
+        });
+
+        let notif = deserialize_msg(msg).expect("Should not fail.");
+
+        assert!(matches!(
+            notif,
+            Message::Notification(Notification::WorkDoneProgressCancelNotification { .. })
+        ));
+    }
+
+    #[test]
+    fn can_create_log_trace_notification() {
+        let expected = r#"{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"Log message","verbose":"Verbose log message"}}"#;
+
+        let msg = Message::Notification(Notification::LogTraceNotification {
+            params: LogTraceParams {
+                message: "Log message".to_string(),
+                verbose: Some("Verbose log message".to_string()),
+            },
+        });
+        let notif = serialize_msg(msg);
+
+        assert_eq!(notif, expected.to_string());
+    }
+
+    #[test]
+    fn can_create_workdone_progress_notification() {
+        let expected = r#"{"jsonrpc":"2.0","method":"$/progress","params":{"token":1,"value":{"cancellable":true,"kind":"begin","message":"Message","percentage":0,"title":"Title"}}}"#;
+
+        let msg = Message::Notification(Notification::WorkDoneProgressNotification {
+            params: ProgressParams {
+                token: NumberOrString::Number(1),
+                value: WorkDoneProgressValue::Begin(WorkDoneProgressBegin {
+                    title: "Title".to_string(),
+                    cancellable: Some(true),
+                    message: Some("Message".to_string()),
+                    percentage: Some(0),
+                }),
+            },
+        });
+        let response = serialize_msg(msg);
+
+        assert_eq!(response, expected.to_string());
+
+        let expected = r#"{"jsonrpc":"2.0","method":"$/progress","params":{"token":1,"value":{"cancellable":true,"kind":"report","message":"Message","percentage":10}}}"#;
+
+        let msg = Message::Notification(Notification::WorkDoneProgressNotification {
+            params: ProgressParams {
+                token: NumberOrString::Number(1),
+                value: WorkDoneProgressValue::Report(WorkDoneProgressReport {
+                    cancellable: Some(true),
+                    message: Some("Message".to_string()),
+                    percentage: Some(10),
+                }),
+            },
+        });
+        let response = serialize_msg(msg);
+
+        assert_eq!(response, expected.to_string());
+
+        let expected = r#"{"jsonrpc":"2.0","method":"$/progress","params":{"token":1,"value":{"kind":"end","message":"Message"}}}"#;
+
+        let msg = Message::Notification(Notification::WorkDoneProgressNotification {
+            params: ProgressParams {
+                token: NumberOrString::Number(1),
+                value: WorkDoneProgressValue::End(WorkDoneProgressEnd {
+                    message: Some("Message".to_string()),
+                }),
+            },
+        });
+        let response = serialize_msg(msg);
+
+        assert_eq!(response, expected.to_string());
+    }
+
+    #[test]
     fn can_create_error_response() {
         let error = r#"{"code":-32700,"message":"Error"}"#;
         let expected = format!(r#"{{"jsonrpc":"2.0","id":1,"error":{}}}"#, error);
@@ -1198,21 +1382,6 @@ mod tests {
     }
 
     #[test]
-    fn can_create_log_trace_notification() {
-        let expected = r#"{"jsonrpc":"2.0","method":"$/logTrace","params":{"message":"Log message","verbose":"Verbose log message"}}"#;
-
-        let msg = Message::Notification(Notification::LogTraceNotification {
-            params: LogTraceParams {
-                message: "Log message".to_string(),
-                verbose: Some("Verbose log message".to_string()),
-            },
-        });
-        let notif = serialize_msg(msg);
-
-        assert_eq!(notif, expected.to_string());
-    }
-
-    #[test]
     fn can_create_shutdown_response() {
         let expected = r#"{"jsonrpc":"2.0","id":99,"result":null}"#;
 
@@ -1271,5 +1440,67 @@ mod tests {
         )));
 
         assert_eq!(msg, expected);
+    }
+
+    #[test]
+    fn can_create_window_workdone_progress_req() {
+        let params = r#"{"token":4}"#;
+        let expected = format!(
+            r#"{{"jsonrpc":"2.0","id":2,"method":"window/workDoneProgress/create","params":{}}}"#,
+            params
+        );
+
+        let payload: WorkDoneProgressCreateParams =
+            serde_json::from_str(params).expect("Should not fail.");
+        let msg = serialize_msg(Message::Request(Request::WindowWorkDoneProgressCreate {
+            id: NumberOrString::Number(2),
+            params: payload,
+        }));
+
+        assert_eq!(msg, expected);
+    }
+
+    #[test]
+    fn can_deserialize_null_response() {
+        let msg = LineMessage::ResponseMessage(ResponseMessage {
+            jsonrpc: "2.0".to_string(),
+            id: Some(NumberOrString::Number(1)),
+            result: None,
+            error: None,
+        });
+
+        let resp = deserialize_msg(msg).expect("Should not fail.");
+
+        assert!(matches!(
+            resp,
+            Message::Response(Response::NullResponse { .. })
+        ));
+    }
+
+    #[test]
+    fn can_deserialize_error_response() {
+        let msg = LineMessage::ResponseMessage(ResponseMessage {
+            jsonrpc: "2.0".to_string(),
+            id: Some(NumberOrString::Number(1)),
+            result: None,
+            error: Some(ResponseError {
+                code: ErrorCodes::UnknownErrorCode as i64,
+                message: "Cannot handle request.".to_string(),
+                data: Some(json!({
+                    "payload": [
+                        1,
+                        2,
+                        3
+                    ]
+                })),
+            }),
+        });
+
+        let resp = deserialize_msg(msg).expect("Should not fail.");
+
+        assert!(matches!(
+            resp,
+            Message::Response(Response::ErrorResponse { .. })
+        ));
     }
 }

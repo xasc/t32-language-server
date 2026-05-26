@@ -405,7 +405,7 @@ pub fn create_doc_store(files: &Vec<Url>, index: &FileIndex) -> TextDocs {
 }
 
 #[cfg(test)]
-pub fn create_doc(uri: String, version: i64, text: String) -> TextDoc {
+pub fn create_doc(uri: Uri, version: i64, text: String) -> TextDoc {
     TextDoc::from(TextDocumentItem {
         uri,
         language_id: LANGUAGE_ID.to_string(),

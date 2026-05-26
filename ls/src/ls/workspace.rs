@@ -15,13 +15,13 @@ use crate::{
     ReturnCode, config::Workspace, ls::tasks::RenameFileOperations, protocol::Uri, t32::SUFFIXES,
 };
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct WorkspaceMembers {
     pub files: Vec<Url>,
     pub missing_roots: Vec<Uri>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FileIndex {
     pub by_filename: BTreeMap<String, Url>,
     pub by_directory: BTreeMap<PathBuf, Vec<String>>,
@@ -321,6 +321,15 @@ impl FileIndex {
             self.conflict_resolutions = None;
         } else {
             self.conflict_resolutions = Some(resolve_path_conflicts(filenames, files, uris));
+        }
+    }
+}
+
+impl WorkspaceMembers {
+    pub fn get_num_files(&self) -> u32 {
+        match self.files.len().try_into() {
+            Ok(n) => n,
+            Err(_) => u32::MAX,
         }
     }
 }

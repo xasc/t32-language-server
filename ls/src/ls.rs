@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: EUPL-1.2
 
+mod bootloop;
 mod doc;
 mod lsp;
 mod mainloop;
@@ -23,6 +24,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+use tree_sitter::Tree;
+
 use url;
 
 use crate::{
@@ -33,14 +36,15 @@ use crate::{
     ls::{
         proc::{ProcState, proc_alive},
         request::{Notification, Request},
-        response::{ErrorResponse, InitializeResponse, Response},
+        response::{ErrorResponse, InitializeResponse, ReceiveError, Response},
         tasks::{OngoingTask, Task, TaskDone},
     },
     protocol::{
         ErrorCodes, InitializeError, InitializeParams, InitializeResult, LogTraceParams,
-        ResponseError, SemanticTokenModifiers, SemanticTokenTypes, SemanticTokensLegend,
-        ServerCapabilities, TokenFormat, TraceValue,
+        NumberOrString, ResponseError, SemanticTokenModifiers, SemanticTokenTypes,
+        SemanticTokensLegend, ServerCapabilities, TokenFormat, TraceValue,
     },
+    t32::LangExpressions,
 };
 
 #[cfg(not(test))]
@@ -56,13 +60,21 @@ struct InitializationStatus {
     rc: ReturnCode,
 }
 
+struct InitState {
+    shutdown_request_recv: bool,
+    exit_requested: bool,
+    heartbeat: ProcHeartbeat,
+    backoff: DutyCycleBackoff,
+    tasks: Tasks,
+}
+
 struct ProcHeartbeat {
     pid: Option<u32>,
     interval: Duration,
     last_beat: Instant,
 }
 
-struct State {
+struct RunState {
     shutdown_request_recv: bool,
     exit_requested: bool,
     heartbeat: ProcHeartbeat,
@@ -73,7 +85,17 @@ struct State {
 }
 
 struct TaskCounterInternal {
-    counter: usize,
+    counter: i32,
+}
+
+struct TaskCounterExternal {
+    counter: i32,
+}
+
+struct TaskCounters {
+    tasks_int: TaskCounterInternal,
+    tasks_ext: TaskCounterExternal,
+    progress: ProgressTokenGenerator,
 }
 
 struct Tasks {
@@ -81,7 +103,14 @@ struct Tasks {
     blocked: Vec<Task>,
     ongoing: Vec<Option<OngoingTask>>,
     completed: Vec<Option<TaskDone>>,
-    counter: TaskCounterInternal,
+    counters: TaskCounters,
+}
+
+type FileData = (TextDoc, Tree, LangExpressions);
+type ProgressTokenGenerator = TaskCounterExternal;
+
+trait TaskCounter {
+    fn next_id(&mut self) -> NumberOrString;
 }
 
 impl DutyCycleBackoff {
@@ -130,6 +159,18 @@ impl DutyCycleBackoff {
     }
 }
 
+impl InitState {
+    pub fn new(cfg: &Config) -> Self {
+        Self {
+            shutdown_request_recv: false,
+            exit_requested: false,
+            heartbeat: ProcHeartbeat::build(&cfg),
+            backoff: DutyCycleBackoff::new(),
+            tasks: Tasks::new(),
+        }
+    }
+}
+
 impl ProcHeartbeat {
     fn build(cfg: &Config) -> Self {
         ProcHeartbeat {
@@ -157,17 +198,71 @@ impl ProcHeartbeat {
     }
 }
 
+impl RunState {
+    fn from_init(s: InitState, docs: TextDocs, files: FileIndex) -> Self {
+        Self {
+            shutdown_request_recv: s.shutdown_request_recv,
+            exit_requested: s.exit_requested,
+            heartbeat: s.heartbeat,
+            backoff: s.backoff,
+            tasks: s.tasks,
+            docs: docs,
+            files: files,
+        }
+    }
+}
+
+impl TaskCounterExternal {
+    pub fn new() -> Self {
+        Self { counter: 0 }
+    }
+}
+
 impl TaskCounterInternal {
     const PREFIX: &str = "it#";
 
     pub fn new() -> Self {
         Self { counter: 0 }
     }
+}
 
-    pub fn next_id(&mut self) -> String {
+impl TaskCounters {
+    pub fn new() -> Self {
+        Self {
+            tasks_int: TaskCounterInternal::new(),
+            tasks_ext: TaskCounterExternal::new(),
+            progress: TaskCounterExternal::new(),
+        }
+    }
+}
+
+impl Tasks {
+    pub fn new() -> Self {
+        Self {
+            runner: TaskSystem::build(),
+            blocked: Vec::new(),
+            ongoing: Vec::new(),
+            completed: Vec::new(),
+            counters: TaskCounters::new(),
+        }
+    }
+}
+
+impl TaskCounter for TaskCounterExternal {
+    fn next_id(&mut self) -> NumberOrString {
+        let id = self.counter;
+        self.counter += 1;
+
+        NumberOrString::Number(id)
+    }
+}
+
+impl TaskCounter for TaskCounterInternal {
+    fn next_id(&mut self) -> NumberOrString {
         let id = format!("{}{}", Self::PREFIX, self.counter);
         self.counter += 1;
-        id
+
+        NumberOrString::String(id)
     }
 }
 
@@ -220,7 +315,12 @@ pub fn serve(mut cfg: Config) -> ReturnCode {
         channel.send_msg(Message::Notification(notif_initialized()));
     }
 
-    match mainloop::handle_requests(&mut channel, cfg) {
+    let (g, incoming) = match bootloop::start(InitState::new(&cfg), &mut channel, &mut cfg) {
+        Ok((s, m)) => (s, m),
+        Err(rc) => return shutdown(channel, rc),
+    };
+
+    match mainloop::handle_requests(g, incoming, &mut channel, cfg) {
         Ok(_) => (),
         Err(rc) => return shutdown(channel, rc),
     }
@@ -438,7 +538,30 @@ fn process_initialize_params(
         }
     }
 
+    if let Some(win) = params.capabilities.window {
+        cfg.server_progress_supported = win.work_done_progress.is_some_and(|p| p);
+    }
     Ok(notif)
+}
+
+fn recv_incoming(
+    trace_level: TraceValue,
+    channel: &mut StdioChannel,
+    heartbeat: &mut ProcHeartbeat,
+    incoming: &mut Vec<Option<Message>>,
+) -> Result<bool, ReturnCode> {
+    let mut inc_recv: bool = false;
+    loop {
+        match read_msg(trace_level, channel, heartbeat) {
+            Ok(Some(r)) => {
+                inc_recv = true;
+                incoming.push(Some(r));
+            }
+            Ok(None) => break,
+            Err(rc) => return Err(rc),
+        };
+    }
+    Ok(inc_recv)
 }
 
 fn read_msg(
@@ -466,20 +589,37 @@ fn read_msg(
             }
             Ok(None)
         }
-        Err(err) => {
-            if err.error.code == (ErrorCodes::TransportError as i64) {
-                // The loopback reader thread returns a transport error after
-                // it has terminated. We use this return code as shutdown
-                // trigger.
-                Err(ReturnCode::OkExit)
-            } else {
-                // The message could not be parsed, so we have no request ID to
-                // work with.
-                channel.send_msg(Message::Response(Response::ErrorResponse(err)));
+        Err(err) => match err {
+            ReceiveError::Response(resp) => {
+                if resp.error.code == (ErrorCodes::TransportError as i64) {
+                    // The loopback reader thread returns a transport error after
+                    // it has terminated. We use this return code as shutdown
+                    // trigger.
+                    Err(ReturnCode::OkExit)
+                } else {
+                    // The message could not be parsed, so we have no request ID to
+                    // work with.
+                    channel.send_msg(Message::Response(Response::ErrorResponse(resp)));
 
+                    Ok(None)
+                }
+            }
+            ReceiveError::Notification(notif) => {
+                if trace_level != TraceValue::Off {
+                    // The response parsed or malformed. We can only inform the
+                    // client via notification.
+                    channel.send_msg(Message::Notification(notif));
+                }
                 Ok(None)
             }
-        }
+        },
+    }
+}
+
+fn send_outgoing(channel: &mut StdioChannel, msgs: &mut Vec<Option<Message>>) {
+    for msg in msgs {
+        let msg = msg.take().expect("No empty slots allowed.");
+        channel.send_msg(msg);
     }
 }
 
@@ -514,6 +654,27 @@ fn error_pid_mismatch(pid_msg: u32, pid_cli: u32) -> ResponseError {
         data: Some(
             serde_json::to_value(InitializeError { retry: true }).expect("Must convert to value."),
         ),
+    }
+}
+
+fn error_shutdown_seq(id: NumberOrString) -> Message {
+    Message::Response(Response::ErrorResponse(ErrorResponse {
+        id: Some(id),
+        error: ResponseError {
+            code: ErrorCodes::InvalidRequest as i64,
+            message: "ERROR: Server has received shutdown request. Cannot handle request."
+                .to_string(),
+            data: None,
+        },
+    }))
+}
+
+fn error_task_queue_abort() -> ResponseError {
+    ResponseError {
+        code: ErrorCodes::RequestFailed as i64,
+        message: "ERROR: Task queue worker has aborted due to an internal error. Shutting down..."
+            .to_string(),
+        data: None,
     }
 }
 

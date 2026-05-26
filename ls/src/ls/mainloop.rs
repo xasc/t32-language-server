@@ -2,66 +2,33 @@
 //
 // SPDX-License-Identifier: EUPL-1.2
 
-use std::time::{Duration, Instant};
-
-use serde_json::json;
-use tree_sitter::Tree;
+use std::time::Instant;
 
 use crate::{
     ReturnCode,
-    config::{Config, Workspace},
-    ls::lsp::Message,
-    ls::transport::StdioChannel,
+    config::Config,
     ls::{
-        DutyCycleBackoff, ProcHeartbeat, State, TaskCounterInternal, Tasks,
-        doc::{TextDoc, TextDocs, read_doc},
-        read_msg,
-        request::Notification,
+        RunState, error_task_queue_abort,
+        lsp::Message,
+        recv_incoming,
         response::{ErrorResponse, Response},
-        tasks::{
-            Task, TaskDone, TaskSystem, categorize_files, discover_files, recv_completed_tasks,
-            schedule_tasks, try_schedule,
-        },
-        workspace::{FileIndex, WorkspaceMembers},
+        send_outgoing, tasks,
+        transport::StdioChannel,
     },
-    protocol::{ErrorCodes, LogTraceParams, ResponseError, TraceValue, Uri},
-    t32::LangExpressions,
 };
 
-type FileData = (TextDoc, Tree, LangExpressions);
+pub fn handle_requests(
+    mut g: RunState,
+    postponed: Vec<Option<Message>>,
+    channel: &mut StdioChannel,
+    mut cfg: Config,
+) -> Result<(), ReturnCode> {
+    debug_assert!(g.tasks.ongoing.len() < 3);
+    debug_assert_eq!(g.tasks.blocked.len(), 0);
+    debug_assert_eq!(g.tasks.completed.len(), 0);
 
-pub fn handle_requests(channel: &mut StdioChannel, mut cfg: Config) -> Result<(), ReturnCode> {
-    let mut tasks = Tasks {
-        runner: TaskSystem::build(),
-        blocked: Vec::new(),
-        ongoing: Vec::new(),
-        completed: Vec::new(),
-        counter: TaskCounterInternal::new(),
-    };
-
+    let mut incoming: Vec<Option<Message>> = postponed;
     let mut outgoing: Vec<Option<Message>> = Vec::new();
-
-    let (files, file_data) = if match cfg.workspace {
-        Workspace::Root(Some(_)) | Workspace::Folders(Some(_)) => true,
-        _ => false,
-    } {
-        index_workspace(&cfg, channel, &mut tasks, &cfg.workspace, &mut outgoing)?
-    } else {
-        (FileIndex::new(), Vec::new())
-    };
-    debug_assert_eq!(tasks.ongoing.len(), 0);
-
-    let mut g = State {
-        shutdown_request_recv: false,
-        exit_requested: false,
-        heartbeat: ProcHeartbeat::build(&cfg),
-        backoff: DutyCycleBackoff::new(),
-        docs: TextDocs::from_workspace(file_data),
-        files: files,
-        tasks,
-    };
-
-    let mut incoming: Vec<Option<Message>> = Vec::new();
 
     loop {
         g.backoff.idle(&Instant::now());
@@ -78,11 +45,19 @@ pub fn handle_requests(channel: &mut StdioChannel, mut cfg: Config) -> Result<()
             g.backoff.clear();
         }
 
-        if recv_completed_tasks(&cfg, &mut g.tasks, &mut g.docs, &mut g.files, &mut outgoing)? {
+        tasks::recv_responses(cfg.trace_level, &mut incoming, &mut g.tasks, &mut outgoing);
+
+        if tasks::recv_completed_tasks(
+            &cfg,
+            &mut g.tasks,
+            &mut g.docs,
+            &mut g.files,
+            &mut outgoing,
+        )? {
             g.backoff.clear();
         }
 
-        schedule_tasks(&mut incoming, &mut g, &mut cfg, &mut outgoing)?;
+        tasks::schedule_tasks(&mut incoming, &mut g, &mut cfg, &mut outgoing)?;
 
         if !outgoing.is_empty() {
             g.backoff.clear();
@@ -98,193 +73,5 @@ pub fn handle_requests(channel: &mut StdioChannel, mut cfg: Config) -> Result<()
         }
         incoming.clear();
         outgoing.clear();
-    }
-}
-
-fn recv_incoming(
-    trace_level: TraceValue,
-    channel: &mut StdioChannel,
-    heartbeat: &mut ProcHeartbeat,
-    incoming: &mut Vec<Option<Message>>,
-) -> Result<bool, ReturnCode> {
-    let mut inc_recv: bool = false;
-    loop {
-        match read_msg(trace_level, channel, heartbeat) {
-            Ok(Some(r)) => {
-                inc_recv = true;
-                incoming.push(Some(r));
-            }
-            Ok(None) => break,
-            Err(rc) => return Err(rc),
-        };
-    }
-    Ok(inc_recv)
-}
-
-fn send_outgoing(channel: &mut StdioChannel, msgs: &mut Vec<Option<Message>>) {
-    for msg in msgs {
-        let msg = msg.take().expect("No empty slots allowed.");
-        channel.send_msg(msg);
-    }
-}
-
-fn parse_files(
-    cfg: &Config,
-    channel: &mut StdioChannel,
-    tasks: &mut Tasks,
-    file_index: &FileIndex,
-    workspace: &WorkspaceMembers,
-    outgoing: &mut Vec<Option<Message>>,
-) -> Result<Vec<FileData>, ReturnCode> {
-    let num_files: u32 = match workspace.files.len().try_into() {
-        Ok(n) => n,
-        Err(_) => u32::MAX,
-    };
-
-    let start = Instant::now();
-    for file in workspace.files.iter() {
-        try_schedule(
-            &mut tasks.runner,
-            Task::WorkspaceFileScan(
-                file.clone(),
-                file_index.clone(),
-                cfg.t32_dirs.clone(),
-                read_doc,
-            ),
-            &mut tasks.ongoing,
-            &mut tasks.blocked,
-        )?;
-    }
-    let mut results: Vec<FileData> = Vec::with_capacity(num_files as usize);
-
-    let mut completed: u32 = 0;
-    while completed < num_files {
-        if tasks.runner.aborted() {
-            outgoing.push(Some(Message::Response(Response::ErrorResponse(
-                ErrorResponse {
-                    id: None,
-                    error: error_task_queue_abort(),
-                },
-            ))));
-            return Err(ReturnCode::SoftwareErr);
-        }
-
-        match tasks.runner.rx.recv() {
-            Ok(TaskDone::WorkspaceFileScan(res)) => match res {
-                Ok((doc, tree, expr)) => {
-                    if cfg.trace_level != TraceValue::Off {
-                        outgoing.push(Some(trace_doc_change(&doc, &tree, Instant::now() - start)));
-                    }
-                    results.push((doc, tree, expr));
-                }
-                Err(uri) => {
-                    if cfg.trace_level != TraceValue::Off {
-                        outgoing.push(Some(trace_doc_cannot_read(&uri)));
-                    }
-                }
-            },
-            Ok(_) => unreachable!("No other task type must be pending."),
-            Err(_) => return Err(ReturnCode::UnavailableErr),
-        }
-        send_outgoing(channel, outgoing);
-        outgoing.clear();
-
-        completed += 1;
-    }
-    tasks.ongoing.clear();
-
-    Ok(results)
-}
-
-pub fn index_workspace(
-    cfg: &Config,
-    channel: &mut StdioChannel,
-    tasks: &mut Tasks,
-    workspace: &Workspace,
-    outgoing: &mut Vec<Option<Message>>,
-) -> Result<(FileIndex, Vec<FileData>), ReturnCode> {
-    debug_assert!(tasks.ongoing.len() <= 0 && tasks.blocked.len() <= 0);
-
-    let start = Instant::now();
-
-    let members = discover_files(tasks, workspace.clone())?;
-    if members.missing_roots.len() > 0 {
-        outgoing.push(Some(trace_root_invalid(&members.missing_roots)));
-    }
-    send_outgoing(channel, outgoing);
-    outgoing.clear();
-
-    let file_index = categorize_files(tasks, members.files.clone())?;
-
-    let content = parse_files(cfg, channel, tasks, &file_index, &members, outgoing)?;
-
-    if cfg.trace_level != TraceValue::Off {
-        outgoing.push(Some(trace_workspace_indexed(
-            Instant::now() - start,
-            workspace,
-        )));
-    }
-    Ok((file_index, content))
-}
-
-pub fn trace_doc_cannot_read(uri: &str) -> Message {
-    Message::Notification(Notification::LogTraceNotification {
-        params: LogTraceParams {
-            message: format!("WARNING: File \"{}\" could not be read.", uri),
-            verbose: None,
-        },
-    })
-}
-
-pub fn trace_doc_change(doc: &TextDoc, tree: &Tree, duration: Duration) -> Message {
-    Message::Notification(Notification::LogTraceNotification {
-        params: LogTraceParams {
-            message: format!(
-                "INFO: Text document \"{}\" was updated to version {} in {:.4} seconds.",
-                doc.uri,
-                doc.version,
-                duration.as_secs_f32()
-            ),
-            verbose: Some(
-                json!({
-                    "text": doc.text,
-                    "tree": tree.root_node().to_sexp(),
-                })
-                .to_string(),
-            ),
-        },
-    })
-}
-
-fn trace_workspace_indexed(duration: Duration, workspace: &Workspace) -> Message {
-    Message::Notification(Notification::LogTraceNotification {
-        params: LogTraceParams {
-            message: format!(
-                "INFO: Workspace files indexed in {:.4} seconds.",
-                duration.as_secs_f32()
-            ),
-            verbose: Some(json!(workspace).to_string()),
-        },
-    })
-}
-
-fn trace_root_invalid(roots: &[Uri]) -> Message {
-    Message::Notification(Notification::LogTraceNotification {
-        params: LogTraceParams {
-            message: format!(
-                "WARNING: Workspace root(s) \"{}\"do not exist.",
-                roots.join("\", \"")
-            ),
-            verbose: None,
-        },
-    })
-}
-
-fn error_task_queue_abort() -> ResponseError {
-    ResponseError {
-        code: ErrorCodes::RequestFailed as i64,
-        message: "ERROR: Task queue worker has aborted due to an internal error. Shutting down..."
-            .to_string(),
-        data: None,
     }
 }

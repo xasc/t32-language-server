@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2024 Christoph Sax <c_sax@mailbox.org>
 //
 // SPDX-License-Identifier: EUPL-1.2
-//
 
 //! [Note] Workflow Macro Reference Retrieval
 //! =========================================
@@ -102,7 +101,7 @@ pub struct FileLocation {
     pub range: BRange,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct FindMacroReferencesResult {
     pub uri: Uri,
     pub references: Vec<LRange>,
@@ -546,7 +545,7 @@ pub fn recv_find_macro_def_references_sync(
     sync: FindMacroReferencesResult,
     ongoing: &mut Vec<Option<OngoingTask>>,
 ) {
-    let idx = find_ongoing_task_by_id(&id, ongoing);
+    let idx = find_ongoing_task_by_id(&id, ongoing).expect("Must be a registered task.");
     let Some(OngoingTask::FindMacroReferences {
         progress,
         phase:
@@ -580,7 +579,7 @@ pub fn recv_find_macro_def_references_sync(
 
     progress.advance();
     if progress.ready() && undone.is_empty() {
-        progress.abort();
+        progress.mark_completed();
     }
 }
 
@@ -589,7 +588,7 @@ pub fn recv_find_subscript_macro_references_sync(
     sync: FindMacroReferencesResult,
     ongoing: &mut Vec<Option<OngoingTask>>,
 ) {
-    let idx = find_ongoing_task_by_id(&id, ongoing);
+    let idx = find_ongoing_task_by_id(&id, ongoing).expect("Must be a registered task.");
     let Some(OngoingTask::FindMacroReferences {
         progress,
         phase:
@@ -619,7 +618,7 @@ pub fn recv_find_subscript_macro_references_sync(
 
     progress.advance();
     if progress.ready() && undone.is_empty() {
-        progress.abort();
+        progress.mark_completed();
     }
 }
 
@@ -628,7 +627,7 @@ pub fn recv_find_external_definitions_for_macro_reference_sync(
     sync: FindDefintionsForMacroRefResult,
     ongoing: &mut Vec<Option<OngoingTask>>,
 ) {
-    let idx = find_ongoing_task_by_id(&id, ongoing);
+    let idx = find_ongoing_task_by_id(&id, ongoing).expect("Must be a registered task.");
     let Some(OngoingTask::FindMacroReferences {
         progress,
         phase:
@@ -658,7 +657,7 @@ pub fn recv_find_external_definitions_for_macro_reference_sync(
 
     progress.advance();
     if progress.ready() && undone.is_empty() {
-        progress.abort();
+        progress.mark_completed();
     }
 }
 
@@ -694,7 +693,7 @@ fn prepare_find_external_macro_definitions_req(
         defs
     };
 
-    let idx = find_ongoing_task_by_id(&id, &ongoing);
+    let idx = find_ongoing_task_by_id(&id, &ongoing).expect("Must be a registered task.");
     let Some(OngoingTask::FindReferences(_, onset)) = ongoing[idx].take() else {
         unreachable!("Must not retrieve any other variant.");
     };
@@ -719,7 +718,7 @@ fn prepare_find_macro_references_req(
     definitions: Vec<(FileLocation, Option<MacroScope>)>,
     ongoing: &mut Vec<Option<OngoingTask>>,
 ) {
-    let idx = find_ongoing_task_by_id(&id, &ongoing);
+    let idx = find_ongoing_task_by_id(&id, &ongoing).expect("Must be a registered task.");
     let Some(OngoingTask::FindReferences(_, onset)) = ongoing[idx].take() else {
         unreachable!("Must not retrieve any other type.");
     };
@@ -1317,28 +1316,29 @@ mod tests {
 
     use crate::{
         config::{self, CodeFoldingSupport, T32DefaultDirs},
-        ls::{TaskCounterInternal, TaskSystem, doc, tasks::TaskProgress, workspace},
+        ls::{TaskCounters, TaskSystem, doc, tasks::TaskProgress, workspace},
         protocol::{self, Position, Range},
         utils::{BRange, create_doc_store, create_file_idx, files, to_file_uri},
     };
 
     fn config() -> Config {
         Config {
-            parent_pid: Some(0u32),
-            pid_check_interval: Duration::from_secs(5),
             channel: config::ChannelKind::Stdio,
             code_folding: CodeFoldingSupport::default(),
-            workspace: config::Workspace::Root(None),
-            workspace_folders_supported: false,
-            position_encoding: protocol::PositionEncodingKind::Utf16,
+            did_rename_files_supported: false,
             location_links: config::LocationLinkSupport {
                 definitions_supported: false,
             },
-            did_rename_files_supported: false,
-            trace_level: protocol::TraceValue::Off,
             mode: config::OperationMode::StdioTransport,
+            parent_pid: Some(0u32),
+            pid_check_interval: Duration::from_secs(5),
+            position_encoding: protocol::PositionEncodingKind::Utf16,
             semantic_tokens: config::SemanticTokenSupport::default(),
+            server_progress_supported: false,
             t32_dirs: config::T32DefaultDirs::default(),
+            trace_level: protocol::TraceValue::Off,
+            workspace: config::Workspace::Root(None),
+            workspace_folders_supported: false,
         }
     }
 
@@ -1563,7 +1563,7 @@ mod tests {
             blocked: Vec::new(),
             ongoing: vec![Some(OngoingTask::FindReferences(id.clone(), onset.clone()))],
             completed: Vec::new(),
-            counter: TaskCounterInternal::new(),
+            counters: TaskCounters::new(),
         };
 
         let origin = MacroReferenceOrigin {
@@ -1653,7 +1653,7 @@ mod tests {
             blocked: Vec::new(),
             ongoing: vec![Some(OngoingTask::FindReferences(id.clone(), onset.clone()))],
             completed: Vec::new(),
-            counter: TaskCounterInternal::new(),
+            counters: TaskCounters::new(),
         };
 
         let origin = MacroReferenceOrigin {
@@ -1743,7 +1743,7 @@ mod tests {
             blocked: Vec::new(),
             ongoing: vec![Some(OngoingTask::FindReferences(id.clone(), onset.clone()))],
             completed: Vec::new(),
-            counter: TaskCounterInternal::new(),
+            counters: TaskCounters::new(),
         };
 
         let origin = MacroReferenceOrigin {
@@ -2479,7 +2479,7 @@ mod tests {
             blocked: Vec::new(),
             ongoing: vec![Some(OngoingTask::FindReferences(id.clone(), onset.clone()))],
             completed: Vec::new(),
-            counter: TaskCounterInternal::new(),
+            counters: TaskCounters::new(),
         };
 
         let find_refs_res = Some(FindReferencesResult::Partial(

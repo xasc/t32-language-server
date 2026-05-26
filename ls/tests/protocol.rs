@@ -394,6 +394,8 @@ fn supports_lang_goto_definition_request() {
         ]);
         let mut stdin = ls.stdin.take().unwrap();
 
+        thread::sleep(time::Duration::from_secs(1));
+
         let notif = utils::make_set_trace_notification(utils::TraceValue::Messages);
         utils::to_stdin(&mut stdin, &notif);
 
@@ -463,6 +465,8 @@ fn supports_lang_find_references_request_for_subroutines() {
         ]);
         let mut stdin = ls.stdin.take().unwrap();
 
+        thread::sleep(time::Duration::from_secs(1));
+
         let notif = utils::make_set_trace_notification(utils::TraceValue::Messages);
         utils::to_stdin(&mut stdin, &notif);
 
@@ -531,6 +535,8 @@ fn supports_lang_find_references_request_for_macros() {
         ]);
         let mut stdin = ls.stdin.take().unwrap();
 
+        thread::sleep(time::Duration::from_secs(1));
+
         let notif = utils::make_set_trace_notification(utils::TraceValue::Messages);
         utils::to_stdin(&mut stdin, &notif);
 
@@ -591,6 +597,8 @@ fn supports_lang_find_references_request_for_file() {
             &format!("--trace={}", "messages"),
         ]);
         let mut stdin = ls.stdin.take().unwrap();
+
+        thread::sleep(time::Duration::from_secs(1));
 
         let notif = utils::make_set_trace_notification(utils::TraceValue::Messages);
         utils::to_stdin(&mut stdin, &notif);
@@ -658,6 +666,8 @@ fn supports_lang_find_references_request_for_command() {
             &format!("--trace={}", "messages"),
         ]);
         let mut stdin = ls.stdin.take().unwrap();
+
+        thread::sleep(time::Duration::from_secs(1));
 
         let notif = utils::make_set_trace_notification(utils::TraceValue::Messages);
         utils::to_stdin(&mut stdin, &notif);
@@ -906,5 +916,33 @@ fn supports_lang_folding_range_request() {
         std::str::from_utf8(&output.stdout)
             .unwrap()
             .contains("\"startLine\":0")
+    );
+}
+
+
+#[test]
+fn supports_server_workdone_progress() {
+    let mut ls = utils::start_ls_with_server_workdone_progress(
+        &[
+            &format!("--clientProcessId={}", process::id().to_string()),
+            &format!("--trace={}", "messages"),
+        ]
+    );
+    let mut stdin = ls.stdin.take().unwrap();
+
+    thread::sleep(time::Duration::from_millis(500));
+
+    utils::stop_ls(&mut ls, Some(&mut stdin), Some(2));
+    let output = ls.wait_with_output().expect("Cannot capture output");
+
+    assert!(
+        std::str::from_utf8(&output.stdout)
+            .unwrap()
+            .contains("\"$/progress\"")
+    );
+    assert!(
+        std::str::from_utf8(&output.stdout)
+            .unwrap()
+            .contains("\"window/workDoneProgress/create\"")
     );
 }

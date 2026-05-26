@@ -24,7 +24,7 @@ use std::{fmt, num::NonZeroUsize};
 
 use crate::{
     ls::request::{Notification, Request},
-    ls::response::{ErrorResponse, Response},
+    ls::response::{ErrorResponse, ReceiveError, Response},
 };
 
 use header::ScanError;
@@ -53,7 +53,7 @@ pub struct Token {
     pub fusible: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Message {
     Request(Request),
     Notification(Notification),
@@ -119,7 +119,7 @@ pub fn parse(
     state: &mut ParseState,
     buf: &mut Vec<u8>,
     tokens: &mut Vec<Token>,
-) -> Result<Option<Message>, ErrorResponse> {
+) -> Result<Option<Message>, ReceiveError> {
     if *state == ParseState::Syncing {
         assert_eq!(tokens.len(), 0);
 
@@ -175,7 +175,7 @@ pub fn make_response(msg: Message) -> Vec<u8> {
 fn parse_header(
     buf: &mut Vec<u8>,
     hist: &mut Vec<Token>,
-) -> Result<Option<NonZeroUsize>, ErrorResponse> {
+) -> Result<Option<NonZeroUsize>, ReceiveError> {
     // Next token might end the header section
     if hist.len() > 0 && hist[hist.len() - 1].kind == TokenType::HeaderFieldTerm {
         match header::scan(buf, true) {
@@ -245,17 +245,18 @@ fn parse_header(
                         return Ok(Some(len));
                     }
                 }
-                Err(ErrorResponse {
+                Err(ReceiveError::Response(ErrorResponse {
                     id: None,
                     error: err,
-                })
+                }))
             }
         }
     }
 }
 
-fn parse_content(buf: &[u8]) -> Result<Message, ErrorResponse> {
-    let msg = jsonrpc::parse_message(buf).map_err(|error| ErrorResponse { id: None, error })?;
+fn parse_content(buf: &[u8]) -> Result<Message, ReceiveError> {
+    let msg = jsonrpc::parse_message(buf)
+        .map_err(|error| ReceiveError::Response(ErrorResponse { id: None, error }))?;
     Ok(jsonrpc::deserialize_msg(msg)?)
 }
 

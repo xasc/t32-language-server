@@ -158,17 +158,19 @@ pub enum Task {
         ) -> (TextDoc, Tree, LangExpressions),
     ),
     WorkspaceFileDiscovery(
+        NumberOrString,
         Workspace,
         &'static [&'static str],
         fn(&Workspace, &[&str]) -> WorkspaceMembers,
     ),
     WorkspaceFileScan(
+        NumberOrString,
         Url,
         FileIndex,
         T32DefaultDirs,
         fn(Url, &FileIndex, &T32DefaultDirs) -> Result<(TextDoc, Tree, LangExpressions), Uri>,
     ),
-    WorkspaceFileIndexNew(Vec<Url>, fn(Vec<Url>) -> FileIndex),
+    WorkspaceFileIndexNew(NumberOrString, Vec<Url>, fn(Vec<Url>) -> FileIndex),
 }
 
 #[derive(Debug)]
@@ -187,9 +189,14 @@ pub enum TaskDone {
     SemanticTokensRange(NumberOrString, SemanticTokens),
     TextDocNew(TextDoc, Tree, LangExpressions),
     TextDocEdit(TextDoc, Tree, LangExpressions),
-    WorkspaceFileDiscovery(WorkspaceMembers),
-    WorkspaceFileScan(Result<(TextDoc, Tree, LangExpressions), Uri>),
-    WorkspaceFileIndexNew(FileIndex),
+    WindowWorkDoneProgress(NumberOrString, bool),
+    WorkspaceFileDiscovery(NumberOrString),
+    WorkspaceFileDiscoverySync(NumberOrString, WorkspaceMembers),
+    WorkspaceFileIndexSync(NumberOrString, FileIndex),
+    WorkspaceFileParseSync(
+        NumberOrString,
+        Result<(TextDoc, Tree, LangExpressions), Uri>,
+    ),
 }
 
 pub struct TaskSystem {
@@ -219,19 +226,16 @@ impl TaskDone {
             | TaskDone::GoToExternalMacroDef(id, ..)
             | TaskDone::GoToExternalMacroDefSync(id, ..)
             | TaskDone::SemanticTokensFull(id, ..)
-            | TaskDone::SemanticTokensRange(id, ..) => {
+            | TaskDone::SemanticTokensRange(id, ..)
+            | TaskDone::WindowWorkDoneProgress(id, ..)
+            | TaskDone::WorkspaceFileDiscovery(id)
+            | TaskDone::WorkspaceFileDiscoverySync(id, ..)
+            | TaskDone::WorkspaceFileIndexSync(id, ..)
+            | TaskDone::WorkspaceFileParseSync(id, ..) => {
                 Some(OngoingTaskHandle::Identifier(id.clone()))
             }
-            TaskDone::TextDocEdit(doc, ..)
-            | TaskDone::TextDocNew(doc, ..)
-            | TaskDone::WorkspaceFileScan(Ok((doc, ..))) => {
+            TaskDone::TextDocEdit(doc, ..) | TaskDone::TextDocNew(doc, ..) => {
                 Some(OngoingTaskHandle::Uri(doc.uri.clone()))
-            }
-            TaskDone::WorkspaceFileScan(Err(uri)) => Some(OngoingTaskHandle::Uri(uri.clone())),
-            TaskDone::WorkspaceFileDiscovery(..) | TaskDone::WorkspaceFileIndexNew(..) => {
-                unreachable!(
-                    "Workspace scan tasks are only triggered once after server start. They are cleared manually."
-                )
             }
         }
     }
@@ -440,14 +444,14 @@ impl TaskSystem {
                 let (doc, tree, t32) = update(textdoc, files, dirs, changes);
                 TaskDone::TextDocEdit(doc, tree, t32)
             }
-            Task::WorkspaceFileDiscovery(workspace, suffixes, locate) => {
-                TaskDone::WorkspaceFileDiscovery(locate(&workspace, suffixes))
+            Task::WorkspaceFileDiscovery(id, workspace, suffixes, locate) => {
+                TaskDone::WorkspaceFileDiscoverySync(id, locate(&workspace, suffixes))
             }
-            Task::WorkspaceFileScan(uri, files, dirs, scan) => {
-                TaskDone::WorkspaceFileScan(scan(uri, &files, &dirs))
+            Task::WorkspaceFileIndexNew(id, files, index) => {
+                TaskDone::WorkspaceFileIndexSync(id, index(files))
             }
-            Task::WorkspaceFileIndexNew(files, index) => {
-                TaskDone::WorkspaceFileIndexNew(index(files))
+            Task::WorkspaceFileScan(id, uri, files, dirs, scan) => {
+                TaskDone::WorkspaceFileParseSync(id, scan(uri, &files, &dirs))
             }
         }
     }

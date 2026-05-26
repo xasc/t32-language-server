@@ -12,8 +12,8 @@ use crate::{ls::TextDoc, t32::MacroDefinition, utils::BRange};
 
 type DocumentUri = String;
 type DocumentSelector = Vec<DocumentFilter>;
-type ProgressToken = NumberOrString;
 
+pub type ProgressToken = NumberOrString;
 pub type Uri = String;
 
 pub enum ErrorCodes {
@@ -26,7 +26,7 @@ pub enum ErrorCodes {
     InternalError = -32603,
     ServerNotInitialized = -32002,
 
-    #[expect(unused)]
+    #[cfg(test)]
     UnknownErrorCode = -32001,
 
     RequestFailed = -32803,
@@ -43,7 +43,7 @@ pub enum ErrorCodes {
     TransportError = -32060,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum ResourceOperationKind {
     Create,
@@ -51,7 +51,7 @@ pub enum ResourceOperationKind {
     Delete,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub enum FailureHandlingKind {
     Abort,
@@ -60,7 +60,7 @@ pub enum FailureHandlingKind {
     TextOnlyTransactional,
 }
 
-#[derive(Debug, Deserialize_repr)]
+#[derive(Debug, Deserialize_repr, PartialEq)]
 #[repr(u8)]
 pub enum SymbolKind {
     File = 1,
@@ -91,26 +91,26 @@ pub enum SymbolKind {
     TypeParameter = 26,
 }
 
-#[derive(Debug, Deserialize_repr)]
+#[derive(Debug, Deserialize_repr, PartialEq)]
 #[repr(u8)]
 pub enum SymbolTag {
     Deprecated = 1,
 }
 
-#[derive(Debug, Deserialize_repr)]
+#[derive(Debug, Deserialize_repr, PartialEq)]
 #[repr(u8)]
 pub enum CompletionItemTag {
     Deprecated = 1,
 }
 
-#[derive(Debug, Deserialize_repr)]
+#[derive(Debug, Deserialize_repr, PartialEq)]
 #[repr(u8)]
 pub enum InsertTextMode {
     AsIs = 1,
     AdjustIndentation = 2,
 }
 
-#[derive(Debug, Deserialize_repr)]
+#[derive(Debug, Deserialize_repr, PartialEq)]
 #[repr(u8)]
 pub enum CompletionItemKind {
     Text = 1,
@@ -140,19 +140,19 @@ pub enum CompletionItemKind {
     TypeParameter = 25,
 }
 
-#[derive(Debug, Deserialize_repr)]
+#[derive(Debug, Deserialize_repr, PartialEq)]
 #[repr(u8)]
 pub enum CodeActionTag {
     LlmGenerated = 1,
 }
 
-#[derive(Debug, Deserialize_repr)]
+#[derive(Debug, Deserialize_repr, PartialEq)]
 #[repr(u8)]
 pub enum PrepareSupportDefaultBehavior {
     Identifier = 1,
 }
 
-#[derive(Debug, Deserialize_repr)]
+#[derive(Debug, Deserialize_repr, PartialEq)]
 #[repr(u8)]
 pub enum DiagnosticTag {
     Unnecessary = 1,
@@ -166,7 +166,7 @@ pub enum InitializeErrorCodes {
     UnknownProtocolVersion = 1,
 }
 
-#[derive(Debug, Deserialize_repr, Serialize_repr)]
+#[derive(Debug, Deserialize_repr, PartialEq, Serialize_repr)]
 #[repr(u8)]
 pub enum TextDocumentSyncKind {
     None = 0,
@@ -174,14 +174,14 @@ pub enum TextDocumentSyncKind {
     Incremental = 2,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum MarkupKind {
     PlainText,
     Markdown,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub enum CodeActionKind {
     #[serde(rename(deserialize = ""))]
     Empty,
@@ -269,7 +269,7 @@ pub enum FoldingRangeKind {
     Region,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(untagged)]
 pub enum SemanticTokenFullRequestsCapabilities {
     #[allow(dead_code)]
@@ -287,7 +287,7 @@ pub enum TokenFormat {
     Relative,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub enum PositionEncodingKind {
     #[serde(rename = "utf-8")]
     Utf8,
@@ -307,41 +307,35 @@ pub enum TraceValue {
     Verbose,
 }
 
-#[expect(unused)]
-pub enum ProgressTokenKind {
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(untagged)]
+pub enum NumberOrString {
     Number(i32),
     String(String),
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[serde(untagged)]
-pub enum NumberOrString {
-    Number(i64),
-    String(String),
-}
-
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum TextDocumentSyncServerCapabilities {
     TextDocumentSyncOptions(TextDocumentSyncOptions),
     TextDocumentSyncKind(TextDocumentSyncKind),
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum NotebookDocumentSyncServerCapabilities {
     NotebookDocumentSyncOptions(NotebookDocumentSyncOptions),
     NotebookDocumentSyncRegistrationOptions(NotebookDocumentSyncRegistrationOptions),
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum NotebookSelector {
     NotebookSelectorByNotebook(NotebookSelectorByNotebook),
     NotebookSelectorByCell(NotebookSelectorByCell),
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum NotebookSelectorNotebook {
     String(String),
@@ -357,21 +351,21 @@ pub enum NotebookDocumentFilter {
     NotebookDocumentFilterByPattern(NotebookDocumentFilterByPattern),
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum GlobPattern {
     String(String),
     RelativePattern(RelativePattern),
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum HoverProvider {
     Bool(bool),
     HoverOptions(HoverOptions),
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum DeclarationProvider {
     Bool(bool),
@@ -379,14 +373,14 @@ pub enum DeclarationProvider {
     DeclarationRegistrationOptions(DeclarationRegistrationOptions),
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum DefinitionProvider {
     Bool(bool),
     DefinitionOptions(DefinitionOptions),
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum TypeDefinitionProvider {
     Bool(bool),
@@ -394,7 +388,7 @@ pub enum TypeDefinitionProvider {
     TypeDefinitionRegistrationOptions(TypeDefinitionRegistrationOptions),
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum ImplementationProvider {
     Bool(bool),
@@ -402,35 +396,35 @@ pub enum ImplementationProvider {
     ImplementationRegistrationOptions(ImplementationRegistrationOptions),
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum ReferencesProvider {
     Bool(bool),
     ReferenceOptions(ReferenceOptions),
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum DocumentHighlightProvider {
     Bool(bool),
     DocumentHighlightOptions(DocumentHighlightOptions),
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum DocumentSymbolProvider {
     Bool(bool),
     DocumentSymbolOptions(DocumentSymbolOptions),
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum CodeActionProvider {
     Bool(bool),
     CodeActionOptions(CodeActionOptions),
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum ColorProvider {
     Bool(bool),
@@ -438,28 +432,28 @@ pub enum ColorProvider {
     DocumentColorRegistrationOptions(DocumentColorRegistrationOptions),
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum DocumentFormattingProvider {
     Bool(bool),
     DocumentFormattingOptions(DocumentFormattingOptions),
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum DocumentRangeFormattingProvider {
     Bool(bool),
     DocumentRangeFormattingOptions(DocumentRangeFormattingOptions),
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum RenameProvider {
     Bool(bool),
     RenameOptions(RenameOptions),
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum FoldingRangeProvider {
     Bool(bool),
@@ -467,7 +461,7 @@ pub enum FoldingRangeProvider {
     FoldingRangeRegistrationOptions(FoldingRangeRegistrationOptions),
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum SelectionRangeProvider {
     Bool(bool),
@@ -475,7 +469,7 @@ pub enum SelectionRangeProvider {
     SelectionRangeRegistrationOptions(SelectionRangeRegistrationOptions),
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum LinkedEditingRangeProvider {
     Bool(bool),
@@ -483,7 +477,7 @@ pub enum LinkedEditingRangeProvider {
     LinkedEditingRangeRegistrationOptions(LinkedEditingRangeRegistrationOptions),
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum CallHierarchyProvider {
     Bool(bool),
@@ -491,14 +485,14 @@ pub enum CallHierarchyProvider {
     CallHierarchyRegistrationOptions(CallHierarchyRegistrationOptions),
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum SemanticTokensProvider {
     SemanticTokensOptions(SemanticTokensOptions),
     SemanticTokensRegistrationOptions(SemanticTokensRegistrationOptions),
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum SemanticTokensFullDocumentCapabilities {
     Bool(bool),
@@ -508,7 +502,7 @@ pub enum SemanticTokensFullDocumentCapabilities {
     },
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum MonikerProvider {
     Bool(bool),
@@ -516,7 +510,7 @@ pub enum MonikerProvider {
     MonikerRegistrationOptions(MonikerRegistrationOptions),
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum TypeHierarchyProvider {
     Bool(bool),
@@ -524,7 +518,7 @@ pub enum TypeHierarchyProvider {
     TypeHierarchyRegistrationOptions(TypeHierarchyRegistrationOptions),
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum InlineValueProvider {
     Bool(bool),
@@ -532,7 +526,7 @@ pub enum InlineValueProvider {
     InlineValueRegistrationOptions(InlineValueRegistrationOptions),
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum InlayHintProvider {
     Bool(bool),
@@ -540,49 +534,57 @@ pub enum InlayHintProvider {
     InlayHintRegistrationOptions(InlayHintRegistrationOptions),
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum DiagnosticProvider {
     DiagnosticOptions(DiagnosticOptions),
     DiagnosticRegistrationOptions(DiagnosticRegistrationOptions),
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum WorkspaceSymbolProvider {
     Bool(bool),
     WorkspaceSymbolOptions(WorkspaceSymbolOptions),
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum InlineCompletionProvider {
     Bool(bool),
     InlineCompletionOptions(InlineCompletionOptions),
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum ChangeNotifications {
     String(String),
     Bool(bool),
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum FileOperationPatternKind {
     File,
     Folder,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum TextDocumentSyncOptionsSaveCapabilities {
     Bool(bool),
     SaveOptions(SaveOptions),
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase", tag = "kind")]
+pub enum WorkDoneProgressValue {
+    Begin(WorkDoneProgressBegin),
+    Report(WorkDoneProgressReport),
+    End(WorkDoneProgressEnd),
+}
+
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct ResponseError {
     pub code: i64,
     pub message: String,
@@ -591,19 +593,17 @@ pub struct ResponseError {
     pub data: Option<Value>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 pub struct InitializedParams {}
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct InitializeParams {
     pub process_id: Option<i64>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub client_info: Option<ClientInfo>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub locale: Option<String>,
 
@@ -612,7 +612,6 @@ pub struct InitializeParams {
 
     pub root_uri: Option<Uri>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub initialization_options: Option<Value>,
 
@@ -624,13 +623,11 @@ pub struct InitializeParams {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub workspace_folders: Option<Vec<WorkspaceFolder>>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub work_done_token: Option<WorkDoneProgressParams>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 pub struct ClientInfo {
     name: String,
 
@@ -638,7 +635,7 @@ pub struct ClientInfo {
     version: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -647,83 +644,66 @@ pub struct ClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text_document: Option<TextDocumentClientCapabilities>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notebook_document: Option<NotebookDocumentClientCapabilities>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub window: Option<WindowClientCapabilities>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub general: Option<GeneralClientCapabilities>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub experimental: Option<Value>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceClientCapabilities {
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub apply_edit: Option<bool>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub workspace_edit: Option<WorkspaceEditClientCapabilities>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub did_change_configuration: Option<DidChangeConfigurationClientCapabilities>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub did_change_watched_files: Option<DidChangeWatchedFilesClientCapabilities>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub symbol: Option<WorkspaceSymbolClientCapabilities>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub execute_command: Option<ExecuteCommandClientCapabilities>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub workspace_folders: Option<bool>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub configuration: Option<bool>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub semantic_tokens: Option<SemanticTokensWorkspaceClientCapabilities>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code_lens: Option<CodeLensWorkspaceClientCapabilities>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file_operations: Option<FileOperationsWorkspaceClientCapabilities>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub inline_value: Option<InlineValueWorkspaceClientCapabilities>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub inlay_hint: Option<InlayHintWorkspaceClientCapabilities>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub diagnostics: Option<DiagnosticWorkspaceClientCapabilities>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceEditClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -748,24 +728,21 @@ pub struct WorkspaceEditClientCapabilities {
     snippet_edit_support: Option<bool>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ChangeAnnotation {
     #[serde(skip_serializing_if = "Option::is_none")]
     groups_on_label: Option<bool>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct DidChangeConfigurationClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct DidChangeWatchedFilesClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -775,8 +752,7 @@ pub struct DidChangeWatchedFilesClientCapabilities {
     relative_pattern_support: Option<bool>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceSymbolClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -792,236 +768,191 @@ pub struct WorkspaceSymbolClientCapabilities {
     resolve_support: Option<ResolveSupportWorkspaceSymbolClientCapabilities>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SymbolKindCapabilities {
     value_set: Option<Vec<SymbolKind>>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SymbolTagSupportCapabilities {
     value_set: Vec<SymbolTag>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 pub struct ResolveSupportWorkspaceSymbolClientCapabilities {
     properties: Vec<String>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ExecuteCommandClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SemanticTokensWorkspaceClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     refresh_support: Option<bool>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct CodeLensWorkspaceClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     refresh_support: Option<bool>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct FileOperationsWorkspaceClientCapabilities {
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     did_create: Option<bool>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     will_create: Option<bool>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub did_rename: Option<bool>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     will_rename: Option<bool>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     did_delete: Option<bool>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     will_delete: Option<bool>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct InlineValueWorkspaceClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     refresh_support: Option<bool>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct InlayHintWorkspaceClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     refresh_support: Option<bool>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct DiagnosticWorkspaceClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     refresh_support: Option<bool>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct TextDocumentClientCapabilities {
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     synchronization: Option<TextDocumentSyncClientCapabilities>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     filters: Option<TextDocumentFilterClientCapabilities>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     completion: Option<CompletionClientCapabilities>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     hover: Option<HoverClientCapabilities>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     signature_help: Option<SignatureHelpClientCapabilities>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     declaration: Option<DeclarationClientCapabilities>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub definition: Option<DefinitionClientCapabilities>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     type_definition: Option<TypeDefinitionClientCapabilities>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     implementation: Option<ImplementationClientCapabilities>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     references: Option<ReferenceClientCapabilities>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     document_highlight: Option<DocumentHighlightClientCapabilities>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     document_symbol: Option<DocumentSymbolClientCapabilities>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     code_action: Option<CodeActionClientCapabilities>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     code_lens: Option<CodeLensClientCapabilities>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     document_link: Option<DocumentLinkClientCapabilities>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     color_provider: Option<DocumentColorClientCapabilities>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     formatting: Option<DocumentFormattingClientCapabilities>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     range_formatting: Option<DocumentRangeFormattingClientCapabilities>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     on_type_formatting: Option<DocumentOnTypeFormattingClientCapabilities>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     rename: Option<RenameClientCapabilities>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     publish_diagnostics: Option<PublishDiagnosticsClientCapabilities>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub folding_range: Option<FoldingRangeClientCapabilities>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     selection_range: Option<SelectionRangeClientCapabilities>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     linked_editing_range: Option<LinkedEditingRangeClientCapabilities>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     call_hierarchy: Option<CallHierarchyClientCapabilities>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub semantic_tokens: Option<SemanticTokensClientCapabilities>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     moniker: Option<MonikerClientCapabilities>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     type_hierarchy: Option<TypeHierarchyClientCapabilities>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     inline_value: Option<InlineValueClientCapabilities>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     inlay_hint: Option<InlayHintClientCapabilities>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     diagnostic: Option<DiagnosticClientCapabilities>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     inline_completion: Option<InlineCompletionClientCapabilities>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct TextDocumentSyncClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1037,16 +968,14 @@ pub struct TextDocumentSyncClientCapabilities {
     did_save: Option<bool>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct TextDocumentFilterClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     relative_pattern_support: Option<bool>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct CompletionClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1068,8 +997,7 @@ pub struct CompletionClientCapabilities {
     completion_list: Option<CompletionListCompletionClientCapabilities>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct CompletionItemCompletionClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1104,35 +1032,30 @@ pub struct CompletionItemCompletionClientCapabilities {
     label_details_support: Option<bool>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct TagSupportCompletionItemCompletionClientCapabilities {
     value_set: Vec<CompletionItemTag>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 pub struct ResolveSupportCompletionItemCompletionClientCapabilities {
     properties: Vec<String>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct InsertTextModeSupportCompletionItemCompletionClientCapabilities {
     value_set: Vec<InsertTextMode>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct CompletionItemKindCompletionClientCapabilities {
     value_set: Vec<CompletionItemKind>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct CompletionListCompletionClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1142,8 +1065,7 @@ pub struct CompletionListCompletionClientCapabilities {
     apply_kind_support: Option<bool>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct HoverClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1153,8 +1075,7 @@ pub struct HoverClientCapabilities {
     content_format: Option<Vec<MarkupKind>>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SignatureHelpClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1167,8 +1088,7 @@ pub struct SignatureHelpClientCapabilities {
     context_support: Option<bool>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SignatureInformationCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1184,16 +1104,14 @@ pub struct SignatureInformationCapabilities {
     no_active_parameter_support: Option<bool>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ParameterInformationCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     label_offset_support: Option<bool>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct DeclarationClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1203,8 +1121,7 @@ pub struct DeclarationClientCapabilities {
     link_support: Option<bool>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct DefinitionClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1214,8 +1131,7 @@ pub struct DefinitionClientCapabilities {
     pub link_support: Option<bool>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct TypeDefinitionClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1225,8 +1141,7 @@ pub struct TypeDefinitionClientCapabilities {
     link_support: Option<bool>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ImplementationClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1236,24 +1151,21 @@ pub struct ImplementationClientCapabilities {
     link_support: Option<bool>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ReferenceClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentHighlightClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentSymbolClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1272,8 +1184,7 @@ pub struct DocumentSymbolClientCapabilities {
     label_support: Option<bool>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct CodeActionClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1304,36 +1215,31 @@ pub struct CodeActionClientCapabilities {
     tag_support: Option<CodeActionTagSupportCapabilities>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct CodeActionLiteralSupportCapabilities {
     code_action_kind: CodeActionKindCapabilities,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct CodeActionKindCapabilities {
     value_set: Vec<CodeActionKind>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ResolveSupportCapabilities {
     properties: Vec<String>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct CodeActionTagSupportCapabilities {
     value_set: Vec<CodeActionTag>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct CodeLensClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1343,15 +1249,13 @@ pub struct CodeLensClientCapabilities {
     resolve_support: Option<ClientCodeLensResolveOptions>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ClientCodeLensResolveOptions {
     properties: Vec<String>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentLinkClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1361,24 +1265,21 @@ pub struct DocumentLinkClientCapabilities {
     tooltip_support: Option<bool>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentColorClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentFormattingClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentRangeFormattingClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1388,16 +1289,14 @@ pub struct DocumentRangeFormattingClientCapabilities {
     ranges_support: Option<bool>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentOnTypeFormattingClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct RenameClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1413,8 +1312,7 @@ pub struct RenameClientCapabilities {
     honors_change_annotations: Option<bool>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct PublishDiagnosticsClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1433,21 +1331,18 @@ pub struct PublishDiagnosticsClientCapabilities {
     data_support: Option<bool>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct DiagnosticTagSupportCapability {
     value_set: Vec<DiagnosticTag>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct FoldingRangeClientCapabilities {
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     range_limit: Option<u32>,
 
@@ -1461,46 +1356,42 @@ pub struct FoldingRangeClientCapabilities {
     pub folding_range: Option<FoldingRangeCapabilities>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct FoldingRangeKindCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub value_set: Vec<FoldingRangeKind>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct FoldingRangeCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub collapsed_text: Option<bool>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SelectionRangeClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct LinkedEditingRangeClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct CallHierarchyClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SemanticTokensClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1523,7 +1414,7 @@ pub struct SemanticTokensClientCapabilities {
     augments_syntax_tokens: Option<bool>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 pub struct SemanticTokenRequestsCapabilities {
     #[allow(dead_code)]
     pub range: Option<bool>,
@@ -1532,32 +1423,28 @@ pub struct SemanticTokenRequestsCapabilities {
     pub full: Option<SemanticTokenFullRequestsCapabilities>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct MonikerClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct TypeHierarchyClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct InlineValueClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct InlayHintClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1567,8 +1454,7 @@ pub struct InlayHintClientCapabilities {
     resolve_support: Option<ResolveSupportCapabilities>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct DiagnosticClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1581,23 +1467,20 @@ pub struct DiagnosticClientCapabilities {
     markup_message_support: Option<bool>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct InlineCompletionClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     dynamic_registration: Option<bool>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct NotebookDocumentClientCapabilities {
     synchronization: NotebookDocumentSyncClientCapabilities,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct NotebookDocumentSyncClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1607,12 +1490,11 @@ pub struct NotebookDocumentSyncClientCapabilities {
     execution_summary_support: Option<bool>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct WindowClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
-    work_done_progress: Option<bool>,
+    pub work_done_progress: Option<bool>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     show_message: Option<ShowMessageRequestClientCapabilities>,
@@ -1621,31 +1503,27 @@ pub struct WindowClientCapabilities {
     show_document: Option<ShowDocumentClientCapabilities>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ShowMessageRequestClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     message_action_item: Option<MessageActionItemClientCapabilities>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct MessageActionItemClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     additional_properties_support: Option<bool>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ShowDocumentClientCapabilities {
     support: bool,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct GeneralClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1661,16 +1539,14 @@ pub struct GeneralClientCapabilities {
     position_encodings: Option<Vec<PositionEncodingKind>>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct StaleRequestSupportClientCapabilities {
     cancel: bool,
     retry_on_content_modified: Vec<String>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct RegularExpressionsClientCapabilities {
     engine: String,
@@ -1679,8 +1555,7 @@ pub struct RegularExpressionsClientCapabilities {
     version: Option<String>,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct MarkdownClientCapabilities {
     parser: String,
@@ -1692,26 +1567,25 @@ pub struct MarkdownClientCapabilities {
     allowed_tags: Option<Vec<String>>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct WorkspaceFolder {
     pub uri: Uri,
     name: String,
 }
 
-#[expect(unused)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkDoneProgressParams {
     work_done_token: Option<ProgressToken>,
 }
 
-#[expect(unused)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ProgressParams {
-    token: ProgressTokenKind,
-    value: Value,
+    pub token: ProgressToken,
+    pub value: WorkDoneProgressValue,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all(serialize = "camelCase"))]
 pub struct TextDocumentSyncOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1730,14 +1604,14 @@ pub struct TextDocumentSyncOptions {
     pub save: Option<TextDocumentSyncOptionsSaveCapabilities>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all(serialize = "camelCase"))]
 pub struct SaveOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     include_text: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct NotebookDocumentSyncOptions {
     notebook_selector: Vec<NotebookSelector>,
 
@@ -1745,7 +1619,7 @@ pub struct NotebookDocumentSyncOptions {
     save: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct NotebookDocumentSyncRegistrationOptions {
     notebook_selector: Vec<NotebookSelector>,
 
@@ -1756,7 +1630,7 @@ pub struct NotebookDocumentSyncRegistrationOptions {
     id: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct NotebookSelectorByNotebook {
     notebook: NotebookSelectorNotebook,
 
@@ -1764,7 +1638,7 @@ pub struct NotebookSelectorByNotebook {
     cells: Option<Vec<NotebookSelectorCell>>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct NotebookSelectorByCell {
     #[serde(skip_serializing_if = "Option::is_none")]
     notebook: Option<NotebookSelectorNotebook>,
@@ -1804,18 +1678,18 @@ pub struct NotebookDocumentFilterByPattern {
     pattern: GlobPattern,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct RelativePattern {
     base_uri: WorkspaceFolder,
     pattern: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct NotebookSelectorCell {
     language: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct CompletionOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     trigger_characters: Option<Vec<String>>,
@@ -1833,17 +1707,17 @@ pub struct CompletionOptions {
     work_done_progress: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct CompletionOptionsCompletionItemCapability {
     label_details_support: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct HoverOptions {
     work_done_progress: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct SignatureHelpOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     trigger_characters: Option<Vec<String>>,
@@ -1852,13 +1726,13 @@ pub struct SignatureHelpOptions {
     retrigger_characters: Option<Vec<String>>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct DeclarationOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     work_done_progress: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct DeclarationRegistrationOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     work_done_progress: Option<bool>,
@@ -1869,7 +1743,7 @@ pub struct DeclarationRegistrationOptions {
     id: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct DocumentFilter {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub language: Option<String>,
@@ -1881,19 +1755,19 @@ pub struct DocumentFilter {
     pub pattern: Option<GlobPattern>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct DefinitionOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub work_done_progress: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct TypeDefinitionOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     work_done_progress: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct TypeDefinitionRegistrationOptions {
     document_selector: Option<DocumentSelector>,
 
@@ -1904,13 +1778,13 @@ pub struct TypeDefinitionRegistrationOptions {
     id: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct ImplementationOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     work_done_progress: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct ImplementationRegistrationOptions {
     document_selector: Option<DocumentSelector>,
 
@@ -1921,19 +1795,19 @@ pub struct ImplementationRegistrationOptions {
     id: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct ReferenceOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub work_done_progress: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct DocumentHighlightOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     work_done_progress: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct DocumentSymbolOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     label: Option<String>,
@@ -1942,7 +1816,7 @@ pub struct DocumentSymbolOptions {
     work_done_progress: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct CodeActionOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     code_action_kinds: Option<Vec<CodeActionKind>>,
@@ -1957,13 +1831,13 @@ pub struct CodeActionOptions {
     work_done_progress: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct CodeActionKindDocumentation {
     kind: CodeActionKind,
     command: Command,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct Command {
     title: String,
 
@@ -1975,7 +1849,7 @@ pub struct Command {
     arguments: Option<Vec<Value>>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct CodeLensOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     resolve_provider: Option<bool>,
@@ -1984,7 +1858,7 @@ pub struct CodeLensOptions {
     work_done_progress: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct DocumentLinkOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     resolve_provider: Option<bool>,
@@ -1993,12 +1867,12 @@ pub struct DocumentLinkOptions {
     work_done_progress: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct DocumentColorOptions {
     work_done_progress: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct DocumentColorRegistrationOptions {
     document_selector: Option<DocumentSelector>,
 
@@ -2009,13 +1883,13 @@ pub struct DocumentColorRegistrationOptions {
     work_done_progress: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct DocumentFormattingOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     work_done_progress: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct DocumentRangeFormattingOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     ranges_support: Option<bool>,
@@ -2024,7 +1898,7 @@ pub struct DocumentRangeFormattingOptions {
     work_done_progress: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct DocumentOnTypeFormattingOptions {
     first_trigger_character: String,
 
@@ -2032,7 +1906,7 @@ pub struct DocumentOnTypeFormattingOptions {
     more_trigger_character: Option<Vec<String>>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct RenameOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     prepare_provider: Option<bool>,
@@ -2041,13 +1915,13 @@ pub struct RenameOptions {
     work_done_progress: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct FoldingRangeOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     work_done_progress: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct FoldingRangeRegistrationOptions {
     document_selector: Option<DocumentSelector>,
 
@@ -2058,7 +1932,7 @@ pub struct FoldingRangeRegistrationOptions {
     id: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct ExecuteCommandOptions {
     commands: Vec<String>,
 
@@ -2066,13 +1940,13 @@ pub struct ExecuteCommandOptions {
     work_done_progress: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct SelectionRangeOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     work_done_progress: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct SelectionRangeRegistrationOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     work_done_progress: Option<bool>,
@@ -2083,13 +1957,13 @@ pub struct SelectionRangeRegistrationOptions {
     id: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct LinkedEditingRangeOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     work_done_progress: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct LinkedEditingRangeRegistrationOptions {
     document_selector: Option<DocumentSelector>,
 
@@ -2100,13 +1974,13 @@ pub struct LinkedEditingRangeRegistrationOptions {
     id: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct CallHierarchyOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     work_done_progress: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct CallHierarchyRegistrationOptions {
     document_selector: Option<DocumentSelector>,
 
@@ -2117,7 +1991,7 @@ pub struct CallHierarchyRegistrationOptions {
     id: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct SemanticTokensOptions {
     legend: SemanticTokensLegend,
 
@@ -2131,14 +2005,14 @@ pub struct SemanticTokensOptions {
     work_done_progress: Option<bool>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SemanticTokensLegend {
     pub token_types: Vec<SemanticTokenTypes>,
     pub token_modifiers: Vec<SemanticTokenModifiers>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SemanticTokensRegistrationOptions {
     pub document_selector: Option<DocumentSelector>,
@@ -2157,13 +2031,13 @@ pub struct SemanticTokensRegistrationOptions {
     pub id: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct MonikerOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     work_done_progress: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct MonikerRegistrationOptions {
     document_selector: Option<DocumentSelector>,
 
@@ -2171,13 +2045,13 @@ pub struct MonikerRegistrationOptions {
     work_done_progress: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct TypeHierarchyOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     work_done_progress: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct TypeHierarchyRegistrationOptions {
     document_selector: Option<DocumentSelector>,
 
@@ -2188,13 +2062,13 @@ pub struct TypeHierarchyRegistrationOptions {
     id: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct InlineValueOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     work_done_progress: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct InlineValueRegistrationOptions {
     document_selector: Option<DocumentSelector>,
 
@@ -2205,7 +2079,7 @@ pub struct InlineValueRegistrationOptions {
     id: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct InlayHintOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     resolve_provider: Option<bool>,
@@ -2214,7 +2088,7 @@ pub struct InlayHintOptions {
     work_done_progress: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct InlayHintRegistrationOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     resolve_provider: Option<bool>,
@@ -2227,7 +2101,7 @@ pub struct InlayHintRegistrationOptions {
     id: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct DiagnosticOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     identifier: Option<String>,
@@ -2238,7 +2112,7 @@ pub struct DiagnosticOptions {
     work_done_progress: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct DiagnosticRegistrationOptions {
     document_selector: Option<DocumentSelector>,
 
@@ -2254,7 +2128,7 @@ pub struct DiagnosticRegistrationOptions {
     id: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct WorkspaceSymbolOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     resolve_provider: Option<bool>,
@@ -2263,25 +2137,25 @@ pub struct WorkspaceSymbolOptions {
     work_done_progress: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct InlineCompletionOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     work_done_progress: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct TextDocumentServerCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     diagnostic: Option<TextDocumentDiagnosticServerCapabilities>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct TextDocumentDiagnosticServerCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     markup_message_support: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceServerCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2291,7 +2165,7 @@ pub struct WorkspaceServerCapabilities {
     pub file_operations: Option<WorkspaceFileOperations>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceFoldersServerCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2301,7 +2175,7 @@ pub struct WorkspaceFoldersServerCapabilities {
     pub change_notifications: Option<ChangeNotifications>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceFileOperations {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2323,12 +2197,12 @@ pub struct WorkspaceFileOperations {
     pub will_delete: Option<FileOperationRegistrationOptions>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct FileOperationRegistrationOptions {
     pub filters: Vec<FileOperationFilter>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct FileOperationFilter {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scheme: Option<String>,
@@ -2336,7 +2210,7 @@ pub struct FileOperationFilter {
     pub pattern: FileOperationPattern,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct FileOperationPattern {
     pub glob: String,
 
@@ -2347,14 +2221,14 @@ pub struct FileOperationPattern {
     pub options: Option<FileOperationPatternOptions>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileOperationPatternOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ignore_case: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InitializeResult {
     pub capabilities: ServerCapabilities,
@@ -2368,7 +2242,7 @@ pub struct InitializeError {
     pub retry: bool,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct ServerInfo {
     pub name: String,
 
@@ -2376,7 +2250,7 @@ pub struct ServerInfo {
     pub version: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ServerCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2491,12 +2365,12 @@ pub struct ServerCapabilities {
     pub experimental: Option<Value>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 pub struct SetTraceParams {
     pub value: TraceValue,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, PartialEq, Serialize)]
 pub struct LogTraceParams {
     pub message: String,
 
@@ -2504,13 +2378,13 @@ pub struct LogTraceParams {
     pub verbose: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct DidOpenTextDocumentParams {
     pub text_document: TextDocumentItem,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct TextDocumentItem {
     pub uri: DocumentUri,
@@ -2519,31 +2393,31 @@ pub struct TextDocumentItem {
     pub text: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct DidChangeTextDocumentParams {
     pub text_document: VersionedTextDocumentIdentifier,
     pub content_changes: Vec<TextDocumentContentChangeEvent>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct DidCloseTextDocumentParams {
     pub text_document: TextDocumentIdentifier,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 pub struct TextDocumentIdentifier {
     pub uri: DocumentUri,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 pub struct VersionedTextDocumentIdentifier {
     pub uri: DocumentUri,
     pub version: i64,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct TextDocumentContentChangeEvent {
     pub range: Range,
     pub text: String,
@@ -2561,16 +2435,12 @@ pub struct Position {
     pub character: u32,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct DefinitionParams {
     pub text_document: TextDocumentIdentifier,
     pub position: Position,
-
-    #[expect(unused)]
     pub work_done_token: Option<WorkDoneProgressParams>,
-
-    #[expect(unused)]
     pub partial_result_token: Option<NumberOrString>,
 }
 
@@ -2591,70 +2461,64 @@ pub struct LocationLink {
     pub target_selection_range: Range,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct RenameFilesParams {
     pub files: Vec<FileRename>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct FileRename {
     pub old_uri: DocumentUri,
     pub new_uri: DocumentUri,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ReferenceParams {
     pub context: ReferenceContext,
     pub text_document: TextDocumentIdentifier,
     pub position: Position,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub work_done_token: Option<WorkDoneProgressParams>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub partial_result_token: Option<NumberOrString>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ReferenceContext {
     pub include_declaration: bool,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SemanticTokensParams {
     pub text_document: TextDocumentIdentifier,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub work_done_token: Option<ProgressToken>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub partial_result_token: Option<ProgressToken>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SemanticTokensRangeParams {
     pub text_document: TextDocumentIdentifier,
     pub range: Range,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub work_done_token: Option<ProgressToken>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub partial_result_token: Option<ProgressToken>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SemanticTokens {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2663,16 +2527,14 @@ pub struct SemanticTokens {
     pub data: Vec<u32>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct FoldingRangeParams {
     pub text_document: TextDocumentIdentifier,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub work_done_token: Option<ProgressToken>,
 
-    #[expect(unused)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub partial_result_token: Option<ProgressToken>,
 }
@@ -2695,6 +2557,48 @@ pub struct FoldingRange {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub collapsed_text: Option<String>,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
+pub struct WorkDoneProgressCreateParams {
+    pub token: ProgressToken,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
+pub struct WorkDoneProgressCancelParams {
+    pub token: ProgressToken,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct WorkDoneProgressBegin {
+    pub title: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cancellable: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub percentage: Option<u32>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct WorkDoneProgressReport {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cancellable: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub percentage: Option<u32>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct WorkDoneProgressEnd {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
 }
 
 impl LocationLink {

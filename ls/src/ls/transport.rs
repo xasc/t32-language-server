@@ -21,7 +21,7 @@ use crate::{
     ReturnCode,
     config::{ChannelKind, Config},
     ls::lsp::{self, Message, ParseState, Token},
-    ls::response::ErrorResponse,
+    ls::response::{ErrorResponse, ReceiveError},
     protocol::{ErrorCodes, ResponseError},
 };
 
@@ -30,7 +30,7 @@ use crate::stdiotrans::receive_shared;
 
 enum RecvMessage {
     Msg(Message),
-    Err(ErrorResponse),
+    Err(ReceiveError),
     Heartbeat,
 }
 
@@ -221,7 +221,7 @@ impl StdioChannel {
             }
         }
     }
-    pub fn recv_msg(&self) -> Result<Option<Message>, ErrorResponse> {
+    pub fn recv_msg(&self) -> Result<Option<Message>, ReceiveError> {
         match self
             .rx
             .as_ref()
@@ -254,7 +254,7 @@ impl StdioChannel {
                 cin: &mut impl Read,
                 buf: &mut [u8],
                 decoder: &mut Decoder,
-            ) -> Result<usize, ErrorResponse> {
+            ) -> Result<usize, ReceiveError> {
                 match cin.read(buf) {
                     Ok(0) => Ok(0),
                     Ok(num) => {
@@ -269,7 +269,7 @@ impl StdioChannel {
             fn read_stdin(
                 cin: &mut mpsc::Receiver<Vec<u8>>,
                 decoder: &mut Decoder,
-            ) -> Result<usize, ErrorResponse> {
+            ) -> Result<usize, ReceiveError> {
                 match cin.try_recv() {
                     Ok(mut buf) => {
                         let num = buf.len();
@@ -311,27 +311,27 @@ impl StdioChannel {
     }
 
     #[cfg(any(windows, unix))]
-    fn error_read(err: &str) -> ErrorResponse {
-        ErrorResponse {
+    fn error_read(err: &str) -> ReceiveError {
+        ReceiveError::Response(ErrorResponse {
             id: None,
             error: ResponseError {
                 code: ErrorCodes::ParseError as i64,
                 message: err.to_string(),
                 data: None,
             },
-        }
+        })
     }
 
     #[cfg(all(target_os = "wasi", target_env = "p1"))]
-    fn error_transport(err: &str) -> ErrorResponse {
-        ErrorResponse {
+    fn error_transport(err: &str) -> ReceiveError {
+        ReceiveError::Response(ErrorResponse {
             id: None,
             error: ResponseError {
                 code: ErrorCodes::TransportError as i64,
                 message: err.to_string(),
                 data: None,
             },
-        }
+        })
     }
 }
 
