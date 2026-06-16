@@ -2,7 +2,9 @@
 //
 // SPDX-License-Identifier: EUPL-1.2
 
-use tree_sitter::{Language, Node, Range, TreeCursor};
+use tree_sitter::{Language, Node, TreeCursor};
+
+use crate::utils::RangeRowLimits;
 
 #[derive(Debug, Clone, Copy)]
 pub enum NodeKind {
@@ -281,11 +283,15 @@ pub fn get_macro_container_expr_ids(lang: &Language) -> [u16; 10] {
     ids
 }
 
-pub fn start_on_adjacent_lines(a: &Range, b: &Range) -> bool {
-    if a.start_point.row < b.start_point.row {
-        a.end_point.row == b.start_point.row
+pub fn starts_on_adjacent_lines<A, B>(a: &A, b: &B) -> bool
+where
+    A: RangeRowLimits,
+    B: RangeRowLimits,
+{
+    if a.start() < b.start() {
+        a.end() == b.start()
     } else {
-        b.end_point.row == a.start_point.row
+        b.end() == a.start()
     }
 }
 

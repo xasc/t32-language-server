@@ -919,15 +919,12 @@ fn supports_lang_folding_range_request() {
     );
 }
 
-
 #[test]
 fn supports_server_workdone_progress() {
-    let mut ls = utils::start_ls_with_server_workdone_progress(
-        &[
-            &format!("--clientProcessId={}", process::id().to_string()),
-            &format!("--trace={}", "messages"),
-        ]
-    );
+    let mut ls = utils::start_ls_with_server_workdone_progress(&[
+        &format!("--clientProcessId={}", process::id().to_string()),
+        &format!("--trace={}", "messages"),
+    ]);
     let mut stdin = ls.stdin.take().unwrap();
 
     thread::sleep(time::Duration::from_millis(500));

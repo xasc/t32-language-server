@@ -58,7 +58,7 @@ use crate::{
         ast::{
             KEYWORD_DO, KEYWORD_GOTO, KEYWORD_RUN, KEYWORD_SUBROUTINE_RETURN, KEYWORDS_SCRIPT_CALL,
             KEYWORDS_SCRIPT_END, get_block_opener_ids, get_string_body, get_subroutine_ids,
-            start_on_adjacent_lines,
+            starts_on_adjacent_lines,
         },
         macros::extract_params,
         path::{PathShorthandDirs, locate_script},
@@ -268,13 +268,19 @@ pub fn find_file_target(calls: &SubscriptCalls, command: TreeCursor) -> Option<U
 pub fn find_all_subroutines_and_labels(text: &str, tree: &Tree) -> (Vec<Subroutine>, Vec<Label>) {
     let id_subroutines = get_subroutine_ids(&tree.language());
 
-    let lang = tree.language();
+    let (labeled_expr, subroutine_block, id_comment) = {
+        let lang = tree.language();
 
-    let labeled_expr = NodeKind::LabeledExpression.into_id(&lang);
-    let subroutine_block = NodeKind::SubroutineBlock.into_id(&lang);
+        let id_comment = NodeKind::Comment.into_id(&lang);
+        let id_labeled_expr = NodeKind::LabeledExpression.into_id(&lang);
+        let id_subroutine_block = NodeKind::SubroutineBlock.into_id(&lang);
+
+        (id_labeled_expr, id_subroutine_block, id_comment)
+    };
 
     let mut subroutines: Vec<Subroutine> = Vec::new();
     let mut labels: Vec<Label> = Vec::new();
+    let mut comments: Option<TRange> = None;
 
     let mut cursor = tree.walk();
     if !cursor.goto_first_child() {
@@ -295,19 +301,21 @@ pub fn find_all_subroutines_and_labels(text: &str, tree: &Tree) -> (Vec<Subrouti
             debug_assert!(id_subroutines.contains(&cursor.node().kind_id()));
 
             if let Some(mut subroutine) = subroutine {
-                let docstring = find_docstring(&mut cursor);
+                let docstring = find_docstring(&node, comments.as_ref());
                 if docstring.is_some() {
                     subroutine.docstring = docstring;
                 }
                 subroutines.push(subroutine);
             } else if let Some(mut label) = extract_label(&mut cursor) {
-                let docstring = find_docstring(&mut cursor);
+                let docstring = find_docstring(&node, comments.as_ref());
                 if docstring.is_some() {
                     label.docstring = docstring;
                 }
                 labels.push(label);
             }
             debug_assert!(id_subroutines.contains(&cursor.node().kind_id()));
+        } else if id == id_comment {
+            comments = track_docstrings(&node, comments);
         }
 
         if !cursor.goto_next_sibling() {
@@ -332,9 +340,21 @@ pub fn find_all_call_expressions(text: &str, tree: &Tree) -> CallLocations {
 
     let lang = tree.language();
 
-    let subroutine_call = NodeKind::SubroutineCallExpression.into_id(&lang);
-    let script_call = NodeKind::CommandExpression.into_id(&lang);
-    let block_openers = get_block_opener_ids(&lang);
+    let (subroutine_call, script_call, block_openers, id_comment) = {
+        let id_comment = NodeKind::Comment.into_id(&lang);
+        let id_subroutine_call = NodeKind::SubroutineCallExpression.into_id(&lang);
+        let id_script_call = NodeKind::CommandExpression.into_id(&lang);
+        let id_block_openers = get_block_opener_ids(&lang);
+
+        (
+            id_subroutine_call,
+            id_script_call,
+            id_block_openers,
+            id_comment,
+        )
+    };
+
+    let mut comments: Option<TRange> = None;
 
     'outer: loop {
         let node = cursor.node();
@@ -350,7 +370,7 @@ pub fn find_all_call_expressions(text: &str, tree: &Tree) -> CallLocations {
             if call.is_some() {
                 let mut call = call.unwrap();
 
-                let docstring = find_docstring(&mut cursor);
+                let docstring = find_docstring(&node, comments.as_ref());
                 if docstring.is_some() {
                     call.docstring = docstring;
                 }
@@ -370,7 +390,7 @@ pub fn find_all_call_expressions(text: &str, tree: &Tree) -> CallLocations {
             if call.is_some() {
                 let mut call = call.unwrap();
 
-                let docstring = find_docstring(&mut cursor);
+                let docstring = find_docstring(&node, comments.as_ref());
                 if docstring.is_some() {
                     call.0.docstring = docstring;
                 }
@@ -384,6 +404,8 @@ pub fn find_all_call_expressions(text: &str, tree: &Tree) -> CallLocations {
             if cursor.goto_first_child() {
                 continue;
             }
+        } else if id == id_comment {
+            comments = track_docstrings(&node, comments);
         }
 
         while !cursor.goto_next_sibling() {
@@ -413,9 +435,16 @@ pub fn find_all_commands_and_parameter_declarations(
 
     let lang = tree.language();
 
-    let declaration = NodeKind::ParameterDeclaration.into_id(&lang);
-    let command = NodeKind::CommandExpression.into_id(&lang);
-    let block_openers = get_block_opener_ids(&lang);
+    let (declaration, command, block_openers, id_comment) = {
+        let id_declaration = NodeKind::ParameterDeclaration.into_id(&lang);
+        let id_command = NodeKind::CommandExpression.into_id(&lang);
+        let id_comment = NodeKind::Comment.into_id(&lang);
+        let id_block_openers = get_block_opener_ids(&lang);
+
+        (id_declaration, id_command, id_block_openers, id_comment)
+    };
+
+    let mut comments: Option<TRange> = None;
 
     'outer: loop {
         let node = cursor.node();
@@ -426,7 +455,7 @@ pub fn find_all_commands_and_parameter_declarations(
             extract_params(text, &mut cursor, &mut parameters);
 
             if parameters.len() != num {
-                let docstring = find_docstring(&mut cursor);
+                let docstring = find_docstring(&node, comments.as_ref());
                 if docstring.is_some() {
                     for def in parameters[num..].iter_mut() {
                         def.docstring = docstring.clone();
@@ -442,7 +471,7 @@ pub fn find_all_commands_and_parameter_declarations(
             extract_command(&mut cursor, &mut commands);
 
             if commands.len() != num {
-                let docstring = find_docstring(&mut cursor);
+                let docstring = find_docstring(&node, comments.as_ref());
                 if let Some(docstr) = docstring {
                     let len = commands.len();
                     commands[len - 1].docstring = Some(docstr);
@@ -456,6 +485,8 @@ pub fn find_all_commands_and_parameter_declarations(
             if cursor.goto_first_child() {
                 continue;
             }
+        } else if id == id_comment {
+            comments = track_docstrings(&node, comments);
         }
 
         while !cursor.goto_next_sibling() {
@@ -700,51 +731,30 @@ pub fn goto_subroutine(tree: &Tree, offset: usize) -> TreeCursor<'_> {
     }
 }
 
-pub fn find_docstring(cursor: &mut TreeCursor) -> Option<BRange> {
-    let target = cursor.node();
-    let lang = target.language();
+pub fn find_docstring(node: &Node, comments: Option<&TRange>) -> Option<BRange> {
+    let span = node.range();
 
-    debug_assert_ne!(target.kind_id(), NodeKind::Script.into_id(&lang));
-
-    if !(cursor.goto_parent() && cursor.goto_first_child()) {
-        unreachable!("Target node must have a parent.");
+    if let Some(block) = comments
+        && starts_on_adjacent_lines(block, &span)
+    {
+        Some(BRange::from(block.start_byte..block.end_byte))
+    } else {
+        None
     }
+}
 
-    let id_comment = NodeKind::Comment.into_id(&lang);
-    let mut node = cursor.node();
+pub fn track_docstrings(node: &Node, mut comments: Option<TRange>) -> Option<TRange> {
+    debug_assert_eq!(node.kind_id(), NodeKind::Comment.into_id(&node.language()));
 
-    let mut docstring: Option<TRange> = None;
-
-    while node != target {
-        let id = node.kind_id();
-
-        if id == id_comment {
-            if let Some(comment) = &mut docstring {
-                if start_on_adjacent_lines(&node.range(), comment) {
-                    comment.end_point = node.end_position();
-                    comment.end_byte = node.end_byte();
-                } else {
-                    docstring = Some(node.range());
-                }
-            } else {
-                docstring = Some(node.range());
-            }
-        } else if docstring.is_some() {
-            docstring = None;
-        }
-
-        if !cursor.goto_next_sibling() {
-            unreachable!("Target must be included in siblings.");
-        }
-        node = cursor.node();
+    if let Some(block) = &mut comments
+        && starts_on_adjacent_lines(&node.range(), block)
+    {
+        block.end_point = node.end_position();
+        block.end_byte = node.end_byte();
+    } else {
+        comments = Some(node.range());
     }
-
-    match docstring {
-        Some(range) if start_on_adjacent_lines(&range, &target.range()) => {
-            Some(BRange::from(range.start_byte..range.end_byte))
-        }
-        _ => None,
-    }
+    comments
 }
 
 pub fn extract_assign_lhs_macro(cursor: &mut TreeCursor) -> Option<BRange> {

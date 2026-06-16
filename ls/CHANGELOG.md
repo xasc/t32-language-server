@@ -27,6 +27,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
    ongoing. The server is only blocking to queue workspace indexing. Indexing
    results are resolved during normal server operation.
 
+### Fixed
+
+-  Fix time complexity of docstring search. Instead of rewinding the tree walk
+   back to the last parent node, we are now capturing comments as soon as they
+   are discovered. Docstring search then only needs to check the location of
+   the last comment block.
+
 
 [0.13.0] - 2026-05-25
 ---------------------

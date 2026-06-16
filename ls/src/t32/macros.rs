@@ -92,7 +92,7 @@
 
 use std::ops::Range;
 
-use tree_sitter::{Node, Tree, TreeCursor};
+use tree_sitter::{Node, Range as TRange, Tree, TreeCursor};
 
 use crate::{protocol::Uri, t32::ast::find_deepest_node, utils::BRange};
 
@@ -106,7 +106,7 @@ use super::{
     },
     cache::find_subroutine_for_call,
     expressions::{
-        CallExpression, MacroDefResolution, MacroDefinition, ParameterDeclaration,
+        self, CallExpression, MacroDefResolution, MacroDefinition, ParameterDeclaration,
         ParameterDeclarationKind, RECURSION_BREAKER_SUBROUTINE_SCAN, Subroutine, SubscriptCalls,
         assign_lhs_matches_macro, extract_assign_lhs_macro, find_docstring, goto_subroutine,
         resides_in_subroutine,
@@ -315,7 +315,8 @@ pub fn find_all_macro_definitions(
 ) -> MacroDefinitions {
     let mut cursor = tree.walk();
 
-    let (macro_def, assign, call, declaration, id_subroutines, block_openers): (
+    let (macro_def, assign, call, declaration, id_comment, id_subroutines, block_openers): (
+        u16,
         u16,
         u16,
         u16,
@@ -325,6 +326,7 @@ pub fn find_all_macro_definitions(
     ) = {
         let lang = tree.language();
 
+        let id_comment = NodeKind::Comment.into_id(&lang);
         let id_macro_def = NodeKind::MacroDefinition.into_id(&lang);
         let id_assign = NodeKind::AssignmentExpression.into_id(&lang);
         let id_call = NodeKind::SubroutineCallExpression.into_id(&lang);
@@ -338,6 +340,7 @@ pub fn find_all_macro_definitions(
             id_assign,
             id_call,
             id_declaration,
+            id_comment,
             subroutines,
             block_openers,
         )
@@ -379,6 +382,8 @@ pub fn find_all_macro_definitions(
         return MacroDefinitions::new();
     }
 
+    let mut comments: Option<TRange> = None;
+
     // Capture all explicit (`PRIVATE`, `LOCAL`, and `GLOBAL`) and implicit
     // macro definitions. All definitions in subroutines are captured
     // separately.
@@ -398,7 +403,7 @@ pub fn find_all_macro_definitions(
 
                 extract_macro_defs(text, &mut cursor, macros);
                 if macros.len() != num {
-                    let docstring = find_docstring(&mut cursor);
+                    let docstring = find_docstring(&node, comments.as_ref());
                     if docstring.is_some() {
                         for def in macros[num..].iter_mut() {
                             def.docstring = docstring.clone();
@@ -567,6 +572,8 @@ pub fn find_all_macro_definitions(
             if cursor.goto_first_child() {
                 continue;
             }
+        } else if id == id_comment {
+            comments = expressions::track_docstrings(&node, comments);
         }
 
         while !cursor.goto_next_sibling() {
@@ -1690,15 +1697,17 @@ fn find_explicit_or_implicit_macro_def_in_block(
     root: TreeCursor,
     select_macro: fn(text: &str, def: &mut TreeCursor, name: &str) -> Option<MacroDefinition>,
 ) -> Option<MacroDefResolution> {
-    let (macro_def, assign): (u16, u16) = {
+    let (macro_def, assign, id_comment): (u16, u16, u16) = {
         let node = root.node();
         let lang = node.language();
         (
             NodeKind::MacroDefinition.into_id(&lang),
             NodeKind::AssignmentExpression.into_id(&lang),
+            NodeKind::Comment.into_id(&lang),
         )
     };
     let mut definition: Option<MacroDefResolution> = None;
+    let mut comments: Option<TRange> = None;
 
     let mut cursor = root;
     loop {
@@ -1710,7 +1719,7 @@ fn find_explicit_or_implicit_macro_def_in_block(
 
         if id == macro_def {
             if let Some(mut def) = select_macro(&text, &mut cursor, name) {
-                let docstring = find_docstring(&mut cursor);
+                let docstring = find_docstring(&node, comments.as_ref());
                 if docstring.is_some() {
                     def.docstring = docstring;
                 }
@@ -1733,8 +1742,10 @@ fn find_explicit_or_implicit_macro_def_in_block(
             definition = Some(MacroDefResolution::Implicit(MacroDefinition {
                 cmd: BRange::from(cursor.node().byte_range()),
                 r#macro: span.into(),
-                docstring: find_docstring(&mut cursor),
+                docstring: find_docstring(&node, comments.as_ref()),
             }));
+        } else if id == id_comment {
+            comments = expressions::track_docstrings(&node, comments);
         } else if node.byte_range().contains(&origin.inner().start) {
             if cursor.goto_first_child() {
                 continue;
@@ -1758,17 +1769,19 @@ fn find_any_macro_def_in_outer_block(
     select_macro: fn(text: &str, def: &mut TreeCursor, name: &str) -> Option<MacroDefinition>,
     select_params: fn(text: &str, def: &mut TreeCursor, name: &str) -> Option<MacroDefResolution>,
 ) -> Option<MacroDefResolution> {
-    let (macro_def, parameter, assign): (u16, u16, u16) = {
+    let (macro_def, parameter, assign, id_comment): (u16, u16, u16, u16) = {
         let node = root.node();
         let lang = node.language();
 
+        let comment = NodeKind::Comment.into_id(&lang);
         let macro_def = NodeKind::MacroDefinition.into_id(&lang);
         let parameter = NodeKind::ParameterDeclaration.into_id(&lang);
         let assign = NodeKind::AssignmentExpression.into_id(&lang);
 
-        (macro_def, parameter, assign)
+        (macro_def, parameter, assign, comment)
     };
     let mut definition: Option<MacroDefResolution> = None;
+    let mut comments: Option<TRange> = None;
 
     let mut cursor = root;
     loop {
@@ -1780,7 +1793,7 @@ fn find_any_macro_def_in_outer_block(
 
         if id == macro_def {
             if let Some(mut def) = select_macro(&text, &mut cursor, name) {
-                let docstring = find_docstring(&mut cursor);
+                let docstring = find_docstring(&node, comments.as_ref());
                 if docstring.is_some() {
                     def.docstring = docstring;
                 }
@@ -1799,7 +1812,7 @@ fn find_any_macro_def_in_outer_block(
         }) && id == parameter
         {
             if let Some(mut def) = select_params(&text, &mut cursor, name) {
-                let docstring = find_docstring(&mut cursor);
+                let docstring = find_docstring(&node, comments.as_ref());
                 if docstring.is_some() {
                     match &mut def {
                         MacroDefResolution::Final(m) | MacroDefResolution::Overridable(m) => {
@@ -1827,8 +1840,10 @@ fn find_any_macro_def_in_outer_block(
             definition = Some(MacroDefResolution::Implicit(MacroDefinition {
                 cmd: BRange::from(cursor.node().byte_range()),
                 r#macro: span.into(),
-                docstring: find_docstring(&mut cursor),
+                docstring: find_docstring(&node, comments.as_ref()),
             }));
+        } else if id == id_comment {
+            comments = expressions::track_docstrings(&node, comments);
         } else if node.byte_range().contains(&origin.inner().start) {
             if cursor.goto_first_child() {
                 continue;
@@ -1865,13 +1880,21 @@ fn find_macro_defs_in_subroutine_call_chain(
         return MacroDefinitions::new();
     }
 
-    let (macro_def, assign, call, declaration, block_openers): (u16, u16, u16, u16, [u16; 8]) = {
+    let (macro_def, assign, call, declaration, id_comment, block_openers): (
+        u16,
+        u16,
+        u16,
+        u16,
+        u16,
+        [u16; 8],
+    ) = {
         let lang = tree.language();
 
-        let id_macro_def = NodeKind::MacroDefinition.into_id(&lang);
         let id_assign = NodeKind::AssignmentExpression.into_id(&lang);
         let id_call = NodeKind::SubroutineCallExpression.into_id(&lang);
+        let id_comment = NodeKind::Comment.into_id(&lang);
         let id_declaration = NodeKind::ParameterDeclaration.into_id(&lang);
+        let id_macro_def = NodeKind::MacroDefinition.into_id(&lang);
 
         let block_openers = get_block_opener_ids(&lang);
 
@@ -1880,6 +1903,7 @@ fn find_macro_defs_in_subroutine_call_chain(
             id_assign,
             id_call,
             id_declaration,
+            id_comment,
             block_openers,
         )
     };
@@ -1890,6 +1914,7 @@ fn find_macro_defs_in_subroutine_call_chain(
     let mut implicit: MacroDefinitionsImplicit = MacroDefinitionsImplicit::new();
 
     let mut defs_subroutines: MacroDefinitions = MacroDefinitions::new();
+    let mut comments: Option<TRange> = None;
 
     'outer: loop {
         let node = cursor.node();
@@ -1909,7 +1934,7 @@ fn find_macro_defs_in_subroutine_call_chain(
 
                 extract_macro_defs(text, &mut cursor, macros);
                 if macros.len() != num {
-                    let docstring = find_docstring(&mut cursor);
+                    let docstring = find_docstring(&node, comments.as_ref());
                     if docstring.is_some() {
                         for def in macros[num..].iter_mut() {
                             def.docstring = docstring.clone();
@@ -2046,6 +2071,8 @@ fn find_macro_defs_in_subroutine_call_chain(
             if cursor.goto_first_child() {
                 continue;
             }
+        } else if id == id_comment {
+            comments = expressions::track_docstrings(&node, comments);
         }
 
         while !cursor.goto_next_sibling() {

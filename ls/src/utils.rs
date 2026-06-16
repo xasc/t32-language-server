@@ -43,6 +43,11 @@ pub struct FileLocationMapIterator<'a> {
 }
 
 pub struct FileLocationIndex(BTreeMap<Uri, FileLocationMap>);
+pub trait RangeRowLimits {
+    fn start(&self) -> u32;
+
+    fn end(&self) -> u32;
+}
 
 impl BRange {
     pub fn to_inner(self) -> Range<usize> {
@@ -345,6 +350,30 @@ impl PartialEq<FileLocationMap> for FileLocationMap {
 impl PartialOrd for BRange {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
+    }
+}
+
+impl RangeRowLimits for LRange {
+    fn start(&self) -> u32 {
+        let start = self.start;
+        start.line as u32
+    }
+
+    fn end(&self) -> u32 {
+        let end = self.end;
+        end.line as u32
+    }
+}
+
+impl RangeRowLimits for TRange {
+    fn start(&self) -> u32 {
+        let start = self.start_point;
+        start.row as u32
+    }
+
+    fn end(&self) -> u32 {
+        let end = self.end_point;
+        end.row as u32
     }
 }
 
