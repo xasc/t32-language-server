@@ -236,8 +236,6 @@ fn warn_server_work_not_found(token: ProgressToken) -> Message {
 
 #[cfg(test)]
 mod tests {
-    use std::assert_matches;
-
     use crate::protocol::{
         ProgressParams, WorkDoneProgressBegin, WorkDoneProgressEnd, WorkDoneProgressReport,
         WorkDoneProgressValue,
@@ -269,7 +267,7 @@ mod tests {
 
         let ongoing = ongoing[0].take().expect("Must not be empty.");
 
-        assert_matches!(
+        assert!(matches!(
             ongoing,
             OngoingTask::WindowWorkDoneProgress {
                 id: NumberOrString::Number(1),
@@ -281,7 +279,7 @@ mod tests {
                 }),
                 ..
             }
-        );
+        ));
     }
 
     #[test]

@@ -410,7 +410,7 @@ mod tests {
 
     use super::*;
 
-    use std::{assert_matches, env, path};
+    use std::{env, path};
 
     use url::Url;
 
@@ -916,7 +916,7 @@ mod tests {
 
         let done = done[0].take().expect("Must not be empty.");
 
-        assert_matches!(done, TaskDone::WorkspaceFileDiscovery(_));
+        assert!(matches!(done, TaskDone::WorkspaceFileDiscovery(_)));
         assert_eq!(
             done.get_task_handle().expect("Must not be empty."),
             tasks::OngoingTaskHandle::Identifier(id)
