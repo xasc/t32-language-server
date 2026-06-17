@@ -53,3 +53,8 @@ This extension contributes the following settings:
 -  `t32ls.t32.systemDirectory`: TRACE32 system directory
 -  `t32ls.t32.temporaryDirectory`: TRACE32 temporary directory
 -  `t32ls.trace.server`: Trace server communication with VS Code.
+
+This default setting is overridden by the extension:
+
+-  `editor.semanticHighlighting.enabled`: Apply semantic highlighting for
+   language `practice`.
