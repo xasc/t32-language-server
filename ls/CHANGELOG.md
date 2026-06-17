@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 -  The server can process client requests while workspace indexing is still
    ongoing. The server is only blocking to queue workspace indexing. Indexing
    results are resolved during normal server operation.
+-  Switch to *tree-sitter-t32* v9.0.1.
 
 ### Fixed
 
