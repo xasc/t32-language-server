@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use crate::{
     ls::{
-        Message, Notification, Request, TaskCounter, TaskCounterExternal, TaskCounters, TaskDone,
+        Message, Notification, Request, TaskCounter, TaskCounters, TaskDone,
         tasks::{self, OngoingTask, WorkDoneProgressPhase, workspace},
     },
     protocol::{
@@ -115,7 +115,9 @@ pub fn find_workdone_progress_by_id(
     ongoing: &[Option<OngoingTask>],
 ) -> Option<usize> {
     ongoing.iter().position(|t| match t {
-        Some(OngoingTask::WindowWorkDoneProgress { work, .. }) => work == id,
+        Some(OngoingTask::WindowWorkDoneProgress { work, .. }) => {
+            *work == *id
+        }
         Some(_) => false,
         None => unreachable!("Not empty slots allowed."),
     })
@@ -123,7 +125,6 @@ pub fn find_workdone_progress_by_id(
 
 pub fn broadcast_work_done(
     task: &mut Option<OngoingTask>,
-    counter: &mut TaskCounterExternal,
     outgoing: &mut Vec<Option<Message>>,
     done: &mut Vec<Option<TaskDone>>,
 ) {
@@ -161,7 +162,7 @@ pub fn broadcast_work_done(
         WorkDoneProgressPhase::Reporting { .. } => (),
         WorkDoneProgressPhase::Ready(params) => {
             let msg = Message::Request(Request::WindowWorkDoneProgressCreate {
-                id: counter.next_id(),
+                id: id.clone(),
                 params: WorkDoneProgressCreateParams {
                     token: token.clone(),
                 },
@@ -181,20 +182,30 @@ pub fn broadcast_work_done(
                 next: None,
             };
         }
-        WorkDoneProgressPhase::Finished(p) if p.is_some() => {
-            let params = p.take().unwrap();
+        WorkDoneProgressPhase::Finished { begin, end } if end.is_some() => {
+            if let Some(old) = begin.take() {
+                let msg = Message::Notification(Notification::WorkDoneProgressNotification {
+                    params: old,
+                });
+                outgoing.push(Some(msg));
+            }
+            let new = end.take().unwrap();
 
-            let msg = Message::Notification(Notification::WorkDoneProgressNotification { params });
+            let msg =
+                Message::Notification(Notification::WorkDoneProgressNotification { params: new });
             outgoing.push(Some(msg));
 
             done.push(Some(TaskDone::WindowWorkDoneProgress(id.clone(), false)));
         }
-        WorkDoneProgressPhase::Finished(..) | WorkDoneProgressPhase::Announced(..) => (),
+        WorkDoneProgressPhase::Finished { .. } | WorkDoneProgressPhase::Announced(..) => (),
 
         WorkDoneProgressPhase::Aborted => {
             done.push(Some(TaskDone::WindowWorkDoneProgress(id.clone(), true)));
 
-            *phase = WorkDoneProgressPhase::Finished(None);
+            *phase = WorkDoneProgressPhase::Finished {
+                begin: None,
+                end: None,
+            };
         }
     }
 }
@@ -307,12 +318,10 @@ mod tests {
             }),
         });
 
-        let mut counter = TaskCounterExternal::new();
-
         let mut outgoing: Vec<Option<Message>> = Vec::new();
         let mut done: Vec<Option<TaskDone>> = Vec::new();
 
-        broadcast_work_done(&mut ongoing, &mut counter, &mut outgoing, &mut done);
+        broadcast_work_done(&mut ongoing, &mut outgoing, &mut done);
 
         assert!(done.is_empty());
         assert_eq!(outgoing.len(), 1);
@@ -322,7 +331,7 @@ mod tests {
         assert!(
             outgoing
                 == Message::Request(Request::WindowWorkDoneProgressCreate {
-                    id: NumberOrString::Number(0),
+                    id: NumberOrString::Number(2),
                     params: WorkDoneProgressCreateParams {
                         token: token.clone()
                     }
@@ -424,12 +433,10 @@ mod tests {
             }),
         });
 
-        let mut counter = TaskCounterExternal::new();
-
         let mut outgoing: Vec<Option<Message>> = Vec::new();
         let mut done: Vec<Option<TaskDone>> = Vec::new();
 
-        broadcast_work_done(&mut ongoing, &mut counter, &mut outgoing, &mut done);
+        broadcast_work_done(&mut ongoing, &mut outgoing, &mut done);
 
         assert!(done.is_empty());
         assert_eq!(outgoing.len(), 1);
@@ -489,12 +496,10 @@ mod tests {
             },
         });
 
-        let mut counter = TaskCounterExternal::new();
-
         let mut outgoing: Vec<Option<Message>> = Vec::new();
         let mut done: Vec<Option<TaskDone>> = Vec::new();
 
-        broadcast_work_done(&mut ongoing, &mut counter, &mut outgoing, &mut done);
+        broadcast_work_done(&mut ongoing, &mut outgoing, &mut done);
 
         assert!(done.is_empty());
         assert_eq!(outgoing.len(), 1);
@@ -539,7 +544,7 @@ mod tests {
         let mut outgoing: Vec<Option<Message>> = Vec::new();
         let mut done: Vec<Option<TaskDone>> = Vec::new();
 
-        broadcast_work_done(&mut ongoing, &mut counter, &mut outgoing, &mut done);
+        broadcast_work_done(&mut ongoing, &mut outgoing, &mut done);
 
         assert!(outgoing.is_empty());
         assert!(done.is_empty());
@@ -576,18 +581,19 @@ mod tests {
             token: token.clone(),
             work: work.clone(),
             onset: onset.clone(),
-            phase: WorkDoneProgressPhase::Finished(Some(ProgressParams {
-                token: token.clone(),
-                value: params.clone(),
-            })),
+            phase: WorkDoneProgressPhase::Finished {
+                begin: None,
+                end: Some(ProgressParams {
+                    token: token.clone(),
+                    value: params.clone(),
+                }),
+            },
         });
-
-        let mut counter = TaskCounterExternal::new();
 
         let mut outgoing: Vec<Option<Message>> = Vec::new();
         let mut done: Vec<Option<TaskDone>> = Vec::new();
 
-        broadcast_work_done(&mut ongoing, &mut counter, &mut outgoing, &mut done);
+        broadcast_work_done(&mut ongoing, &mut outgoing, &mut done);
 
         assert_eq!(done.len(), 1);
         assert_eq!(outgoing.len(), 1);
@@ -620,7 +626,10 @@ mod tests {
                 token: token.clone(),
                 work: work.clone(),
                 onset,
-                phase: WorkDoneProgressPhase::Finished(None),
+                phase: WorkDoneProgressPhase::Finished {
+                    begin: None,
+                    end: None
+                },
             })
         );
 
@@ -629,13 +638,16 @@ mod tests {
             token: token.clone(),
             work: work.clone(),
             onset,
-            phase: WorkDoneProgressPhase::Finished(None),
+            phase: WorkDoneProgressPhase::Finished {
+                begin: None,
+                end: None,
+            },
         });
 
         let mut outgoing: Vec<Option<Message>> = Vec::new();
         let mut done: Vec<Option<TaskDone>> = Vec::new();
 
-        broadcast_work_done(&mut ongoing, &mut counter, &mut outgoing, &mut done);
+        broadcast_work_done(&mut ongoing, &mut outgoing, &mut done);
 
         assert!(done.is_empty());
         assert!(outgoing.is_empty());
@@ -647,7 +659,10 @@ mod tests {
                 token,
                 work,
                 onset,
-                phase: WorkDoneProgressPhase::Finished(None),
+                phase: WorkDoneProgressPhase::Finished {
+                    begin: None,
+                    end: None
+                },
             })
         );
     }
@@ -671,10 +686,13 @@ mod tests {
             token: token.clone(),
             work: work.clone(),
             onset: onset.clone(),
-            phase: WorkDoneProgressPhase::Finished(Some(ProgressParams {
-                token: token.clone(),
-                value: params.clone(),
-            })),
+            phase: WorkDoneProgressPhase::Finished {
+                begin: None,
+                end: Some(ProgressParams {
+                    token: token.clone(),
+                    value: params.clone(),
+                }),
+            },
         };
 
         let mut outgoing: Vec<Option<Message>> = Vec::new();
@@ -702,12 +720,10 @@ mod tests {
             phase: WorkDoneProgressPhase::Aborted,
         });
 
-        let mut counter = TaskCounterExternal::new();
-
         let mut outgoing: Vec<Option<Message>> = Vec::new();
         let mut done: Vec<Option<TaskDone>> = Vec::new();
 
-        broadcast_work_done(&mut ongoing, &mut counter, &mut outgoing, &mut done);
+        broadcast_work_done(&mut ongoing, &mut outgoing, &mut done);
 
         assert!(outgoing.is_empty());
 
@@ -727,7 +743,10 @@ mod tests {
                 token,
                 work,
                 onset,
-                phase: WorkDoneProgressPhase::Finished(None),
+                phase: WorkDoneProgressPhase::Finished {
+                    begin: None,
+                    end: None
+                },
             })
         );
     }
@@ -778,5 +797,97 @@ mod tests {
                 onset,
                 phase: WorkDoneProgressPhase::Aborted,
             })));
+    }
+
+    #[test]
+    fn can_report_progress_for_fast_task() {
+        let id = NumberOrString::Number(2);
+        let token = NumberOrString::Number(1);
+        let work = NumberOrString::Number(3);
+        let onset = Instant::now();
+        let title = "Initialized".to_string();
+
+        let old_params = WorkDoneProgressValue::Begin(WorkDoneProgressBegin {
+            title: title.clone(),
+            cancellable: Some(false),
+            message: Some("old".to_string()),
+            percentage: Some(0),
+        });
+
+        let new_params = WorkDoneProgressValue::End(WorkDoneProgressEnd {
+            message: Some("new".to_string()),
+        });
+
+        let mut ongoing = Some(OngoingTask::WindowWorkDoneProgress {
+            id: id.clone(),
+            token: token.clone(),
+            work: work.clone(),
+            onset: onset.clone(),
+            phase: WorkDoneProgressPhase::Finished {
+                begin: Some(ProgressParams {
+                    token: token.clone(),
+                    value: old_params.clone(),
+                }),
+                end: Some(ProgressParams {
+                    token: token.clone(),
+                    value: new_params.clone(),
+                }),
+            },
+        });
+
+        let mut outgoing: Vec<Option<Message>> = Vec::new();
+        let mut done: Vec<Option<TaskDone>> = Vec::new();
+
+        broadcast_work_done(&mut ongoing, &mut outgoing, &mut done);
+
+        assert_eq!(done.len(), 1);
+        assert_eq!(outgoing.len(), 2);
+
+        let TaskDone::WindowWorkDoneProgress(identifier, aborted) =
+            done[0].take().expect("Must not be empty.")
+        else {
+            panic!("Must be this variant.");
+        };
+
+        assert_eq!(identifier, id);
+        assert_eq!(aborted, false);
+
+        let old_state = outgoing[0].take().expect("Must not be empty.");
+
+        assert!(
+            old_state
+                == Message::Notification(Notification::WorkDoneProgressNotification {
+                    params: ProgressParams {
+                        token: token.clone(),
+                        value: old_params,
+                    }
+                })
+        );
+
+        let new_state = outgoing[1].take().expect("Must not be empty.");
+
+        assert!(
+            new_state
+                == Message::Notification(Notification::WorkDoneProgressNotification {
+                    params: ProgressParams {
+                        token: token.clone(),
+                        value: new_params,
+                    }
+                })
+        );
+
+        assert_eq!(
+            ongoing,
+            Some(OngoingTask::WindowWorkDoneProgress {
+                id: id.clone(),
+                token: token.clone(),
+                work: work.clone(),
+                onset,
+                phase: WorkDoneProgressPhase::Finished {
+                    begin: None,
+                    end: None
+                },
+            })
+        );
     }
 }

@@ -13,6 +13,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+[Unreleased]
+------------
+
+### Fixed
+
+-  Fix request ID confusion when the server announces progress reporting.
+-  Fix progress reporting if the task whose progress should be reported should
+   finished very quickly. Without sufficient time to announce the initial task
+   progress only the end status was published.
+
+
 [0.14.0] - 2026-06-17
 ---------------------
 

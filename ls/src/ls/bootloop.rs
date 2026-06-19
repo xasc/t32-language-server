@@ -8,8 +8,8 @@ use crate::{
     ReturnCode,
     config::Config,
     ls::{
-        self, ErrorResponse, FileIndex, InitState, Message, Response, RunState, TaskCounter, Tasks,
-        TextDocs, Workspace,
+        self, ErrorResponse, FileIndex, InitState, Message, Response, RunState, Tasks, TextDocs,
+        Workspace,
         tasks::{self, TaskDone, startup},
         transport::StdioChannel,
     },
@@ -36,7 +36,6 @@ pub fn start(
 
     startup::discover_files(
         cfg,
-        g.tasks.counters.progress.next_id(),
         cfg.workspace.clone(),
         &mut g.tasks.counters,
         &mut g.tasks.ongoing,

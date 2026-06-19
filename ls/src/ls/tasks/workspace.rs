@@ -132,8 +132,22 @@ pub fn conclude_workspace_file_parsing_progress(task: &mut Option<OngoingTask>) 
         unreachable!("No other variant allowed.");
     };
 
+    // Operation has completed before any progress could be reported.
+    let old: Option<ProgressParams> = match phase {
+        WorkDoneProgressPhase::Announced(params)
+        | WorkDoneProgressPhase::Initialized(params)
+        | WorkDoneProgressPhase::Ready(params) => Some(params.clone()),
+        WorkDoneProgressPhase::Reporting { .. } | WorkDoneProgressPhase::Aborted => None,
+        WorkDoneProgressPhase::Finished { .. } => {
+            unreachable!("Progress reporting cannot be in this phase.")
+        }
+    };
+
     let params = finish_progress_workspace_discovery(token.clone());
-    *phase = WorkDoneProgressPhase::Finished(Some(params));
+    *phase = WorkDoneProgressPhase::Finished {
+        begin: old,
+        end: Some(params),
+    };
 }
 pub fn recv_workspace_file_discovery_sync(
     id: &NumberOrString,

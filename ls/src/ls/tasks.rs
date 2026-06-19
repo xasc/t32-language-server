@@ -142,7 +142,10 @@ pub enum WorkDoneProgressPhase {
         reported: u32,
         next: Option<ProgressParams>,
     },
-    Finished(Option<ProgressParams>),
+    Finished {
+        begin: Option<ProgressParams>,
+        end: Option<ProgressParams>,
+    },
 }
 
 #[derive(Debug, PartialEq)]
@@ -1432,12 +1435,7 @@ fn progress_multi_part_tasks(
                 );
             }
             OngoingTask::WindowWorkDoneProgress { .. } => {
-                progress::broadcast_work_done(
-                    job,
-                    &mut ts.counters.tasks_ext,
-                    outgoing,
-                    &mut ts.completed,
-                );
+                progress::broadcast_work_done(job, outgoing, &mut ts.completed);
             }
             OngoingTask::CodeFolds(..)
             | OngoingTask::DidRenameFiles(..)
@@ -1842,6 +1840,7 @@ fn trace_task_aborted(duration: Duration, id: &NumberOrString) -> Message {
         },
     })
 }
+
 fn trace_window_workdone(duration: Duration, id: NumberOrString, aborted: bool) -> Message {
     Message::Notification(Notification::LogTraceNotification {
         params: LogTraceParams {

@@ -8,14 +8,14 @@ use crate::{
     ReturnCode,
     config::{Config, Workspace},
     ls::{
-        self, FileIndex, InitState, Message, TaskCounters, TaskSystem,
+        self, FileIndex, InitState, Message, TaskCounter, TaskCounters, TaskSystem,
         response::NullResponse,
         tasks::{
             self, Notification, OngoingTask, Request, Response, Task, TaskDone, Tasks,
             WorkspaceDiscoveryPhase, progress, workspace,
         },
     },
-    protocol::{NumberOrString, SetTraceParams, TraceValue, WorkDoneProgressCancelParams},
+    protocol::{SetTraceParams, TraceValue, WorkDoneProgressCancelParams},
 };
 
 pub fn try_schedule(ts: &mut TaskSystem, job: Task) -> Result<(), ReturnCode> {
@@ -24,7 +24,6 @@ pub fn try_schedule(ts: &mut TaskSystem, job: Task) -> Result<(), ReturnCode> {
 
 pub fn discover_files(
     cfg: &Config,
-    work: NumberOrString,
     workspace: Workspace,
     counters: &mut TaskCounters,
     ongoing: &mut Vec<Option<OngoingTask>>,
@@ -32,6 +31,8 @@ pub fn discover_files(
 ) {
     debug_assert!(ongoing.is_empty());
     debug_assert!(outgoing.is_empty());
+
+    let work = counters.tasks_int.next_id();
 
     workspace::prepare_workspace_discovery(work.clone(), workspace, ongoing);
 
