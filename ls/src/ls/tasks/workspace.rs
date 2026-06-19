@@ -38,6 +38,7 @@ pub fn prepare_workspace_discovery(
         phase: WorkspaceDiscoveryPhase::Scanning(workspace, None),
     }));
 }
+
 pub fn progress_workspace_file_discovery(task: &mut Option<OngoingTask>, outgoing: &mut Vec<Task>) {
     let Some(OngoingTask::WorkspaceDiscovery { progress, .. }) = task else {
         unreachable!("Must not called with any other variant.");
@@ -149,6 +150,7 @@ pub fn conclude_workspace_file_parsing_progress(task: &mut Option<OngoingTask>) 
         end: Some(params),
     };
 }
+
 pub fn recv_workspace_file_discovery_sync(
     id: &NumberOrString,
     sync: WorkspaceMembers,

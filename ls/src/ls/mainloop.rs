@@ -45,7 +45,9 @@ pub fn handle_requests(
             g.backoff.clear();
         }
 
-        tasks::recv_responses(cfg.trace_level, &mut incoming, &mut g.tasks, &mut outgoing);
+        if tasks::recv_responses(cfg.trace_level, &mut incoming, &mut g.tasks, &mut outgoing) {
+            g.backoff.clear();
+        }
 
         if tasks::recv_completed_tasks(
             &cfg,

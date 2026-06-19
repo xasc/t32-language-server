@@ -137,7 +137,9 @@ pub fn progress_multi_part_tasks(
                     unreachable!("Task is not schedule while the server is booting.")
                 }
             },
-            OngoingTask::WindowWorkDoneProgress { .. } => {}
+            OngoingTask::WindowWorkDoneProgress { .. } => {
+                progress::broadcast_work_done(cfg.trace_level, job, outgoing, &mut ts.completed);
+            }
             OngoingTask::CodeFolds(..)
             | OngoingTask::DidRenameFiles(..)
             | OngoingTask::FindMacroReferences { .. }

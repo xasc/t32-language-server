@@ -564,11 +564,14 @@ pub fn recv_responses(
     incoming: &mut [Option<Message>],
     ts: &mut Tasks,
     outgoing: &mut Vec<Option<Message>>,
-) {
+) -> bool {
+    let mut busy = false;
+
     for msg in incoming {
         let Some(Message::Response(resp)) = msg else {
             continue;
         };
+        busy = true;
 
         match resp {
             Response::NullResponse(NullResponse { id }) => {
@@ -614,6 +617,7 @@ pub fn recv_responses(
             }
         }
     }
+    busy
 }
 
 pub fn schedule_tasks(
@@ -1435,7 +1439,7 @@ fn progress_multi_part_tasks(
                 );
             }
             OngoingTask::WindowWorkDoneProgress { .. } => {
-                progress::broadcast_work_done(job, outgoing, &mut ts.completed);
+                progress::broadcast_work_done(cfg.trace_level, job, outgoing, &mut ts.completed);
             }
             OngoingTask::CodeFolds(..)
             | OngoingTask::DidRenameFiles(..)

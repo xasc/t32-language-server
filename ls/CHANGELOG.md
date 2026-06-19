@@ -13,6 +13,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+[Unreleased]
+------------
+
+### Added
+
+-  Client responses reset the main loop busy cycle, so that downstream tasks
+   are triggered without further delay.
+-  New trace notifications for progress reporting phase transitions.
+
+### Changed
+
+-  Progress reporting for workspace indexing can start earlier after the
+   root directories have been scanned for files.
+
+
 [0.14.1] - 2026-06-19
 ---------------------
 

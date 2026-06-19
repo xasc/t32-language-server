@@ -60,7 +60,9 @@ pub fn start(
             g.backoff.clear();
         }
 
-        tasks::recv_responses(cfg.trace_level, &mut incoming, &mut g.tasks, &mut outgoing);
+        if tasks::recv_responses(cfg.trace_level, &mut incoming, &mut g.tasks, &mut outgoing) {
+            g.backoff.clear();
+        }
 
         if recv_completed_tasks(&cfg, &mut g.tasks, &mut outgoing)? {
             g.backoff.clear();

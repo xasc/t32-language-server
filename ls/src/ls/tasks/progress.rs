@@ -115,15 +115,14 @@ pub fn find_workdone_progress_by_id(
     ongoing: &[Option<OngoingTask>],
 ) -> Option<usize> {
     ongoing.iter().position(|t| match t {
-        Some(OngoingTask::WindowWorkDoneProgress { work, .. }) => {
-            *work == *id
-        }
+        Some(OngoingTask::WindowWorkDoneProgress { work, .. }) => *work == *id,
         Some(_) => false,
         None => unreachable!("Not empty slots allowed."),
     })
 }
 
 pub fn broadcast_work_done(
+    trace_level: TraceValue,
     task: &mut Option<OngoingTask>,
     outgoing: &mut Vec<Option<Message>>,
     done: &mut Vec<Option<TaskDone>>,
@@ -134,6 +133,19 @@ pub fn broadcast_work_done(
     else {
         unreachable!("Must not called with any other variant.");
     };
+
+    if trace_level != TraceValue::Off {
+        match phase {
+            WorkDoneProgressPhase::Initialized(..) | WorkDoneProgressPhase::Finished { .. } => {
+                let msg = trace_progress_phase_new(token.clone(), &phase);
+                outgoing.push(Some(msg));
+            }
+            WorkDoneProgressPhase::Announced(_)
+            | WorkDoneProgressPhase::Ready(_)
+            | WorkDoneProgressPhase::Aborted
+            | WorkDoneProgressPhase::Reporting { .. } => (),
+        }
+    }
 
     match phase {
         WorkDoneProgressPhase::Reporting { reported, next } if next.is_some() => {
@@ -233,6 +245,27 @@ fn trace_server_work_canceled(token: ProgressToken) -> Message {
     })
 }
 
+fn trace_progress_phase_new(token: ProgressToken, phase: &WorkDoneProgressPhase) -> Message {
+    Message::Notification(Notification::LogTraceNotification {
+        params: LogTraceParams {
+            message: format!(
+                "INFO: Server progress reporting with token \"{}\" has {}.",
+                token,
+                match phase {
+                    WorkDoneProgressPhase::Initialized(..) => "started",
+                    WorkDoneProgressPhase::Finished { .. } => "stopped",
+                    WorkDoneProgressPhase::Announced(_)
+                    | WorkDoneProgressPhase::Ready(_)
+                    | WorkDoneProgressPhase::Aborted
+                    | WorkDoneProgressPhase::Reporting { .. } =>
+                        unreachable!("Phases have no separate progress reporting"),
+                }
+            ),
+            verbose: None,
+        },
+    })
+}
+
 fn warn_server_work_not_found(token: ProgressToken) -> Message {
     Message::Notification(Notification::LogTraceNotification {
         params: LogTraceParams {
@@ -321,7 +354,7 @@ mod tests {
         let mut outgoing: Vec<Option<Message>> = Vec::new();
         let mut done: Vec<Option<TaskDone>> = Vec::new();
 
-        broadcast_work_done(&mut ongoing, &mut outgoing, &mut done);
+        broadcast_work_done(TraceValue::Off, &mut ongoing, &mut outgoing, &mut done);
 
         assert!(done.is_empty());
         assert_eq!(outgoing.len(), 1);
@@ -436,7 +469,7 @@ mod tests {
         let mut outgoing: Vec<Option<Message>> = Vec::new();
         let mut done: Vec<Option<TaskDone>> = Vec::new();
 
-        broadcast_work_done(&mut ongoing, &mut outgoing, &mut done);
+        broadcast_work_done(TraceValue::Off, &mut ongoing, &mut outgoing, &mut done);
 
         assert!(done.is_empty());
         assert_eq!(outgoing.len(), 1);
@@ -499,7 +532,7 @@ mod tests {
         let mut outgoing: Vec<Option<Message>> = Vec::new();
         let mut done: Vec<Option<TaskDone>> = Vec::new();
 
-        broadcast_work_done(&mut ongoing, &mut outgoing, &mut done);
+        broadcast_work_done(TraceValue::Off, &mut ongoing, &mut outgoing, &mut done);
 
         assert!(done.is_empty());
         assert_eq!(outgoing.len(), 1);
@@ -544,7 +577,7 @@ mod tests {
         let mut outgoing: Vec<Option<Message>> = Vec::new();
         let mut done: Vec<Option<TaskDone>> = Vec::new();
 
-        broadcast_work_done(&mut ongoing, &mut outgoing, &mut done);
+        broadcast_work_done(TraceValue::Off, &mut ongoing, &mut outgoing, &mut done);
 
         assert!(outgoing.is_empty());
         assert!(done.is_empty());
@@ -593,7 +626,7 @@ mod tests {
         let mut outgoing: Vec<Option<Message>> = Vec::new();
         let mut done: Vec<Option<TaskDone>> = Vec::new();
 
-        broadcast_work_done(&mut ongoing, &mut outgoing, &mut done);
+        broadcast_work_done(TraceValue::Off, &mut ongoing, &mut outgoing, &mut done);
 
         assert_eq!(done.len(), 1);
         assert_eq!(outgoing.len(), 1);
@@ -647,7 +680,7 @@ mod tests {
         let mut outgoing: Vec<Option<Message>> = Vec::new();
         let mut done: Vec<Option<TaskDone>> = Vec::new();
 
-        broadcast_work_done(&mut ongoing, &mut outgoing, &mut done);
+        broadcast_work_done(TraceValue::Off, &mut ongoing, &mut outgoing, &mut done);
 
         assert!(done.is_empty());
         assert!(outgoing.is_empty());
@@ -723,7 +756,7 @@ mod tests {
         let mut outgoing: Vec<Option<Message>> = Vec::new();
         let mut done: Vec<Option<TaskDone>> = Vec::new();
 
-        broadcast_work_done(&mut ongoing, &mut outgoing, &mut done);
+        broadcast_work_done(TraceValue::Off, &mut ongoing, &mut outgoing, &mut done);
 
         assert!(outgoing.is_empty());
 
@@ -838,7 +871,7 @@ mod tests {
         let mut outgoing: Vec<Option<Message>> = Vec::new();
         let mut done: Vec<Option<TaskDone>> = Vec::new();
 
-        broadcast_work_done(&mut ongoing, &mut outgoing, &mut done);
+        broadcast_work_done(TraceValue::Off, &mut ongoing, &mut outgoing, &mut done);
 
         assert_eq!(done.len(), 1);
         assert_eq!(outgoing.len(), 2);
