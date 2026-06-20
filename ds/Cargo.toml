@@ -3,9 +3,8 @@
 # SPDX-License-Identifier: EUPL-1.2
 
 [package]
-name = "t32-language-server"
-description = "Language server for Lauterbach TRACE32® script language"
-version = "0.14.2"
+name = "t32-language-server-serde"
+version = "0.1.0"
 authors = ["Christoph Sax <c_sax@mailbox.org>"]
 keywords = [
   "language-server",
@@ -31,25 +30,17 @@ include = [
   "/CHANGELOG.md"
 ]
 
+[lib]
+path = "src/lib.rs"
+
 [[bin]]
-name = "t32ls"
-path = "src/main.rs"
+name = "t32ls-serialize"
+path = "src/bin/serialize/main.rs"
 
 [build-dependencies]
 cc=">=1.2.60"
 
 [dependencies]
+rmp-serde = "1.3.1"
 serde = { version = ">=1.0.215", features = ["derive"] }
-serde_json = ">=1.0"
-serde_path_to_error = "0.1.20"
-serde_repr = ">=0.1.19"
-t32-language-server-serde = { path = "../ds", version = "0.1.0" }
-tree-sitter = ">=0.25.0"
-tree-sitter-t32 = ">=7.0.0"
-url = ">=2.5.4"
-
-[target.'cfg(unix)'.dependencies]
-libc = ">=0.2.169"
-
-[target.'cfg(windows)'.dependencies]
-windows-sys = { version = ">=0.61.0", default-features = false, features = ["Win32_System_Threading"] }
+serde_json = "1.0.150"

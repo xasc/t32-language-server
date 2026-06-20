@@ -4,6 +4,7 @@
 
 [workspace]
 members = [
+  "ds",
   "ls",
 ]
-resolver = "2"
+resolver = "3"
