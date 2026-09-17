@@ -16,6 +16,7 @@ use crate::{
         },
     },
     protocol::{SetTraceParams, TraceValue, WorkDoneProgressCancelParams},
+    ug::convert_user_guide_data,
 };
 
 pub fn try_schedule(ts: &mut TaskSystem, job: Task) -> Result<(), ReturnCode> {
@@ -29,7 +30,6 @@ pub fn discover_files(
     ongoing: &mut Vec<Option<OngoingTask>>,
     outgoing: &mut Vec<Option<Message>>,
 ) {
-    debug_assert!(ongoing.is_empty());
     debug_assert!(outgoing.is_empty());
 
     let work = counters.tasks_int.next_id();
@@ -46,6 +46,22 @@ pub fn discover_files(
         );
     }
     debug_assert!(!ongoing.is_empty());
+}
+
+pub fn load_user_guide_data(
+    ts: &mut TaskSystem,
+    counters: &mut TaskCounters,
+    ongoing: &mut Vec<Option<OngoingTask>>,
+) -> Result<(), ReturnCode> {
+    debug_assert!(ongoing.is_empty());
+
+    let work = counters.tasks_int.next_id();
+
+    let job = Task::LoadUserGuideData(work.clone(), convert_user_guide_data);
+    try_schedule(ts, job)?;
+
+    ongoing.push(Some(OngoingTask::LoadUserGuideData(work, Instant::now())));
+    Ok(())
 }
 pub fn process_completed_task(
     done: TaskDone,
@@ -83,6 +99,9 @@ pub fn process_completed_task(
                 )));
             }
         }
+        // Result only evaluated after the boot phase has completed.
+        TaskDone::LoadUserGuideData(..) => (),
+
         TaskDone::CodeFolds(..)
         | TaskDone::DidRenameFiles(..)
         | TaskDone::FindExternalDefinitionsForMacroRefSync(..)
@@ -134,12 +153,13 @@ pub fn progress_multi_part_tasks(
                     files = workspace::progress_workspace_file_indexing(job, &mut tasks);
                 }
                 WorkspaceDiscoveryPhase::Parsing(..) => {
-                    unreachable!("Task is not schedule while the server is booting.")
+                    unreachable!("Task is not scheduled while the server is booting.")
                 }
             },
             OngoingTask::WindowWorkDoneProgress { .. } => {
                 progress::broadcast_work_done(cfg.trace_level, job, outgoing, &mut ts.completed);
             }
+            OngoingTask::LoadUserGuideData(..) => (),
             OngoingTask::CodeFolds(..)
             | OngoingTask::DidRenameFiles(..)
             | OngoingTask::FindMacroReferences { .. }

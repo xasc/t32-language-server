@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: EUPL-1.2
 
 dir ?= ltb
-outfile ?= ugd.json
+outfile ?= data/ugd.dat
 
 # WebAssembly builds with WASI
 wasi_os = linux
@@ -49,6 +49,6 @@ wasm-install:
 	wget https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${wasi_version}/$(wasi_sdk).tar.gz
 	tar xvf $(wasi_sdk).tar.gz --directory=target/wasi-sdk
 
-.PHONY: run-serialize
-run-serialize:
-	cargo run --package t32-language-server-serde -- --output=${outfile} ${dir}
+.PHONY: ugd-serialize
+ugd-serialize:
+	cargo run --package t32-language-server-user-guide-data -- --output=${outfile} ${dir}

@@ -22,7 +22,7 @@ pub enum ErrorCodes {
     MethodNotFound = -32601,
     InvalidParams = -32602,
 
-    #[expect(unused)]
+    #[allow(unused)]
     InternalError = -32603,
     ServerNotInitialized = -32002,
 

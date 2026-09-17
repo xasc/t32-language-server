@@ -29,8 +29,6 @@ pub fn prepare_workspace_discovery(
     workspace: Workspace,
     ongoing: &mut Vec<Option<OngoingTask>>,
 ) {
-    debug_assert!(ongoing.is_empty());
-
     ongoing.push(Some(OngoingTask::WorkspaceDiscovery {
         id: id.clone(),
         onset: Instant::now(),

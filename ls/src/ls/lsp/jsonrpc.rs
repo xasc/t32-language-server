@@ -29,6 +29,7 @@ use crate::{
         ResponseError, SemanticTokensParams, SemanticTokensRangeParams, SetTraceParams,
         WorkDoneProgressCancelParams,
     },
+    utils::get_error_offset,
 };
 
 /// Serialization formats of `RequestMessage`, `NotificationMessage`, and
@@ -801,29 +802,6 @@ fn error_jsonrcp_ver(ver: &str) -> ResponseError {
         ),
         data: None,
     }
-}
-
-fn get_error_offset(err: &Error, buf: &[u8]) -> usize {
-    let mut line: usize = 1;
-    let mut col: usize = 1;
-
-    let mut offset: usize = 0;
-    if err.line() <= 0 {
-        return offset;
-    }
-
-    for ch in buf {
-        if line == err.line() {
-            if err.column() <= 0 || col == err.column() {
-                break;
-            }
-            col += 1;
-        } else if (*ch as char) == '\n' {
-            line += 1;
-        }
-        offset += 1;
-    }
-    offset
 }
 
 fn request_params<T: DeserializeOwned>(params: Value) -> Result<T, ResponseError> {

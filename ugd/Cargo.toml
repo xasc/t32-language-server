@@ -3,7 +3,8 @@
 # SPDX-License-Identifier: EUPL-1.2
 
 [package]
-name = "t32-language-server-serde"
+name = "t32-language-server-user-guide-data"
+description = "Prepares information from user guide for language server consumption"
 version = "0.1.0"
 authors = ["Christoph Sax <c_sax@mailbox.org>"]
 keywords = [
@@ -34,7 +35,7 @@ include = [
 path = "src/lib.rs"
 
 [[bin]]
-name = "t32ls-serialize"
+name = "t32ls-ugd"
 path = "src/bin/serialize/main.rs"
 
 [build-dependencies]

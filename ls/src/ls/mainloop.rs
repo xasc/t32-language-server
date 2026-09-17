@@ -23,7 +23,7 @@ pub fn handle_requests(
     channel: &mut StdioChannel,
     mut cfg: Config,
 ) -> Result<(), ReturnCode> {
-    debug_assert!(g.tasks.ongoing.len() < 3);
+    debug_assert!(g.tasks.ongoing.len() < 4);
     debug_assert_eq!(g.tasks.blocked.len(), 0);
     debug_assert_eq!(g.tasks.completed.len(), 0);
 
@@ -49,13 +49,7 @@ pub fn handle_requests(
             g.backoff.clear();
         }
 
-        if tasks::recv_completed_tasks(
-            &cfg,
-            &mut g.tasks,
-            &mut g.docs,
-            &mut g.files,
-            &mut outgoing,
-        )? {
+        if tasks::recv_completed_tasks(&cfg, &mut g.tasks, &mut g.env, &mut outgoing)? {
             g.backoff.clear();
         }
 

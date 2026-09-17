@@ -11,9 +11,10 @@ use std::{
     str::CharIndices,
 };
 
-use t32_language_server_serde::{
-    PracticeFuncArgumentPattern, PracticeFuncNamePattern, PracticeFunctionArguments,
-    PracticeFunctionDefinition, PracticeFunctionName,
+use t32_language_server_user_guide_data::{
+    CopyrightFields, PracticeFuncArgumentPattern, PracticeFuncNamePattern,
+    PracticeFunctionArguments, PracticeFunctionDefinition, PracticeFunctionName, UserGuideDocs,
+    format_practice_func_name,
 };
 
 use crate::ReturnCode;
@@ -55,7 +56,11 @@ impl PracticeFunctionIndex {
     }
 }
 
-pub fn extract_func_defs(dir: &Path) -> Result<Vec<PracticeFunctionDefinition>, ReturnCode> {
+pub fn extract_func_defs(
+    copyrights: &mut CopyrightFields,
+    docs: &mut UserGuideDocs,
+    dir: &Path,
+) -> Result<Vec<PracticeFunctionDefinition>, ReturnCode> {
     let mut files: Vec<(PathBuf, PathBuf, String)> = Vec::new();
     for doc in DOCS {
         let man = dir.join(doc.man);
@@ -124,9 +129,29 @@ pub fn extract_func_defs(dir: &Path) -> Result<Vec<PracticeFunctionDefinition>, 
                 return Err(ReturnCode::NoInputErr);
             }
         };
+
         let cr = parse_copyright(&text);
 
-        defs.append(&mut create_func_definitions(index, desc, cr, source));
+        let cr_entry = if let Some(pos) = copyrights.iter().position(|f| *f == cr) {
+            pos as u32
+        } else {
+            let pos = copyrights.len() as u32;
+
+            copyrights.push(cr);
+            pos
+        };
+
+        let doc_entry = if let Some(_) = docs.iter().position(|f| *f == source) {
+            unreachable!("Only one iteration per document.");
+        } else {
+            let pos = docs.len() as u32;
+
+            docs.push(source);
+            pos
+        };
+        defs.append(&mut create_func_definitions(
+            index, desc, cr_entry, doc_entry,
+        ));
     }
     Ok(defs)
 }
@@ -134,8 +159,8 @@ pub fn extract_func_defs(dir: &Path) -> Result<Vec<PracticeFunctionDefinition>, 
 fn create_func_definitions(
     index: PracticeFunctionIndex,
     desc: Vec<(PracticeFunctionName, PracticeFunctionArguments)>,
-    copyright: String,
-    source: String,
+    copyright_entry: u32,
+    source_entry: u32,
 ) -> Vec<PracticeFunctionDefinition> {
     let mut map: BTreeMap<String, String> = BTreeMap::new();
     for (name, operation) in index.names.into_iter().zip(index.operations.into_iter()) {
@@ -145,19 +170,23 @@ fn create_func_definitions(
 
     let mut defs: Vec<PracticeFunctionDefinition> = Vec::with_capacity(desc.len());
     for (name, args) in desc {
-        let entry = map_alias_variants_to_index(name.to_string());
+        let fmt = format_practice_func_name(&name);
+        let entry = map_alias_variants_to_index(fmt);
 
         let operation = map.get(&entry);
         if operation.is_none() {
-            panic!("There is no index entry for function \"{}\".", name);
+            panic!(
+                "There is no index entry for function \"{}\".",
+                format_practice_func_name(&name)
+            );
         }
 
         defs.push(PracticeFunctionDefinition {
             name,
             args,
             operation: operation.unwrap().clone(),
-            copyright: copyright.clone(),
-            source: source.clone(),
+            copyright: copyright_entry,
+            source: source_entry,
         });
     }
     defs
@@ -544,10 +573,7 @@ fn signature(
                         panic!("Cannot parse function argument patters.");
                     };
 
-                    return Some((
-                        PracticeFunctionName::from_parts(name),
-                        PracticeFunctionArguments::from_params(args),
-                    ));
+                    return Some((name, args));
                 }
                 _ => (),
             },

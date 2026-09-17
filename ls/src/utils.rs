@@ -7,6 +7,8 @@ use std::{cmp::Ordering, collections::BTreeMap, convert::From, ops::Range, path:
 #[cfg(test)]
 use std::path;
 
+use serde_json;
+
 use tree_sitter::Range as TRange;
 
 #[cfg(test)]
@@ -382,6 +384,29 @@ pub fn uri_to_path(uri: &Uri) -> PathBuf {
         .expect("Uri must be well-formed.")
         .to_file_path()
         .expect("Input must convert to path.")
+}
+
+pub fn get_error_offset(err: &serde_json::Error, buf: &[u8]) -> usize {
+    let mut line: usize = 1;
+    let mut col: usize = 1;
+
+    let mut offset: usize = 0;
+    if err.line() <= 0 {
+        return offset;
+    }
+
+    for ch in buf {
+        if line == err.line() {
+            if err.column() <= 0 || col == err.column() {
+                break;
+            }
+            col += 1;
+        } else if (*ch as char) == '\n' {
+            line += 1;
+        }
+        offset += 1;
+    }
+    offset
 }
 
 #[cfg(test)]

@@ -21,7 +21,7 @@ use crate::{
     ReturnCode,
     config::{Config, Workspace},
     ls::{
-        self, RunState, Tasks,
+        self, EnvData, RunState, Tasks,
         doc::{TextDoc, TextDocData, TextDocStatus, TextDocs},
         log_notif,
         lsp::Message,
@@ -99,6 +99,7 @@ pub enum OngoingTask {
         undone: ExtMacroDefLookups,
         results: Vec<LocationLink>,
     },
+    LoadUserGuideData(NumberOrString, Instant),
     SemanticTokensFull(NumberOrString, Instant),
     SemanticTokensRange(NumberOrString, Instant),
     TextDocUpdate {
@@ -270,6 +271,7 @@ impl OngoingTask {
             | OngoingTask::FindReferences(id, ..)
             | OngoingTask::GoToExternalMacroDef { id, .. }
             | OngoingTask::GoToDefinition(id, ..)
+            | OngoingTask::LoadUserGuideData(id, ..)
             | OngoingTask::SemanticTokensFull(id, ..)
             | OngoingTask::SemanticTokensRange(id, ..)
             | OngoingTask::WindowWorkDoneProgress { id, .. }
@@ -288,6 +290,7 @@ impl OngoingTask {
             | OngoingTask::FindReferences(_, onset)
             | OngoingTask::GoToExternalMacroDef { onset, .. }
             | OngoingTask::GoToDefinition(.., onset)
+            | OngoingTask::LoadUserGuideData(_, onset)
             | OngoingTask::SemanticTokensFull(_, onset)
             | OngoingTask::SemanticTokensRange(_, onset)
             | OngoingTask::TextDocUpdate { onset, .. }
@@ -305,6 +308,7 @@ impl OngoingTask {
             | OngoingTask::DidRenameFiles(..)
             | OngoingTask::FindReferences(..)
             | OngoingTask::GoToDefinition(..)
+            | OngoingTask::LoadUserGuideData(..)
             | OngoingTask::SemanticTokensFull { .. }
             | OngoingTask::SemanticTokensRange { .. }
             | OngoingTask::TextDocUpdate { .. }
@@ -531,8 +535,7 @@ impl<'a> Iterator for MacroDefinitionLocationMapIterator<'a> {
 pub fn recv_completed_tasks(
     cfg: &Config,
     ts: &mut Tasks,
-    docs: &mut TextDocs,
-    files: &mut FileIndex,
+    env: &mut EnvData,
     outgoing: &mut Vec<Option<Message>>,
 ) -> Result<bool, ReturnCode> {
     let mut completed: Vec<TaskDone> = Vec::new();
@@ -549,7 +552,7 @@ pub fn recv_completed_tasks(
 
     for done in completed {
         let handle = done.get_task_handle();
-        let finished = process_completed_task(done, cfg, ts, docs, files, outgoing)?;
+        let finished = process_completed_task(done, cfg, ts, env, outgoing)?;
 
         if finished && let Some(h) = handle {
             conclude_work_done_progress(&h, &mut ts.ongoing);
@@ -643,7 +646,7 @@ pub fn schedule_tasks(
         process_msg(msg, g, cfg, outgoing)?;
     }
 
-    progress_multi_part_tasks(cfg, &g.docs, &mut g.tasks, outgoing)?;
+    progress_multi_part_tasks(cfg, &g.env.docs, &mut g.tasks, outgoing)?;
 
     Ok(())
 }
@@ -652,8 +655,7 @@ fn process_completed_task(
     done: TaskDone,
     cfg: &Config,
     ts: &mut Tasks,
-    docs: &mut TextDocs,
-    files: &mut FileIndex,
+    env: &mut EnvData,
     outgoing: &mut Vec<Option<Message>>,
 ) -> Result<bool, ReturnCode> {
     match done {
@@ -687,7 +689,7 @@ fn process_completed_task(
             },
             new_files,
         ) => {
-            process_rename_files_result(&renamed, new_files, docs, files);
+            process_rename_files_result(&renamed, new_files, &mut env.docs, &mut env.files);
 
             if cfg.trace_level != TraceValue::Off {
                 let onset = get_rename_task_onset(&ts.ongoing);
@@ -807,9 +809,15 @@ fn process_completed_task(
             Ok(false)
         }
         TaskDone::FindReferences(id, result) => {
-            if let Some(resp) =
-                process_find_references_result(cfg, docs, files, &id, result, ts, outgoing)
-            {
+            if let Some(resp) = process_find_references_result(
+                cfg,
+                &mut env.docs,
+                &mut env.files,
+                &id,
+                result,
+                ts,
+                outgoing,
+            ) {
                 if cfg.trace_level != TraceValue::Off {
                     let idx = find_ongoing_task_by_id(&id, &ts.ongoing)
                         .expect("Must be a registered task.");
@@ -831,9 +839,14 @@ fn process_completed_task(
             }
         }
         TaskDone::GoToDefinition(id, goto_def) => {
-            if let Some(resp) =
-                process_goto_definition_result(docs, &id, goto_def, cfg.trace_level, ts, outgoing)
-            {
+            if let Some(resp) = process_goto_definition_result(
+                &mut env.docs,
+                &id,
+                goto_def,
+                cfg.trace_level,
+                ts,
+                outgoing,
+            ) {
                 if cfg.trace_level != TraceValue::Off {
                     let idx = find_ongoing_task_by_id(&id, &ts.ongoing)
                         .expect("Must be a registered task.");
@@ -895,6 +908,25 @@ fn process_completed_task(
             }
             Ok(false)
         }
+        TaskDone::LoadUserGuideData(id, ug) => {
+            match ug {
+                Ok((data, size)) => {
+                    if cfg.trace_level != TraceValue::Off {
+                        let onset = get_task_onset_by_id(&id, &ts.ongoing);
+                        outgoing.push(Some(trace_user_guide_data_import(
+                            Instant::now() - *onset,
+                            id,
+                            Some(size),
+                        )));
+                    }
+                    env.user_guide = data;
+                }
+                Err(err) => {
+                    outgoing.push(Some(error_user_guide_data(id, Some(err))));
+                }
+            }
+            Ok(true)
+        }
         TaskDone::SemanticTokensFull(id, tokens) => {
             if cfg.trace_level != TraceValue::Off {
                 let idx =
@@ -942,7 +974,7 @@ fn process_completed_task(
                 let onset = get_task_onset_by_doc(&doc.uri, &ts.ongoing);
                 outgoing.push(Some(trace_doc_change(&doc, &tree, Instant::now() - *onset)));
             }
-            docs.add(doc, tree, globals, TextDocStatus::Open);
+            env.docs.add(doc, tree, globals, TextDocStatus::Open);
             Ok(true)
         }
         TaskDone::TextDocEdit(doc, tree, globals) => {
@@ -950,7 +982,7 @@ fn process_completed_task(
                 let onset = get_task_onset_by_doc(&doc.uri, &ts.ongoing);
                 outgoing.push(Some(trace_doc_change(&doc, &tree, Instant::now() - *onset)));
             }
-            docs.update(doc, tree, globals);
+            env.docs.update(doc, tree, globals);
             Ok(true)
         }
         TaskDone::WindowWorkDoneProgress(id, aborted) => {
@@ -976,7 +1008,7 @@ fn process_completed_task(
                 cfg.trace_level,
                 &id,
                 file_data,
-                docs,
+                &mut env.docs,
                 &mut ts.ongoing,
                 outgoing,
             );
@@ -1001,7 +1033,7 @@ fn process_completed_task(
             Ok(false)
         }
         TaskDone::WorkspaceFileDiscovery(id) => {
-            docs.sync();
+            env.docs.sync();
 
             if cfg.trace_level != TraceValue::Off {
                 let onset = get_task_onset_by_id(&id, &ts.ongoing);
@@ -1049,7 +1081,7 @@ pub fn process_msg(
         Message::Notification(Notification::DidCloseTextDocumentNotification {
             params: DidCloseTextDocumentParams { text_document },
         }) => {
-            process_doc_close_notif(&text_document.uri, &mut g.docs, outgoing);
+            process_doc_close_notif(&text_document.uri, &mut g.env.docs, outgoing);
         }
         Message::Notification(Notification::DidOpenTextDocumentNotification {
             params: DidOpenTextDocumentParams { text_document },
@@ -1057,7 +1089,7 @@ pub fn process_msg(
             if lang_id_supported(&text_document.language_id) {
                 process_doc_open_notif(
                     text_document,
-                    g.files.clone(),
+                    g.env.files.clone(),
                     cfg.t32_dirs.clone(),
                     &mut g.tasks,
                 )?;
@@ -1068,15 +1100,15 @@ pub fn process_msg(
         Message::Notification(Notification::DidChangeTextDocumentNotification { params }) => {
             process_doc_change_notif(
                 params,
-                &g.docs,
-                g.files.clone(),
+                &g.env.docs,
+                g.env.files.clone(),
                 cfg.t32_dirs.clone(),
                 &mut g.tasks,
                 outgoing,
             )?;
         }
         Message::Notification(Notification::DidRenameFilesNotification { params }) => {
-            process_files_did_rename_notif(&mut g.tasks, params.files, g.files.clone())?;
+            process_files_did_rename_notif(&mut g.tasks, params.files, g.env.files.clone())?;
         }
         Message::Notification(Notification::SetTraceNotification {
             params: SetTraceParams { value },
@@ -1089,7 +1121,7 @@ pub fn process_msg(
                 params,
                 cfg.trace_level,
                 cfg.code_folding.clone(),
-                &mut g.docs,
+                &mut g.env.docs,
                 &mut g.tasks,
                 outgoing,
             )?;
@@ -1099,7 +1131,7 @@ pub fn process_msg(
                 id,
                 params,
                 cfg.trace_level,
-                &mut g.docs,
+                &mut g.env.docs,
                 &mut g.tasks,
                 outgoing,
             )?;
@@ -1109,7 +1141,7 @@ pub fn process_msg(
                 id,
                 params,
                 cfg.trace_level,
-                &mut g.docs,
+                &mut g.env.docs,
                 &mut g.tasks,
                 outgoing,
             )?;
@@ -1120,7 +1152,7 @@ pub fn process_msg(
                 params,
                 cfg.trace_level,
                 cfg.semantic_tokens.clone(),
-                &mut g.docs,
+                &mut g.env.docs,
                 &mut g.tasks,
                 outgoing,
             )?;
@@ -1131,7 +1163,7 @@ pub fn process_msg(
                 params,
                 cfg.trace_level,
                 cfg.semantic_tokens.clone(),
-                &mut g.docs,
+                &mut g.env.docs,
                 &mut g.tasks,
                 outgoing,
             )?;
@@ -1232,6 +1264,7 @@ fn task_blocked(job: &Task, ongoing: &[Option<OngoingTask>]) -> bool {
                     | OngoingTask::FindReferences(..)
                     | OngoingTask::GoToDefinition(..)
                     | OngoingTask::GoToExternalMacroDef { .. }
+                    | OngoingTask::LoadUserGuideData(..)
                     | OngoingTask::SemanticTokensFull { .. }
                     | OngoingTask::SemanticTokensRange { .. }
                     | OngoingTask::WindowWorkDoneProgress { .. } => false,
@@ -1332,11 +1365,13 @@ fn task_blocked(job: &Task, ongoing: &[Option<OngoingTask>]) -> bool {
             Some(task) => match task {
                 OngoingTask::DidRenameFiles(..) => true,
                 OngoingTask::TextDocUpdate { uri: file, .. } => file == uri,
+
                 OngoingTask::CodeFolds(..)
                 | OngoingTask::FindMacroReferences { .. }
                 | OngoingTask::FindReferences(..)
                 | OngoingTask::GoToDefinition(..)
                 | OngoingTask::GoToExternalMacroDef { .. }
+                | OngoingTask::LoadUserGuideData(..)
                 | OngoingTask::SemanticTokensFull { .. }
                 | OngoingTask::SemanticTokensRange { .. }
                 | OngoingTask::WindowWorkDoneProgress { .. }
@@ -1346,7 +1381,9 @@ fn task_blocked(job: &Task, ongoing: &[Option<OngoingTask>]) -> bool {
         }),
         // Complete as fast as possible.
         Task::WorkspaceFileScan(..) => false,
-        Task::WorkspaceFileDiscovery(..) | Task::WorkspaceFileIndexNew(..) => {
+        Task::LoadUserGuideData(..)
+        | Task::WorkspaceFileDiscovery(..)
+        | Task::WorkspaceFileIndexNew(..) => {
             unreachable!("These tasks are not scheduled after the server has booted.")
         }
     }
@@ -1383,9 +1420,12 @@ fn add_task_status_tracking(job: &Task, ongoing: &mut Vec<Option<OngoingTask>>) 
         | Task::FindMacroReferencesFromDefinitions { .. }
         | Task::FindMacroReferencesInSubscripts { .. }
         | Task::GoToExternalMacroDef { .. }
-        | Task::WorkspaceFileDiscovery(..)
-        | Task::WorkspaceFileIndexNew(..)
         | Task::WorkspaceFileScan(..) => return,
+        Task::LoadUserGuideData(..)
+        | Task::WorkspaceFileDiscovery(..)
+        | Task::WorkspaceFileIndexNew(..) => {
+            unreachable!("These tasks are not scheduled after the server has booted.")
+        }
     };
     ongoing.push(Some(t));
 }
@@ -1444,6 +1484,7 @@ fn progress_multi_part_tasks(
             OngoingTask::CodeFolds(..)
             | OngoingTask::DidRenameFiles(..)
             | OngoingTask::FindReferences(..)
+            | OngoingTask::LoadUserGuideData(..)
             | OngoingTask::GoToDefinition(..)
             | OngoingTask::SemanticTokensFull(..)
             | OngoingTask::SemanticTokensRange(..)
@@ -1500,6 +1541,7 @@ fn eval_client_success_response(
         | OngoingTask::FindReferences(..)
         | OngoingTask::GoToDefinition(..)
         | OngoingTask::GoToExternalMacroDef { .. }
+        | OngoingTask::LoadUserGuideData(..)
         | OngoingTask::SemanticTokensFull(..)
         | OngoingTask::SemanticTokensRange(..)
         | OngoingTask::TextDocUpdate { .. }
@@ -1526,6 +1568,7 @@ fn eval_client_error_response(
         | OngoingTask::FindReferences(..)
         | OngoingTask::GoToDefinition(..)
         | OngoingTask::GoToExternalMacroDef { .. }
+        | OngoingTask::LoadUserGuideData(..)
         | OngoingTask::SemanticTokensFull(..)
         | OngoingTask::SemanticTokensRange(..)
         | OngoingTask::TextDocUpdate { .. }
@@ -1573,6 +1616,7 @@ fn find_ongoing_task_by_id(
         | Some(OngoingTask::FindMacroReferences { id, .. })
         | Some(OngoingTask::GoToDefinition(id, ..))
         | Some(OngoingTask::GoToExternalMacroDef { id, .. })
+        | Some(OngoingTask::LoadUserGuideData(id, _))
         | Some(OngoingTask::SemanticTokensFull(id, _))
         | Some(OngoingTask::SemanticTokensRange(id, _))
         | Some(OngoingTask::WindowWorkDoneProgress { id, .. })
@@ -1599,6 +1643,7 @@ fn find_ongoing_task_by_doc(doc: &str, ongoing: &[Option<OngoingTask>]) -> usize
             | Some(OngoingTask::FindReferences { .. })
             | Some(OngoingTask::GoToDefinition(..))
             | Some(OngoingTask::GoToExternalMacroDef { .. })
+            | Some(OngoingTask::LoadUserGuideData(..))
             | Some(OngoingTask::SemanticTokensFull { .. })
             | Some(OngoingTask::SemanticTokensRange { .. })
             | Some(OngoingTask::WindowWorkDoneProgress { .. })
@@ -1630,6 +1675,15 @@ fn error_lang_id_unsupported(lang_id: &str) -> Message {
             data: None,
         },
     }))
+}
+
+fn error_user_guide_data(id: NumberOrString, details: Option<String>) -> Message {
+    Message::Notification(Notification::LogTraceNotification {
+        params: LogTraceParams {
+            message: format!("ERROR: User guide data import with ID {} has failed.", id,),
+            verbose: details,
+        },
+    })
 }
 
 fn trace_folding_range(duration: Duration, id: NumberOrString) -> Message {
@@ -1832,6 +1886,30 @@ fn trace_sem_tokens_range(duration: Duration, id: NumberOrString) -> Message {
     })
 }
 
+fn trace_user_guide_data_import(
+    duration: Duration,
+    id: NumberOrString,
+    details: Option<usize>,
+) -> Message {
+    Message::Notification(Notification::LogTraceNotification {
+        params: LogTraceParams {
+            message: format!(
+                "INFO: User guide data import with ID {} completed in {:.4} seconds.",
+                id,
+                duration.as_secs_f32()
+            ),
+            verbose: if let Some(size) = details {
+                Some(format!(
+                    "User guide data with a total size of {} KB was loaded.",
+                    size / 1024
+                ))
+            } else {
+                None
+            },
+        },
+    })
+}
+
 fn trace_task_aborted(duration: Duration, id: &NumberOrString) -> Message {
     Message::Notification(Notification::LogTraceNotification {
         params: LogTraceParams {
@@ -1879,6 +1957,7 @@ fn trace_workspace_discovery_sync(
         },
     })
 }
+
 fn trace_workspace_indexed(
     duration: Duration,
     id: NumberOrString,

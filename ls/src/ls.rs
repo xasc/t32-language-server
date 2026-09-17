@@ -24,6 +24,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+use t32_language_server_user_guide_data::UserGuideData;
+
 use tree_sitter::Tree;
 
 use url;
@@ -68,6 +70,12 @@ struct InitState {
     tasks: Tasks,
 }
 
+struct EnvData {
+    docs: TextDocs,
+    files: FileIndex,
+    user_guide: UserGuideData,
+}
+
 struct ProcHeartbeat {
     pid: Option<u32>,
     interval: Duration,
@@ -80,8 +88,7 @@ struct RunState {
     heartbeat: ProcHeartbeat,
     backoff: DutyCycleBackoff,
     tasks: Tasks,
-    docs: TextDocs,
-    files: FileIndex,
+    env: EnvData,
 }
 
 struct TaskCounterInternal {
@@ -206,8 +213,11 @@ impl RunState {
             heartbeat: s.heartbeat,
             backoff: s.backoff,
             tasks: s.tasks,
-            docs: docs,
-            files: files,
+            env: EnvData {
+                docs,
+                files,
+                user_guide: UserGuideData::new(),
+            },
         }
     }
 }

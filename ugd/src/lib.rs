@@ -4,9 +4,9 @@
 
 use std::fmt;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PracticeFuncArgumentPattern {
     Angled(String),
@@ -23,7 +23,7 @@ pub enum PracticeFuncArgumentPattern {
     Quoted(Box<PracticeFuncArgumentPattern>),
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PracticeFuncNamePattern {
     Angled(String),
@@ -31,34 +31,40 @@ pub enum PracticeFuncNamePattern {
     Literal(String),
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct PracticeFunctionDefinition {
     pub name: PracticeFunctionName,
     pub args: PracticeFunctionArguments,
     pub operation: String,
-    pub copyright: String,
-    pub source: String,
+    pub copyright: u32,
+    pub source: u32,
 }
 
-#[derive(Debug, Serialize)]
-pub struct PracticeFunctionArguments {
-    args: Vec<PracticeFuncArgumentPattern>,
+#[derive(Debug, Deserialize, Serialize)]
+pub struct UserGuideData {
+    pub copyrights: CopyrightFields,
+    pub docs: UserGuideDocs,
+    pub functions: Vec<PracticeFunctionDefinition>,
 }
 
-#[derive(Debug, Serialize)]
-pub struct PracticeFunctionName {
-    components: Vec<PracticeFuncNamePattern>,
-}
+pub type CopyrightFields = Vec<String>;
+pub type PracticeFunctionArguments = Vec<PracticeFuncArgumentPattern>;
+pub type PracticeFunctionName = Vec<PracticeFuncNamePattern>;
+pub type UserGuideDocs = Vec<String>;
 
-impl PracticeFunctionArguments {
-    pub fn from_params(args: Vec<PracticeFuncArgumentPattern>) -> Self {
-        Self { args }
-    }
-}
+pub const DATFILE_FIELD_WIDTH_BITS_TOTAL: usize = size_of::<u64>();
+pub const DATFILE_FIELD_WIDTH_NODES_TOTAL: usize = size_of::<u16>();
+pub const DATFILE_FIELD_WIDTH_NODE_TAG: usize = size_of::<u8>();
+pub const DATFILE_FIELD_WIDTH_NODE_CHAR: usize = size_of::<u32>();
+pub const DATFILE_FIELD_WIDTH_SUCCESSOR: usize = size_of::<u16>();
 
-impl PracticeFunctionName {
-    pub fn from_parts(parts: Vec<PracticeFuncNamePattern>) -> Self {
-        Self { components: parts }
+impl UserGuideData {
+    pub fn new() -> Self {
+        UserGuideData {
+            copyrights: Vec::new(),
+            functions: Vec::new(),
+            docs: Vec::new(),
+        }
     }
 }
 
@@ -132,36 +138,37 @@ impl fmt::Display for PracticeFuncNamePattern {
     }
 }
 
-impl fmt::Display for PracticeFunctionArguments {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let len = self.args.len();
-        if len > 0 {
-            write!(f, "{}", self.args[0])?;
-        }
+pub fn format_practice_func_args(args: &PracticeFunctionArguments) -> String {
+    let mut out: String = String::new();
 
-        if len < 2 {
-            return Ok(());
-        }
-
-        for arg in self.args[1..].iter() {
-            match arg {
-                PracticeFuncArgumentPattern::OptionalOtherArg(_) => write!(f, "{}", arg)?,
-                _ => write!(f, ", {}", arg)?,
-            }
-        }
-        Ok(())
+    let len = args.len();
+    if len > 0 {
+        out = args[0].to_string();
     }
+
+    if len < 2 {
+        return out;
+    }
+
+    for arg in args[1..].iter() {
+        match arg {
+            PracticeFuncArgumentPattern::OptionalOtherArg(_) => out += &arg.to_string(),
+            _ => out += &format!(", {}", arg),
+        }
+    }
+    out
 }
 
-impl fmt::Display for PracticeFunctionName {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if !self.components.is_empty() {
-            write!(f, "{}", self.components[0])?;
-        }
+pub fn format_practice_func_name(name: &PracticeFunctionName) -> String {
+    let mut out = String::new();
 
-        for part in self.components[1..].iter() {
-            write!(f, ".{}", part)?;
-        }
-        Ok(())
+    if !name.is_empty() {
+        out = name[0].to_string();
     }
+
+    for part in name[1..].iter() {
+        out += ".";
+        out += &part.to_string();
+    }
+    out
 }

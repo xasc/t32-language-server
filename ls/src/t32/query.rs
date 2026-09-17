@@ -99,7 +99,7 @@ mod captures;
 
 use std::sync::LazyLock;
 
-use tree_sitter::{LanguageRef, Query, QueryCaptures, QueryCursor, StreamingIterator, Tree};
+use tree_sitter::{LanguageRef, Query, QueryCaptures, QueryCursor, QueryCursorOptions, StreamingIterator, Tree};
 use tree_sitter_t32::HIGHLIGHTS_QUERY;
 
 use crate::{
@@ -532,14 +532,14 @@ pub fn list_code_folds(doc: &TextDoc, tree: &Tree) -> Vec<FoldingRange> {
     capture_code_folds(&doc, &query, num, r#matches)
 }
 
-fn capture_semantic_tokens<'a, 'b>(
-    doc: &'b TextDoc,
+fn capture_semantic_tokens<'query, 'tree: 'query, 'options, 'text>(
+    doc: &'text TextDoc,
     lang: &LanguageRef,
     legend: &SemanticTokensLegend,
     query: &Query,
     selection: &SemanticTokenQueryCaptures,
     num_matches: usize,
-    matches: QueryCaptures<'a, 'a, &'b [u8], &'b [u8]>,
+    matches: QueryCaptures<'query, 'tree, 'options, &'text [u8], &'text [u8]>,
 ) -> Vec<SemanticToken> {
     debug_assert_ne!(num_matches, 0);
 
@@ -619,7 +619,7 @@ fn capture_semantic_tokens<'a, 'b>(
 
     let mut tokens: Vec<SemanticToken> = Vec::with_capacity(num_matches);
     matches.for_each(|(m, idx)| {
-        let capture = m.captures[*idx];
+        let capture = m.captures()[*idx];
 
         let node = &capture.node;
         let span = BRange::from(node.byte_range());
@@ -727,11 +727,11 @@ fn capture_semantic_tokens<'a, 'b>(
     tokens
 }
 
-fn capture_code_folds<'a, 'b>(
-    doc: &'b TextDoc,
+fn capture_code_folds<'query, 'tree: 'query, 'options, 'text>(
+    doc: &'text TextDoc,
     query: &Query,
     num_matches: usize,
-    matches: QueryCaptures<'a, 'a, &'b [u8], &'b [u8]>,
+    matches: QueryCaptures<'query, 'tree, 'options, &'text [u8], &'text [u8]>,
 ) -> Vec<FoldingRange> {
     debug_assert_ne!(num_matches, 0);
 
@@ -753,7 +753,7 @@ fn capture_code_folds<'a, 'b>(
 
     let mut folds: Vec<FoldingRange> = Vec::with_capacity(num_matches / 2);
     matches.for_each(|(m, idx)| {
-        let capture = m.captures[*idx];
+        let capture = m.captures()[*idx];
 
         let node = &capture.node;
         let span = BRange::from(node.byte_range());
@@ -842,19 +842,22 @@ fn capture_code_folds<'a, 'b>(
     folds
 }
 
-fn run_query<'a, 'b>(
-    query: &'a Query,
-    tree: &'a Tree,
-    doc: &'b TextDoc,
-    cursor: &'a mut QueryCursor,
-) -> Option<(usize, QueryCaptures<'a, 'a, &'b [u8], &'b [u8]>)> {
-    let matches = cursor.captures(query, tree.root_node(), doc.text.as_bytes());
+fn run_query<'query, 'tree, 'cursor: 'query, 'options, 'text>(
+    query: &'query Query,
+    tree: &'tree Tree,
+    doc: &'text TextDoc,
+    cursor: &'cursor mut QueryCursor,
+) -> Option<(usize, QueryCaptures<'query, 'tree, 'options, &'text [u8], &'text [u8]>)> {
+    let opts = QueryCursorOptions { progress_callback: None };
+
+    let matches = cursor.captures_with_options(query, tree.root_node(), doc.text.as_bytes(), opts);
     let count = matches.count();
     if count <= 0 {
         return None;
     }
 
-    let matches = cursor.captures(query, tree.root_node(), doc.text.as_bytes());
+    let opts = QueryCursorOptions { progress_callback: None };
+    let matches = cursor.captures_with_options(query, tree.root_node(), doc.text.as_bytes(), opts);
     Some((count, matches))
 }
 

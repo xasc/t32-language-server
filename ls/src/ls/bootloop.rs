@@ -15,12 +15,20 @@ use crate::{
     },
     protocol::TraceValue,
 };
+
 pub fn start(
     mut g: InitState,
     channel: &mut StdioChannel,
     cfg: &mut Config,
 ) -> Result<(RunState, Vec<Option<Message>>), ReturnCode> {
     debug_assert_eq!(g.tasks.ongoing.len(), 0);
+
+    startup::load_user_guide_data(
+        &mut g.tasks.runner,
+        &mut g.tasks.counters,
+        &mut g.tasks.ongoing,
+    )?;
+    debug_assert!(!g.tasks.ongoing.is_empty());
 
     match cfg.workspace {
         Workspace::Root(Some(_)) | Workspace::Folders(Some(_)) => (),
@@ -45,7 +53,7 @@ pub fn start(
     let mut incoming: Vec<Option<Message>> = Vec::new();
     let mut postponed: Vec<Option<Message>> = Vec::new();
 
-    let files: FileIndex = loop {
+    let rs: RunState = loop {
         g.backoff.idle(&Instant::now());
 
         if g.tasks.runner.aborted() {
@@ -86,11 +94,11 @@ pub fn start(
         outgoing.clear();
 
         if files.is_some() {
-            break files.unwrap();
+            break RunState::from_init(g, TextDocs::new(), files.unwrap());
         }
     };
 
-    Ok((RunState::from_init(g, TextDocs::new(), files), postponed))
+    Ok((rs, postponed))
 }
 
 pub fn recv_completed_tasks(

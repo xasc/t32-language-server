@@ -4,7 +4,7 @@
 
 [workspace]
 members = [
-  "ds",
   "ls",
+  "ugd",
 ]
 resolver = "3"

@@ -16,7 +16,10 @@ use std::{
     thread::{Builder, JoinHandle, available_parallelism},
 };
 
+use t32_language_server_user_guide_data::UserGuideData;
+
 use tree_sitter::Tree;
+
 use url::Url;
 
 use crate::{
@@ -124,6 +127,10 @@ pub enum Task {
             Uri,
         ) -> (Option<GotoDefinitionResult>, Vec<Uri>),
     },
+    LoadUserGuideData(
+        NumberOrString,
+        fn() -> Result<(UserGuideData, usize), String>,
+    ),
     SemanticTokensFull(
         NumberOrString,
         SemanticTokensLegend,
@@ -185,6 +192,8 @@ pub enum TaskDone {
     GoToDefinition(NumberOrString, Option<GotoDefinitionResult>),
     GoToExternalMacroDef(NumberOrString, Vec<LocationLink>),
     GoToExternalMacroDefSync(NumberOrString, Option<GotoDefinitionResult>, Uri, Vec<Uri>),
+
+    LoadUserGuideData(NumberOrString, Result<(UserGuideData, usize), String>),
     SemanticTokensFull(NumberOrString, SemanticTokens),
     SemanticTokensRange(NumberOrString, SemanticTokens),
     TextDocNew(TextDoc, Tree, LangExpressions),
@@ -225,6 +234,7 @@ impl TaskDone {
             | TaskDone::GoToDefinition(id, ..)
             | TaskDone::GoToExternalMacroDef(id, ..)
             | TaskDone::GoToExternalMacroDefSync(id, ..)
+            | TaskDone::LoadUserGuideData(id, ..)
             | TaskDone::SemanticTokensFull(id, ..)
             | TaskDone::SemanticTokensRange(id, ..)
             | TaskDone::WindowWorkDoneProgress(id, ..)
@@ -430,6 +440,7 @@ impl TaskSystem {
 
                 TaskDone::GoToExternalMacroDefSync(id, defs.0, uri, defs.1)
             }
+            Task::LoadUserGuideData(id, loader) => TaskDone::LoadUserGuideData(id, loader()),
             Task::SemanticTokensFull(id, legend, encoding, textdoc, tokenize) => {
                 TaskDone::SemanticTokensFull(id, tokenize(legend, encoding, textdoc))
             }

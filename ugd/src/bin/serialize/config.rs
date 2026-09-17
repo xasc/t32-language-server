@@ -60,10 +60,11 @@ pub fn parse_args(args: Vec<String>) -> Result<Config, ReturnCode> {
         if outfile.is_none() {
             match parse_flag_value::<PathBuf>("--output=", Some("-o"), arg, next) {
                 Err(err) => return Err(err),
-                Ok(p) => {
+                Ok(p) if p.is_some() => {
                     outfile = p;
                     continue;
                 }
+                _ => (),
             }
         }
 
