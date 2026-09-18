@@ -52,6 +52,7 @@ jobs:
 
   latest_deps_t32ls:
     name: Check compatibility with dependencies
+    needs: import_data
     runs-on: ubuntu-latest
     continue-on-error: true
     env:
@@ -74,6 +75,7 @@ jobs:
 
   msrv:
     name: Check Rust version
+    needs: import_data
     runs-on: ubuntu-latest
     steps:
       - name: Set up repository
