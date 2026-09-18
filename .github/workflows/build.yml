@@ -26,6 +26,10 @@ jobs:
     with:
       runner: ubuntu-latest
       profile: release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
 
   build_and_test_t32ls_os:
     name: Build and test OS binary
@@ -76,7 +80,7 @@ jobs:
         uses: actions/checkout@v7.0.1
 
       - name: Install cargo-hack
-        uses: taiki-e/install-action@cargo-hack
+        uses: taiki-e/install-action@v2.87.15
 
       - name: Validate minimum Rust version
         run: cargo hack check --rust-version --workspace --all-targets --ignore-private
