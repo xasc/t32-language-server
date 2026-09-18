@@ -81,6 +81,8 @@ jobs:
 
       - name: Install cargo-hack
         uses: taiki-e/install-action@v2.87.15
+        with:
+          tool: cargo-hack
 
       - name: Validate minimum Rust version
         run: cargo hack check --rust-version --workspace --all-targets --ignore-private
