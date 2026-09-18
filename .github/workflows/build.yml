@@ -22,9 +22,9 @@ env:
 jobs:
   import_data:
     name: Import data assets
-    runs-on: ubuntu-latest
     uses: ./.github/workflows/build_data.yml
     with:
+      runner: ubuntu-latest
       profile: release
 
   build_and_test_t32ls_os:

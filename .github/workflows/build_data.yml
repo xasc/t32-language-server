@@ -7,6 +7,9 @@ name: Generate data assets for language server
 on:
   workflow_call:
     inputs:
+      runner:
+        required: true
+        type: string
       profile:
         required: true
         type: string
