@@ -570,7 +570,7 @@ fn signature(
                     let name = expand_name_patterns(name);
 
                     let Ok(args) = args_patterns(line, chars) else {
-                        panic!("Cannot parse function argument patters.");
+                        panic!("Cannot parse function argument patterns.");
                     };
 
                     return Some((name, args));
@@ -627,6 +627,7 @@ fn func_name_pattern(
                     components.push(pat);
                 }
                 '.' => (),
+                ' ' => _ = chars.next(),
                 '(' => break,
                 _ => unreachable!("Unexpected pattern in function name."),
             },
