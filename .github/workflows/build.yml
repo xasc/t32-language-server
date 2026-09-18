@@ -20,6 +20,13 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  import_data:
+    name: Import data assets
+    runs-on: ubuntu-latest
+    uses: ./.github/workflows/build_data.yml
+    with:
+      profile: release
+
   build_and_test_t32ls_os:
     name: Build and test OS binary
     strategy:
@@ -47,7 +54,7 @@ jobs:
       CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS: allow
     steps:
       - name: Set up repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7.0.1
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -66,7 +73,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Set up repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7.0.1
 
       - name: Install cargo-hack
         uses: taiki-e/install-action@cargo-hack

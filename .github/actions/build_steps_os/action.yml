@@ -4,11 +4,13 @@
 
 name: 'build_steps_os'
 description: 'Build steps for OS builds'
+
 inputs:
   profile:
     required: true
     type: string
     default: ''
+
 runs:
   using: "composite"
   steps:

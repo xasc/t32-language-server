@@ -1,0 +1,42 @@
+# SPDX-FileCopyrightText: 2024 Christoph Sax <c_sax@mailbox.org>
+#
+# SPDX-License-Identifier: EUPL-1.2
+
+name: Generate data assets for language server
+
+on:
+  workflow_call:
+    inputs:
+      profile:
+        required: true
+        type: string
+
+env:
+  docs: (ide_func general_func)
+  curl_opts: (--silent --show-error --remove-on-error --remote-name)
+
+jobs:
+  generate_data:
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v7.0.1
+
+      - name: Build generator
+        run: cargo build --verbose --profile ${{ inputs.profile }} --bin t32ls-ugd --package t32-language-server-user-guide-data
+
+      - name: Run tests
+        run: cargo test --verbose --package --package t32-language-server-user-guide-data
+
+      - name: Install extra dependencies
+        run: apt install curl poppler-utils
+
+      - name: Run preprocessing steps for data asset pipeline
+        run: |
+          mkdir ltb
+          ./scripts/preprocess_cmd_ref.sh -f ltb
+
+      - name: Generate data assets
+        run: |
+          mkdir data
+          cargo run --verbose --profile ${{ inputs.profile }} --bin t32ls-ugd --package t32-language-server-user-guide-data -- --output=data/ugd.dat ltb

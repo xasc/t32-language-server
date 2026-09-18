@@ -23,7 +23,7 @@ jobs:
     container: quay.io/pypa/manylinux_2_28_x86_64
     steps:
       - name: Set up repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7.0.1
 
       # Prevents error for git operations:
       #   "fatal: detected dubious ownership in repository"
@@ -49,13 +49,13 @@ jobs:
           tar cvfz t32ls-linux-${{ matrix.os.flavor }}.tar.gz t32ls-linux-${{ matrix.os.flavor }}/
 
       - name: Generate artifact attestations
-        uses: actions/attest@v4
+        uses: actions/attest@v4.2.2
         with:
           subject-path: |
             ./t32ls-linux-${{ matrix.os.flavor }}.tar.gz
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.1
         with:
           path: ./t32ls-linux-${{ matrix.os.flavor }}.tar.gz
           archive: false
@@ -78,7 +78,7 @@ jobs:
     container: quay.io/pypa/manylinux_2_28_aarch64
     steps:
       - name: Set up repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7.0.1
 
       - name: Apply workaround for permission errors
         run: git status || git config --system --add safe.directory "$GITHUB_WORKSPACE"
@@ -102,13 +102,13 @@ jobs:
           tar cvfz t32ls-linux-${{ matrix.os.flavor }}.tar.gz t32ls-linux-${{ matrix.os.flavor }}/
 
       - name: Generate artifact attestations
-        uses: actions/attest@v4
+        uses: actions/attest@v4.2.2
         with:
           subject-path: |
             ./t32ls-linux-${{ matrix.os.flavor }}.tar.gz
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.1
         with:
           path: ./t32ls-linux-${{ matrix.os.flavor }}.tar.gz
           archive: false
@@ -130,7 +130,7 @@ jobs:
     runs-on: ${{ matrix.os.img }}
     steps:
       - name: Set up repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7.0.1
 
       - name: Build release binary
         uses: ./.github/actions/build_steps_os
@@ -144,13 +144,13 @@ jobs:
           tar cvfz t32ls-macos-${{ matrix.os.flavor }}.tar.gz t32ls-macos-${{ matrix.os.flavor }}/
 
       - name: Generate artifact attestations
-        uses: actions/attest@v4
+        uses: actions/attest@v4.2.2
         with:
           subject-path: |
             ./t32ls-macos-${{ matrix.os.flavor }}.tar.gz
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.1
         with:
           path: ./t32ls-macos-${{ matrix.os.flavor }}.tar.gz
           archive: false
@@ -172,7 +172,7 @@ jobs:
     runs-on: ${{ matrix.os.img }}
     steps:
       - name: Set up repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7.0.1
 
       - name: Build release binary
         uses: ./.github/actions/build_steps_os
@@ -186,13 +186,13 @@ jobs:
           7z a -r t32ls-${{ matrix.os.flavor }}.zip ./t32ls-${{ matrix.os.flavor }}
 
       - name: Generate artifact attestations
-        uses: actions/attest@v4
+        uses: actions/attest@v4.2.2
         with:
           subject-path: |
             ./target/release/t32ls.exe
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.1
         with:
           path: ./t32ls-${{ matrix.os.flavor }}.zip
           archive: false
@@ -211,7 +211,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Set up repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7.0.1
 
       - name: Build release WebAssembly module
         uses: ./.github/actions/build_steps_wasm
@@ -228,13 +228,13 @@ jobs:
           tar cvfz t32ls-wasm32-wasip1-threads.tar.gz t32ls-wasm32-wasip1-threads/
 
       - name: Generate artifact attestations
-        uses: actions/attest@v4
+        uses: actions/attest@v4.2.2
         with:
           subject-path: |
             ./t32ls-wasm32-wasip1-threads.tar.gz
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.1
         with:
           path: ./t32ls-wasm32-wasip1-threads.tar.gz
           archive: false
