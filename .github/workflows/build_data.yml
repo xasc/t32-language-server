@@ -43,3 +43,15 @@ jobs:
         run: |
           mkdir data
           cargo run --verbose --profile ${{ inputs.profile }} --bin t32ls-ugd --package t32-language-server-user-guide-data -- --output=data/ugd.dat ltb
+
+      - name: Generate artifact attestations
+        uses: actions/attest@v4.2.2
+        with:
+          subject-path: data/ugd.dat
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          path: data/ugd.dat
+          archive: false
+          retention-days: 1
