@@ -236,8 +236,8 @@ fn import(text: &str) -> Result<UserGuideData, String> {
                 Err(err) => {
                     match err.classify() {
                         Category::Io => unreachable!(), // Byte buffer must be valid.
-                        Category::Syntax => return Err(imprecise_error_syntax(err, Some(text))),
-                        Category::Data => return Err(imprecise_error_data(err, Some(text))),
+                        Category::Syntax => return Err(imprecise_error_syntax(err, Some(text.as_bytes()))),
+                        Category::Data => return Err(imprecise_error_data(err, Some(text.as_bytes()))),
                         Category::Eof => return Err(imprecise_error_incomplete(err, text.len())),
                     }
                 }
