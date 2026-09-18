@@ -9,7 +9,6 @@ on:
     workflows: [Generate data assets for language server]
     types:
       - completed
-
   workflow_call:
     inputs:
       runner:
