@@ -8,7 +8,6 @@
 #
 
 set -Eeuo pipefail
-set -x
 
 readonly base_url="https://repo.lauterbach.com/pdf"
 readonly curl="/usr/bin/curl"

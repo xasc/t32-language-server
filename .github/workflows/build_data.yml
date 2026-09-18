@@ -14,6 +14,10 @@ on:
         required: true
         type: string
 
+permissions:
+  id-token: write
+  attestations: write
+
 env:
   docs: (ide_func general_func)
   curl_opts: (--silent --show-error --remove-on-error --remote-name)
