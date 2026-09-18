@@ -32,7 +32,7 @@ jobs:
         run: cargo test --verbose --package --package t32-language-server-user-guide-data
 
       - name: Install extra dependencies
-        run: apt install curl poppler-utils
+        run: sudo apt-get install curl poppler-utils
 
       - name: Run preprocessing steps for data asset pipeline
         run: |

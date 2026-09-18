@@ -5,6 +5,11 @@
 name: Build language server for OS
 
 on:
+  workflow_run:
+    workflows: [Generate data assets for language server]
+    types:
+      - completed
+
   workflow_call:
     inputs:
       runner:
@@ -17,6 +22,7 @@ on:
 jobs:
   build_and_test:
     runs-on: ${{ inputs.runner }}
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
       - name: Set up repository
         uses: actions/checkout@v7.0.1
