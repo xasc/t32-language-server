@@ -2,10 +2,9 @@
 //
 // SPDX-License-Identifier: EUPL-1.2
 
-use std::{
-    io::{self, Write},
-    path::PathBuf,
-};
+use std::io::Write;
+use std::io::{self};
+use std::path::PathBuf;
 
 use crate::ReturnCode;
 

@@ -2,7 +2,8 @@
 //
 // SPDX-License-Identifier: EUPL-1.2
 
-use std::{env, process};
+use std::env;
+use std::process;
 
 use t32_language_server;
 

@@ -2,13 +2,16 @@
 //
 // SPDX-License-Identifier: EUPL-1.2
 
-use std::{
-    env,
-    io::Write,
-    path,
-    process::{self, Child, ChildStdin, Command, Stdio},
-    time::{Duration, Instant},
-};
+use std::env;
+use std::io::Write;
+use std::path;
+use std::process::Child;
+use std::process::ChildStdin;
+use std::process::Command;
+use std::process::Stdio;
+use std::process::{self};
+use std::time::Duration;
+use std::time::Instant;
 
 use serde_json::json;
 use url::Url;

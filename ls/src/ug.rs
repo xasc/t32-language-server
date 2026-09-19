@@ -2,17 +2,19 @@
 //
 // SPDX-License-Identifier: EUPL-1.2
 
-use std::{cell::RefCell, rc::Rc};
+use std::cell::RefCell;
+use std::rc::Rc;
 
-use serde_json::{self, error::Category};
-
+use serde_json::error::Category;
+use serde_json::{self};
 #[cfg(debug_assertions)]
 use serde_path_to_error;
-
-use t32_language_server_user_guide_data::{
-    DATFILE_FIELD_WIDTH_BITS_TOTAL, DATFILE_FIELD_WIDTH_NODE_CHAR, DATFILE_FIELD_WIDTH_NODE_TAG,
-    DATFILE_FIELD_WIDTH_NODES_TOTAL, DATFILE_FIELD_WIDTH_SUCCESSOR, UserGuideData,
-};
+use t32_language_server_user_guide_data::DATFILE_FIELD_WIDTH_BITS_TOTAL;
+use t32_language_server_user_guide_data::DATFILE_FIELD_WIDTH_NODE_CHAR;
+use t32_language_server_user_guide_data::DATFILE_FIELD_WIDTH_NODE_TAG;
+use t32_language_server_user_guide_data::DATFILE_FIELD_WIDTH_NODES_TOTAL;
+use t32_language_server_user_guide_data::DATFILE_FIELD_WIDTH_SUCCESSOR;
+use t32_language_server_user_guide_data::UserGuideData;
 
 use crate::utils::get_error_offset;
 
@@ -223,9 +225,27 @@ fn import(text: &str) -> Result<UserGuideData, String> {
                 Err(err) => {
                     match err.inner().classify() {
                         Category::Io => unreachable!(), // Byte buffer must be valid.
-                        Category::Syntax => return Err(precise_error_syntax(err.path().to_string(), err.into_inner(), Some(text.as_bytes()))),
-                        Category::Data => return Err(precise_error_data(err.path().to_string(), err.into_inner(), Some(text.as_bytes()))),
-                        Category::Eof => return Err(precise_error_incomplete(err.path().to_string(), err.into_inner(), text.as_bytes().len())),
+                        Category::Syntax => {
+                            return Err(precise_error_syntax(
+                                err.path().to_string(),
+                                err.into_inner(),
+                                Some(text.as_bytes()),
+                            ));
+                        }
+                        Category::Data => {
+                            return Err(precise_error_data(
+                                err.path().to_string(),
+                                err.into_inner(),
+                                Some(text.as_bytes()),
+                            ));
+                        }
+                        Category::Eof => {
+                            return Err(precise_error_incomplete(
+                                err.path().to_string(),
+                                err.into_inner(),
+                                text.as_bytes().len(),
+                            ));
+                        }
                     }
                 }
             }
@@ -236,8 +256,12 @@ fn import(text: &str) -> Result<UserGuideData, String> {
                 Err(err) => {
                     match err.classify() {
                         Category::Io => unreachable!(), // Byte buffer must be valid.
-                        Category::Syntax => return Err(imprecise_error_syntax(err, Some(text.as_bytes()))),
-                        Category::Data => return Err(imprecise_error_data(err, Some(text.as_bytes()))),
+                        Category::Syntax => {
+                            return Err(imprecise_error_syntax(err, Some(text.as_bytes())));
+                        }
+                        Category::Data => {
+                            return Err(imprecise_error_data(err, Some(text.as_bytes())));
+                        }
                         Category::Eof => return Err(imprecise_error_incomplete(err, text.len())),
                     }
                 }

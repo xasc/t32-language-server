@@ -7,13 +7,14 @@
 //! This applications returns everything it receives via stdin via stdout.
 //! All read and write operations are blocking.
 
-use std::{
-    io::{self, BufRead, Error, Write},
-    thread, time,
-};
-
+use std::io::BufRead;
+use std::io::Error;
+use std::io::Write;
+use std::io::{self};
 #[cfg(all(target_os = "wasi", target_env = "p1"))]
 use std::sync::mpsc;
+use std::thread;
+use std::time;
 
 #[cfg(all(target_os = "wasi", target_env = "p1"))]
 use crate::ReturnCode;

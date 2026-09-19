@@ -2,29 +2,33 @@
 //
 // SPDX-License-Identifier: EUPL-1.2
 
-use std::{
-    io::{self, Write},
-    sync::mpsc,
-    thread, time,
-};
-
+#[cfg(any(windows, unix))]
+use std::env;
 #[cfg(any(windows, unix))]
 use std::io::Read;
-
+use std::io::Write;
+use std::io::{self};
 #[cfg(any(windows, unix))]
-use std::{
-    env,
-    process::{self, Command, Stdio},
-};
+use std::process::Command;
+#[cfg(any(windows, unix))]
+use std::process::Stdio;
+#[cfg(any(windows, unix))]
+use std::process::{self};
+use std::sync::mpsc;
+use std::thread;
+use std::time;
 
-use crate::{
-    ReturnCode,
-    config::{ChannelKind, Config},
-    ls::lsp::{self, Message, ParseState, Token},
-    ls::response::{ErrorResponse, ReceiveError},
-    protocol::{ErrorCodes, ResponseError},
-};
-
+use crate::ReturnCode;
+use crate::config::ChannelKind;
+use crate::config::Config;
+use crate::ls::lsp::Message;
+use crate::ls::lsp::ParseState;
+use crate::ls::lsp::Token;
+use crate::ls::lsp::{self};
+use crate::ls::response::ErrorResponse;
+use crate::ls::response::ReceiveError;
+use crate::protocol::ErrorCodes;
+use crate::protocol::ResponseError;
 #[cfg(all(target_os = "wasi", target_env = "p1"))]
 use crate::stdiotrans::receive_shared;
 
@@ -96,7 +100,9 @@ impl StdioChannel {
                         let idle = time::Duration::from_millis(10);
 
                         loop {
-                            if let ParseState::InContent(num) = decoder.state && usize::from(num) > buf.capacity() {
+                            if let ParseState::InContent(num) = decoder.state
+                                && usize::from(num) > buf.capacity()
+                            {
                                 buf.resize(usize::from(num), 0);
                             }
 
@@ -119,8 +125,11 @@ impl StdioChannel {
                             };
 
                             loop {
-                                match lsp::parse(&mut decoder.state, &mut decoder.rest, &mut decoder.tokens)
-                                {
+                                match lsp::parse(
+                                    &mut decoder.state,
+                                    &mut decoder.rest,
+                                    &mut decoder.tokens,
+                                ) {
                                     Ok(None) => {
                                         if let Err(_) = tx.send(RecvMessage::Heartbeat) {
                                             return;
@@ -189,8 +198,11 @@ impl StdioChannel {
                             };
 
                             loop {
-                                match lsp::parse(&mut decoder.state, &mut decoder.rest, &mut decoder.tokens)
-                                {
+                                match lsp::parse(
+                                    &mut decoder.state,
+                                    &mut decoder.rest,
+                                    &mut decoder.tokens,
+                                ) {
                                     Ok(None) => {
                                         if let Err(_) = tx.send(RecvMessage::Heartbeat) {
                                             return;

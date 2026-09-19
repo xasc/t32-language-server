@@ -2,13 +2,18 @@
 //
 // SPDX-License-Identifier: EUPL-1.2
 
-use std::{fmt, str::FromStr};
+use std::fmt;
+use std::str::FromStr;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 use serde_json::Value;
-use serde_repr::{Deserialize_repr, Serialize_repr};
+use serde_repr::Deserialize_repr;
+use serde_repr::Serialize_repr;
 
-use crate::{ls::TextDoc, t32::MacroDefinition, utils::BRange};
+use crate::ls::TextDoc;
+use crate::t32::MacroDefinition;
+use crate::utils::BRange;
 
 type DocumentUri = String;
 type DocumentSelector = Vec<DocumentFilter>;

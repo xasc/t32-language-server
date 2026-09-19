@@ -34,7 +34,9 @@
 //! [GitHub discussion]: https://github.com/tree-sitter/tree-sitter/discussions/1793
 //!
 
-use tree_sitter::{InputEdit, Parser, Tree};
+use tree_sitter::InputEdit;
+use tree_sitter::Parser;
+use tree_sitter::Tree;
 use tree_sitter_t32;
 pub fn parse_full(text: &[u8]) -> Tree {
     let mut parser = Parser::new();
@@ -64,9 +66,10 @@ pub fn parse_incremental(text: &[u8], edits: &InputEdit, old_tree: &mut Tree) ->
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use tree_sitter::InputEdit;
+    use tree_sitter::Point;
 
-    use tree_sitter::{InputEdit, Point};
+    use super::*;
 
     #[allow(dead_code)]
     fn dump_tree(tree: &Tree) {

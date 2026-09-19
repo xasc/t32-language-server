@@ -2,7 +2,9 @@
 //
 // SPDX-License-Identifier: EUPL-1.2
 
-use crate::protocol::{SemanticTokenModifiers, SemanticTokenTypes, SemanticTokensLegend};
+use crate::protocol::SemanticTokenModifiers;
+use crate::protocol::SemanticTokenTypes;
+use crate::protocol::SemanticTokensLegend;
 
 impl SemanticTokensLegend {
     pub fn new() -> Self {

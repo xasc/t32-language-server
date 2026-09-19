@@ -2,7 +2,9 @@
 //
 // SPDX-License-Identifier: EUPL-1.2
 
-use tree_sitter::{Language, Node, TreeCursor};
+use tree_sitter::Language;
+use tree_sitter::Node;
+use tree_sitter::TreeCursor;
 
 use crate::utils::RangeRowLimits;
 

@@ -2,7 +2,10 @@
 //
 // SPDX-License-Identifier: EUPL-1.2
 
-use std::{env, process, thread, time};
+use std::env;
+use std::process;
+use std::thread;
+use std::time;
 
 use serde_json::json;
 use url::Url;

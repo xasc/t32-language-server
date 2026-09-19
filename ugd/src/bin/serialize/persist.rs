@@ -2,22 +2,22 @@
 //
 // SPDX-License-Identifier: EUPL-1.2
 
-use std::{
-    cell::RefCell,
-    collections::{BTreeMap, VecDeque},
-    fs,
-    path::Path,
-    rc::Rc,
-};
+use std::cell::RefCell;
+use std::collections::BTreeMap;
+use std::collections::VecDeque;
+use std::fs;
+use std::path::Path;
+use std::rc::Rc;
 
 use serde_json::json;
+use t32_language_server_user_guide_data::DATFILE_FIELD_WIDTH_BITS_TOTAL;
+use t32_language_server_user_guide_data::DATFILE_FIELD_WIDTH_NODE_CHAR;
+use t32_language_server_user_guide_data::DATFILE_FIELD_WIDTH_NODE_TAG;
+use t32_language_server_user_guide_data::DATFILE_FIELD_WIDTH_NODES_TOTAL;
+use t32_language_server_user_guide_data::DATFILE_FIELD_WIDTH_SUCCESSOR;
 
-use t32_language_server_user_guide_data::{
-    DATFILE_FIELD_WIDTH_BITS_TOTAL, DATFILE_FIELD_WIDTH_NODE_CHAR, DATFILE_FIELD_WIDTH_NODE_TAG,
-    DATFILE_FIELD_WIDTH_NODES_TOTAL, DATFILE_FIELD_WIDTH_SUCCESSOR,
-};
-
-use crate::{ReturnCode, UserGuideData};
+use crate::ReturnCode;
+use crate::UserGuideData;
 
 #[derive(Clone, Debug)]
 enum Node {

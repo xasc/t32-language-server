@@ -4,17 +4,23 @@
 
 use std::time::Instant;
 
-use crate::{
-    ReturnCode,
-    config::Config,
-    ls::{
-        self, ErrorResponse, FileIndex, InitState, Message, Response, RunState, Tasks, TextDocs,
-        Workspace,
-        tasks::{self, TaskDone, startup},
-        transport::StdioChannel,
-    },
-    protocol::TraceValue,
-};
+use crate::ReturnCode;
+use crate::config::Config;
+use crate::ls::ErrorResponse;
+use crate::ls::FileIndex;
+use crate::ls::InitState;
+use crate::ls::Message;
+use crate::ls::Response;
+use crate::ls::RunState;
+use crate::ls::Tasks;
+use crate::ls::TextDocs;
+use crate::ls::Workspace;
+use crate::ls::tasks::TaskDone;
+use crate::ls::tasks::startup;
+use crate::ls::tasks::{self};
+use crate::ls::transport::StdioChannel;
+use crate::ls::{self};
+use crate::protocol::TraceValue;
 
 pub fn start(
     mut g: InitState,

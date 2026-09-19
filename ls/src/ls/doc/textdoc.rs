@@ -4,16 +4,17 @@
 
 use std::fs;
 
+use tree_sitter::InputEdit;
+use tree_sitter::Point;
 use url::Url;
 
-use tree_sitter::{InputEdit, Point};
-
-use crate::{
-    ReturnCode,
-    protocol::{Position, Range, TextDocumentItem, Uri},
-    t32::LANGUAGE_ID,
-    utils::BRange,
-};
+use crate::ReturnCode;
+use crate::protocol::Position;
+use crate::protocol::Range;
+use crate::protocol::TextDocumentItem;
+use crate::protocol::Uri;
+use crate::t32::LANGUAGE_ID;
+use crate::utils::BRange;
 
 #[derive(Clone, Debug)]
 pub struct TextDoc {

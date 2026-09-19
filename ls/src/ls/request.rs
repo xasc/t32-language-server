@@ -4,13 +4,23 @@
 
 use std::fmt;
 
-use crate::protocol::{
-    DefinitionParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, FoldingRangeParams, InitializeParams, InitializedParams,
-    LogTraceParams, NumberOrString, ProgressParams, ReferenceParams, RenameFilesParams,
-    SemanticTokensParams, SemanticTokensRangeParams, SetTraceParams, WorkDoneProgressCancelParams,
-    WorkDoneProgressCreateParams,
-};
+use crate::protocol::DefinitionParams;
+use crate::protocol::DidChangeTextDocumentParams;
+use crate::protocol::DidCloseTextDocumentParams;
+use crate::protocol::DidOpenTextDocumentParams;
+use crate::protocol::FoldingRangeParams;
+use crate::protocol::InitializeParams;
+use crate::protocol::InitializedParams;
+use crate::protocol::LogTraceParams;
+use crate::protocol::NumberOrString;
+use crate::protocol::ProgressParams;
+use crate::protocol::ReferenceParams;
+use crate::protocol::RenameFilesParams;
+use crate::protocol::SemanticTokensParams;
+use crate::protocol::SemanticTokensRangeParams;
+use crate::protocol::SetTraceParams;
+use crate::protocol::WorkDoneProgressCancelParams;
+use crate::protocol::WorkDoneProgressCreateParams;
 
 // Requests from client to server.
 #[derive(Debug, PartialEq)]

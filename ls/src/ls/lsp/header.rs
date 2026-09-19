@@ -2,15 +2,14 @@
 //
 // SPDX-License-Identifier: EUPL-1.2
 
-use std::{
-    fmt,
-    num::{NonZero, NonZeroUsize},
-};
+use std::fmt;
+use std::num::NonZero;
+use std::num::NonZeroUsize;
 
-use crate::{
-    ls::lsp::{Token, TokenType},
-    protocol::{ErrorCodes, ResponseError},
-};
+use crate::ls::lsp::Token;
+use crate::ls::lsp::TokenType;
+use crate::protocol::ErrorCodes;
+use crate::protocol::ResponseError;
 
 struct ScanState<'a> {
     next: usize,

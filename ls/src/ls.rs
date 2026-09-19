@@ -14,43 +14,52 @@ mod tasks;
 mod transport;
 mod workspace;
 
-pub use {doc::TextDoc, workspace::FileIndex};
+use std::thread;
+use std::time::Duration;
+use std::time::Instant;
 
-#[cfg(test)]
-pub use crate::ls::{doc::TextDocs, doc::read_doc, tasks::TaskSystem, workspace::index_files};
-
-use std::{
-    thread,
-    time::{Duration, Instant},
-};
-
+pub use doc::TextDoc;
 use t32_language_server_user_guide_data::UserGuideData;
-
 use tree_sitter::Tree;
-
 use url;
+pub use workspace::FileIndex;
 
-use crate::{
-    ReturnCode,
-    config::{Config, Workspace},
-    ls::lsp::Message,
-    ls::transport::StdioChannel,
-    ls::{
-        proc::{ProcState, proc_alive},
-        request::{Notification, Request},
-        response::{ErrorResponse, InitializeResponse, ReceiveError, Response},
-        tasks::{OngoingTask, Task, TaskDone},
-    },
-    protocol::{
-        ErrorCodes, InitializeError, InitializeParams, InitializeResult, LogTraceParams,
-        NumberOrString, ResponseError, SemanticTokenModifiers, SemanticTokenTypes,
-        SemanticTokensLegend, ServerCapabilities, TokenFormat, TraceValue,
-    },
-    t32::LangExpressions,
-};
-
-#[cfg(not(test))]
-use crate::ls::{doc::TextDocs, tasks::TaskSystem};
+use crate::ReturnCode;
+use crate::config::Config;
+use crate::config::Workspace;
+pub use crate::ls::doc::TextDocs;
+#[cfg(test)]
+pub use crate::ls::doc::read_doc;
+use crate::ls::lsp::Message;
+use crate::ls::proc::ProcState;
+use crate::ls::proc::proc_alive;
+use crate::ls::request::Notification;
+use crate::ls::request::Request;
+use crate::ls::response::ErrorResponse;
+use crate::ls::response::InitializeResponse;
+use crate::ls::response::ReceiveError;
+use crate::ls::response::Response;
+use crate::ls::tasks::OngoingTask;
+use crate::ls::tasks::Task;
+use crate::ls::tasks::TaskDone;
+pub use crate::ls::tasks::TaskSystem;
+use crate::ls::transport::StdioChannel;
+#[cfg(test)]
+pub use crate::ls::workspace::index_files;
+use crate::protocol::ErrorCodes;
+use crate::protocol::InitializeError;
+use crate::protocol::InitializeParams;
+use crate::protocol::InitializeResult;
+use crate::protocol::LogTraceParams;
+use crate::protocol::NumberOrString;
+use crate::protocol::ResponseError;
+use crate::protocol::SemanticTokenModifiers;
+use crate::protocol::SemanticTokenTypes;
+use crate::protocol::SemanticTokensLegend;
+use crate::protocol::ServerCapabilities;
+use crate::protocol::TokenFormat;
+use crate::protocol::TraceValue;
+use crate::t32::LangExpressions;
 
 struct DutyCycleBackoff {
     level: i32,

@@ -2,11 +2,13 @@
 //
 // SPDX-License-Identifier: EUPL-1.2
 
-use crate::{
-    protocol::Uri,
-    t32::{CallExpression, MacroDefinitions, MacroScope, Subroutine, SubscriptCalls},
-    utils::BRange,
-};
+use crate::protocol::Uri;
+use crate::t32::CallExpression;
+use crate::t32::MacroDefinitions;
+use crate::t32::MacroScope;
+use crate::t32::Subroutine;
+use crate::t32::SubscriptCalls;
+use crate::utils::BRange;
 
 pub fn find_subroutine_for_call<'a>(
     text: &str,

@@ -47,24 +47,31 @@
 //! ```
 //!
 
-use std::{cmp::Ordering, ops::Range};
+use std::cmp::Ordering;
+use std::ops::Range;
 
-use tree_sitter::{Node, Range as TRange, Tree, TreeCursor};
+use tree_sitter::Node;
+use tree_sitter::Range as TRange;
+use tree_sitter::Tree;
+use tree_sitter::TreeCursor;
 
-use crate::{
-    protocol::Uri,
-    t32::{
-        FileIndex, NodeKind,
-        ast::{
-            KEYWORD_DO, KEYWORD_GOTO, KEYWORD_RUN, KEYWORD_SUBROUTINE_RETURN, KEYWORDS_SCRIPT_CALL,
-            KEYWORDS_SCRIPT_END, get_block_opener_ids, get_string_body, get_subroutine_ids,
-            starts_on_adjacent_lines,
-        },
-        macros::extract_params,
-        path::{PathShorthandDirs, locate_script},
-    },
-    utils::BRange,
-};
+use crate::protocol::Uri;
+use crate::t32::FileIndex;
+use crate::t32::NodeKind;
+use crate::t32::ast::KEYWORD_DO;
+use crate::t32::ast::KEYWORD_GOTO;
+use crate::t32::ast::KEYWORD_RUN;
+use crate::t32::ast::KEYWORD_SUBROUTINE_RETURN;
+use crate::t32::ast::KEYWORDS_SCRIPT_CALL;
+use crate::t32::ast::KEYWORDS_SCRIPT_END;
+use crate::t32::ast::get_block_opener_ids;
+use crate::t32::ast::get_string_body;
+use crate::t32::ast::get_subroutine_ids;
+use crate::t32::ast::starts_on_adjacent_lines;
+use crate::t32::macros::extract_params;
+use crate::t32::path::PathShorthandDirs;
+use crate::t32::path::locate_script;
+use crate::utils::BRange;
 
 pub const RECURSION_BREAKER_SUBROUTINE_SCAN: usize = 50;
 
@@ -1267,13 +1274,17 @@ pub fn skip_comments(cursor: &mut TreeCursor) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    use std::{env, fs, path::PathBuf};
+    use std::env;
+    use std::fs;
+    use std::path::PathBuf;
 
     use url::Url;
 
-    use crate::{config, ls, t32, utils};
+    use super::*;
+    use crate::config;
+    use crate::ls;
+    use crate::t32;
+    use crate::utils;
 
     #[test]
     fn detects_subroutine_call_expressions_with_macro_target() {

@@ -5,44 +5,60 @@
 //! Task system with one queue per worker and task stealing. Based on
 //! this [talk](https://youtu.be/zULU6Hhp42w) from Sean Parent.
 
-use std::{
-    collections::VecDeque,
-    num::NonZeroUsize,
-    sync::{
-        Arc, Condvar, Mutex, TryLockError,
-        atomic::{AtomicBool, AtomicU32, Ordering},
-        mpsc::{Receiver, Sender, channel},
-    },
-    thread::{Builder, JoinHandle, available_parallelism},
-};
+use std::collections::VecDeque;
+use std::num::NonZeroUsize;
+use std::sync::Arc;
+use std::sync::Condvar;
+use std::sync::Mutex;
+use std::sync::TryLockError;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicU32;
+use std::sync::atomic::Ordering;
+use std::sync::mpsc::Receiver;
+use std::sync::mpsc::Sender;
+use std::sync::mpsc::channel;
+use std::thread::Builder;
+use std::thread::JoinHandle;
+use std::thread::available_parallelism;
 
 use t32_language_server_user_guide_data::UserGuideData;
-
 use tree_sitter::Tree;
-
 use url::Url;
 
-use crate::{
-    ReturnCode,
-    config::{CodeFoldingEncoding, SemanticTokenEncoding, T32DefaultDirs, Workspace},
-    ls::{
-        doc::{TextDoc, TextDocData},
-        tasks::{
-            OngoingTaskHandle, RenameFileOperations,
-            lang::{
-                FindDefintionsForMacroRefResult, FindMacroReferencesResult, FindReferencesResult,
-                GotoDefinitionResult, MacroDefinitionLocation, MacroReferenceOrigin,
-            },
-        },
-        workspace::{FileIndex, ResolvedRenameFileOperations, WorkspaceMembers},
-    },
-    protocol::{
-        FoldingRange, FoldingRangeKind, Location, LocationLink, NumberOrString, Position, Range,
-        SemanticTokens, SemanticTokensLegend, TextDocumentContentChangeEvent, TextDocumentItem,
-        Uri,
-    },
-    t32::{FindMacroRefsLangContext, FindRefsLangContext, GotoDefLangContext, LangExpressions},
-};
+use crate::ReturnCode;
+use crate::config::CodeFoldingEncoding;
+use crate::config::SemanticTokenEncoding;
+use crate::config::T32DefaultDirs;
+use crate::config::Workspace;
+use crate::ls::doc::TextDoc;
+use crate::ls::doc::TextDocData;
+use crate::ls::tasks::OngoingTaskHandle;
+use crate::ls::tasks::RenameFileOperations;
+use crate::ls::tasks::lang::FindDefintionsForMacroRefResult;
+use crate::ls::tasks::lang::FindMacroReferencesResult;
+use crate::ls::tasks::lang::FindReferencesResult;
+use crate::ls::tasks::lang::GotoDefinitionResult;
+use crate::ls::tasks::lang::MacroDefinitionLocation;
+use crate::ls::tasks::lang::MacroReferenceOrigin;
+use crate::ls::workspace::FileIndex;
+use crate::ls::workspace::ResolvedRenameFileOperations;
+use crate::ls::workspace::WorkspaceMembers;
+use crate::protocol::FoldingRange;
+use crate::protocol::FoldingRangeKind;
+use crate::protocol::Location;
+use crate::protocol::LocationLink;
+use crate::protocol::NumberOrString;
+use crate::protocol::Position;
+use crate::protocol::Range;
+use crate::protocol::SemanticTokens;
+use crate::protocol::SemanticTokensLegend;
+use crate::protocol::TextDocumentContentChangeEvent;
+use crate::protocol::TextDocumentItem;
+use crate::protocol::Uri;
+use crate::t32::FindMacroRefsLangContext;
+use crate::t32::FindRefsLangContext;
+use crate::t32::GotoDefLangContext;
+use crate::t32::LangExpressions;
 
 #[derive(Debug, Clone)]
 pub enum Task {
@@ -527,7 +543,8 @@ impl JobQueue {
 
 #[cfg(test)]
 mod tests {
-    use std::{thread, time::Duration};
+    use std::thread;
+    use std::time::Duration;
 
     use super::*;
 

@@ -5,25 +5,35 @@
 mod store;
 mod textdoc;
 
+pub use store::GlobalMacroDefIndex;
+pub use store::TextDocData;
+pub use store::TextDocs;
+pub use textdoc::TextDoc;
+pub use textdoc::TextDocStatus;
+use tree_sitter::Tree;
 use url::Url;
 
-use tree_sitter::Tree;
-
-use crate::{
-    config::T32DefaultDirs,
-    ls::workspace::FileIndex,
-    protocol::{TextDocumentContentChangeEvent, TextDocumentItem, Uri},
-    t32::{
-        CallExpression, CallExpressions, CallLocations, LangExpressions, PathShorthandDirs,
-        SubscriptCallKind, SubscriptCalls, find_any_macro_references, find_call_expressions,
-        find_commands_and_parameter_declarations, find_macro_definitions,
-        find_subroutines_and_labels, parse_full, parse_incremental, resolve_subscript_call_targets,
-    },
-    utils::uri_to_path,
-};
-
-pub use store::{GlobalMacroDefIndex, TextDocData, TextDocs};
-pub use textdoc::{TextDoc, TextDocStatus};
+use crate::config::T32DefaultDirs;
+use crate::ls::workspace::FileIndex;
+use crate::protocol::TextDocumentContentChangeEvent;
+use crate::protocol::TextDocumentItem;
+use crate::protocol::Uri;
+use crate::t32::CallExpression;
+use crate::t32::CallExpressions;
+use crate::t32::CallLocations;
+use crate::t32::LangExpressions;
+use crate::t32::PathShorthandDirs;
+use crate::t32::SubscriptCallKind;
+use crate::t32::SubscriptCalls;
+use crate::t32::find_any_macro_references;
+use crate::t32::find_call_expressions;
+use crate::t32::find_commands_and_parameter_declarations;
+use crate::t32::find_macro_definitions;
+use crate::t32::find_subroutines_and_labels;
+use crate::t32::parse_full;
+use crate::t32::parse_incremental;
+use crate::t32::resolve_subscript_call_targets;
+use crate::utils::uri_to_path;
 
 pub fn import_doc(
     r#in: TextDocumentItem,
@@ -186,15 +196,15 @@ pub fn resolve_call_expressions(
 
 #[cfg(test)]
 mod test {
-    use super::*;
-
     use std::path;
 
-    use crate::{
-        ls::workspace::index_files,
-        t32::{CallExpressions, MacroDefinition, MacroDefinitions, MacroDefinitionsImplicit},
-        utils::BRange,
-    };
+    use super::*;
+    use crate::ls::workspace::index_files;
+    use crate::t32::CallExpressions;
+    use crate::t32::MacroDefinition;
+    use crate::t32::MacroDefinitions;
+    use crate::t32::MacroDefinitionsImplicit;
+    use crate::utils::BRange;
 
     fn create_file_idx() -> FileIndex {
         let files: Vec<Url> = vec![

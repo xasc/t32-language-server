@@ -6,11 +6,13 @@ mod config;
 mod ltb;
 mod persist;
 
-use std::{env, process};
+use std::env;
+use std::process;
 
-use t32_language_server_user_guide_data::{
-    CopyrightFields, PracticeFunctionDefinition, UserGuideData, UserGuideDocs,
-};
+use t32_language_server_user_guide_data::CopyrightFields;
+use t32_language_server_user_guide_data::PracticeFunctionDefinition;
+use t32_language_server_user_guide_data::UserGuideData;
+use t32_language_server_user_guide_data::UserGuideDocs;
 
 #[derive(Clone, Debug)]
 pub enum ReturnCode {

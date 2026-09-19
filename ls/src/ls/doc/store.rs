@@ -6,18 +6,20 @@ use std::collections::BTreeMap;
 
 use tree_sitter::Tree;
 
-use crate::{
-    ls::{
-        doc::textdoc::{TextDoc, TextDocStatus},
-        tasks::RenameFileOperations,
-    },
-    protocol::Uri,
-    t32::{
-        CallExpressions, LangExpressions, MacroDefinition, ParameterDeclaration,
-        ParameterDeclarationKind, SubscriptCallKind, SubscriptCalls,
-    },
-    utils::{BRange, FileLocationIndex, FileLocationMap},
-};
+use crate::ls::doc::textdoc::TextDoc;
+use crate::ls::doc::textdoc::TextDocStatus;
+use crate::ls::tasks::RenameFileOperations;
+use crate::protocol::Uri;
+use crate::t32::CallExpressions;
+use crate::t32::LangExpressions;
+use crate::t32::MacroDefinition;
+use crate::t32::ParameterDeclaration;
+use crate::t32::ParameterDeclarationKind;
+use crate::t32::SubscriptCallKind;
+use crate::t32::SubscriptCalls;
+use crate::utils::BRange;
+use crate::utils::FileLocationIndex;
+use crate::utils::FileLocationMap;
 
 #[allow(unused)]
 struct CommandIndex(FileLocationIndex);
@@ -1162,28 +1164,31 @@ impl<'a> FileTargetIndex {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-
     use std::path;
 
     use url::Url;
 
-    use crate::{
-        config::T32DefaultDirs,
-        ls::{
-            doc::{
-                find_commands_and_parameter_declarations, find_subroutines_and_labels, read_doc,
-                resolve_call_expressions, textdoc::create_line_map_for_text,
-            },
-            workspace::{FileIndex, index_files, rename_files},
-        },
-        protocol::{Position, Range},
-        t32::{
-            self, CallExpressions, LANGUAGE_ID, PathShorthandDirs, find_any_macro_references,
-            find_macro_definitions,
-        },
-        utils::{files, to_file_uri, uri_to_path},
-    };
+    use super::*;
+    use crate::config::T32DefaultDirs;
+    use crate::ls::doc::find_commands_and_parameter_declarations;
+    use crate::ls::doc::find_subroutines_and_labels;
+    use crate::ls::doc::read_doc;
+    use crate::ls::doc::resolve_call_expressions;
+    use crate::ls::doc::textdoc::create_line_map_for_text;
+    use crate::ls::workspace::FileIndex;
+    use crate::ls::workspace::index_files;
+    use crate::ls::workspace::rename_files;
+    use crate::protocol::Position;
+    use crate::protocol::Range;
+    use crate::t32::CallExpressions;
+    use crate::t32::LANGUAGE_ID;
+    use crate::t32::PathShorthandDirs;
+    use crate::t32::find_any_macro_references;
+    use crate::t32::find_macro_definitions;
+    use crate::t32::{self};
+    use crate::utils::files;
+    use crate::utils::to_file_uri;
+    use crate::utils::uri_to_path;
 
     fn create_file_idx() -> FileIndex {
         let files = files();

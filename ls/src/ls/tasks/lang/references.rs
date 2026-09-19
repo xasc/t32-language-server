@@ -27,37 +27,55 @@
 
 use std::cmp::Ordering;
 
+use serde_json::json;
+use tree_sitter::Node;
+use tree_sitter::TreeCursor;
 use url::Url;
 
-use serde_json::json;
-
-use tree_sitter::{Node, TreeCursor};
-
-use crate::{
-    config::Config,
-    ls::{
-        ReturnCode,
-        doc::{TextDoc, TextDocData, TextDocs},
-        lsp::Message,
-        request::Notification,
-        response::{FindReferencesResponse, NullResponse, Response},
-        tasks::{
-            ExtMacroDefLookups, FileCallMap, FindMacroReferencesPhase, MacroDefinitionLocationMap,
-            OngoingTask, Task, TaskDone, TaskProgress, Tasks, find_ongoing_task_by_id,
-            lang::MacroReferenceOrigin, trace_doc_unknown, try_schedule,
-        },
-        workspace::FileIndex,
-    },
-    protocol::{
-        Location, LogTraceParams, NumberOrString, Position, Range as LRange, ReferenceParams,
-        TraceValue, Uri,
-    },
-    t32::{
-        self, FindMacroRefsLangContext, FindRefsLangContext, GotoDefLangContext, MacroDefinition,
-        MacroDefinitionResult, MacroScope, NodeKind, PathShorthandDirs, resolve_script,
-    },
-    utils::{BRange, FileLocationMap},
-};
+use crate::config::Config;
+use crate::ls::ReturnCode;
+use crate::ls::doc::TextDoc;
+use crate::ls::doc::TextDocData;
+use crate::ls::doc::TextDocs;
+use crate::ls::lsp::Message;
+use crate::ls::request::Notification;
+use crate::ls::response::FindReferencesResponse;
+use crate::ls::response::NullResponse;
+use crate::ls::response::Response;
+use crate::ls::tasks::ExtMacroDefLookups;
+use crate::ls::tasks::FileCallMap;
+use crate::ls::tasks::FindMacroReferencesPhase;
+use crate::ls::tasks::MacroDefinitionLocationMap;
+use crate::ls::tasks::OngoingTask;
+use crate::ls::tasks::Task;
+use crate::ls::tasks::TaskDone;
+use crate::ls::tasks::TaskProgress;
+use crate::ls::tasks::Tasks;
+use crate::ls::tasks::find_ongoing_task_by_id;
+use crate::ls::tasks::lang::MacroReferenceOrigin;
+use crate::ls::tasks::trace_doc_unknown;
+use crate::ls::tasks::try_schedule;
+use crate::ls::workspace::FileIndex;
+use crate::protocol::Location;
+use crate::protocol::LogTraceParams;
+use crate::protocol::NumberOrString;
+use crate::protocol::Position;
+use crate::protocol::Range as LRange;
+use crate::protocol::ReferenceParams;
+use crate::protocol::TraceValue;
+use crate::protocol::Uri;
+use crate::t32::FindMacroRefsLangContext;
+use crate::t32::FindRefsLangContext;
+use crate::t32::GotoDefLangContext;
+use crate::t32::MacroDefinition;
+use crate::t32::MacroDefinitionResult;
+use crate::t32::MacroScope;
+use crate::t32::NodeKind;
+use crate::t32::PathShorthandDirs;
+use crate::t32::resolve_script;
+use crate::t32::{self};
+use crate::utils::BRange;
+use crate::utils::FileLocationMap;
 
 #[derive(Debug, PartialEq)]
 pub enum FindDefintionsForMacroRefResult {
@@ -1307,19 +1325,27 @@ fn log_conv_find_macro_ref_req(id: NumberOrString, r#macro: MacroReferenceOrigin
 
 #[cfg(test)]
 mod tests {
+    use std::path;
+    use std::time::Duration;
+    use std::time::Instant;
+
     use super::*;
-
-    use std::{
-        path,
-        time::{Duration, Instant},
-    };
-
-    use crate::{
-        config::{self, CodeFoldingSupport, T32DefaultDirs},
-        ls::{TaskCounters, TaskSystem, doc, tasks::TaskProgress, workspace},
-        protocol::{self, Position, Range},
-        utils::{BRange, create_doc_store, create_file_idx, files, to_file_uri},
-    };
+    use crate::config::CodeFoldingSupport;
+    use crate::config::T32DefaultDirs;
+    use crate::config::{self};
+    use crate::ls::TaskCounters;
+    use crate::ls::TaskSystem;
+    use crate::ls::doc;
+    use crate::ls::tasks::TaskProgress;
+    use crate::ls::workspace;
+    use crate::protocol::Position;
+    use crate::protocol::Range;
+    use crate::protocol::{self};
+    use crate::utils::BRange;
+    use crate::utils::create_doc_store;
+    use crate::utils::create_file_idx;
+    use crate::utils::files;
+    use crate::utils::to_file_uri;
 
     fn config() -> Config {
         Config {

@@ -2,24 +2,44 @@
 //
 // SPDX-License-Identifier: EUPL-1.2
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 
-use crate::{
-    config::version_str,
-    ls::request::Notification,
-    protocol::{
-        DefinitionOptions, DefinitionProvider, DocumentFilter, FileOperationFilter,
-        FileOperationPattern, FileOperationPatternKind, FileOperationPatternOptions,
-        FileOperationRegistrationOptions, FoldingRange, FoldingRangeProvider, InitializeResult,
-        Location, LocationLink, NumberOrString, PositionEncodingKind, ReferenceOptions,
-        ReferencesProvider, ResponseError, SemanticTokens, SemanticTokensFullDocumentCapabilities,
-        SemanticTokensLegend, SemanticTokensProvider, SemanticTokensRegistrationOptions,
-        ServerCapabilities, ServerInfo, TextDocumentSyncKind, TextDocumentSyncOptions,
-        TextDocumentSyncServerCapabilities, WorkspaceFileOperations,
-        WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
-    },
-    t32::{LANGUAGE_ID, SUFFIXES},
-};
+use crate::config::version_str;
+use crate::ls::request::Notification;
+use crate::protocol::DefinitionOptions;
+use crate::protocol::DefinitionProvider;
+use crate::protocol::DocumentFilter;
+use crate::protocol::FileOperationFilter;
+use crate::protocol::FileOperationPattern;
+use crate::protocol::FileOperationPatternKind;
+use crate::protocol::FileOperationPatternOptions;
+use crate::protocol::FileOperationRegistrationOptions;
+use crate::protocol::FoldingRange;
+use crate::protocol::FoldingRangeProvider;
+use crate::protocol::InitializeResult;
+use crate::protocol::Location;
+use crate::protocol::LocationLink;
+use crate::protocol::NumberOrString;
+use crate::protocol::PositionEncodingKind;
+use crate::protocol::ReferenceOptions;
+use crate::protocol::ReferencesProvider;
+use crate::protocol::ResponseError;
+use crate::protocol::SemanticTokens;
+use crate::protocol::SemanticTokensFullDocumentCapabilities;
+use crate::protocol::SemanticTokensLegend;
+use crate::protocol::SemanticTokensProvider;
+use crate::protocol::SemanticTokensRegistrationOptions;
+use crate::protocol::ServerCapabilities;
+use crate::protocol::ServerInfo;
+use crate::protocol::TextDocumentSyncKind;
+use crate::protocol::TextDocumentSyncOptions;
+use crate::protocol::TextDocumentSyncServerCapabilities;
+use crate::protocol::WorkspaceFileOperations;
+use crate::protocol::WorkspaceFoldersServerCapabilities;
+use crate::protocol::WorkspaceServerCapabilities;
+use crate::t32::LANGUAGE_ID;
+use crate::t32::SUFFIXES;
 
 #[derive(Debug)]
 pub enum ReceiveError {

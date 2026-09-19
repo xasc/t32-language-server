@@ -4,16 +4,24 @@
 
 use std::time::Instant;
 
-use crate::{
-    ls::{
-        Message, Notification, Request, TaskCounter, TaskCounters, TaskDone,
-        tasks::{self, OngoingTask, WorkDoneProgressPhase, workspace},
-    },
-    protocol::{
-        LogTraceParams, NumberOrString, ProgressParams, ProgressToken, TraceValue,
-        WorkDoneProgressCreateParams, WorkDoneProgressReport, WorkDoneProgressValue,
-    },
-};
+use crate::ls::Message;
+use crate::ls::Notification;
+use crate::ls::Request;
+use crate::ls::TaskCounter;
+use crate::ls::TaskCounters;
+use crate::ls::TaskDone;
+use crate::ls::tasks::OngoingTask;
+use crate::ls::tasks::WorkDoneProgressPhase;
+use crate::ls::tasks::workspace;
+use crate::ls::tasks::{self};
+use crate::protocol::LogTraceParams;
+use crate::protocol::NumberOrString;
+use crate::protocol::ProgressParams;
+use crate::protocol::ProgressToken;
+use crate::protocol::TraceValue;
+use crate::protocol::WorkDoneProgressCreateParams;
+use crate::protocol::WorkDoneProgressReport;
+use crate::protocol::WorkDoneProgressValue;
 
 pub fn initiate_server_workdone_progress(
     trace_level: TraceValue,
@@ -280,12 +288,12 @@ fn warn_server_work_not_found(token: ProgressToken) -> Message {
 
 #[cfg(test)]
 mod tests {
-    use crate::protocol::{
-        ProgressParams, WorkDoneProgressBegin, WorkDoneProgressEnd, WorkDoneProgressReport,
-        WorkDoneProgressValue,
-    };
-
     use super::*;
+    use crate::protocol::ProgressParams;
+    use crate::protocol::WorkDoneProgressBegin;
+    use crate::protocol::WorkDoneProgressEnd;
+    use crate::protocol::WorkDoneProgressReport;
+    use crate::protocol::WorkDoneProgressValue;
 
     #[test]
     fn can_initiate_workdone_progress() {

@@ -2,18 +2,19 @@
 //
 // SPDX-License-Identifier: EUPL-1.2
 
-use std::{
-    collections::BTreeMap,
-    ffi::OsStr,
-    fs,
-    path::{Path, PathBuf},
-};
+use std::collections::BTreeMap;
+use std::ffi::OsStr;
+use std::fs;
+use std::path::Path;
+use std::path::PathBuf;
 
 use url::Url;
 
-use crate::{
-    ReturnCode, config::Workspace, ls::tasks::RenameFileOperations, protocol::Uri, t32::SUFFIXES,
-};
+use crate::ReturnCode;
+use crate::config::Workspace;
+use crate::ls::tasks::RenameFileOperations;
+use crate::protocol::Uri;
+use crate::t32::SUFFIXES;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct WorkspaceMembers {
@@ -637,12 +638,11 @@ fn resolve_rename_operations(
 
 #[cfg(test)]
 mod test {
-    use super::*;
-
     use std::path;
 
     use url::Url;
 
+    use super::*;
     use crate::utils::create_file_idx;
 
     #[test]

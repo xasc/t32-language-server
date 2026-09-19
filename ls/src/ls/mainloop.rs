@@ -4,18 +4,17 @@
 
 use std::time::Instant;
 
-use crate::{
-    ReturnCode,
-    config::Config,
-    ls::{
-        RunState, error_task_queue_abort,
-        lsp::Message,
-        recv_incoming,
-        response::{ErrorResponse, Response},
-        send_outgoing, tasks,
-        transport::StdioChannel,
-    },
-};
+use crate::ReturnCode;
+use crate::config::Config;
+use crate::ls::RunState;
+use crate::ls::error_task_queue_abort;
+use crate::ls::lsp::Message;
+use crate::ls::recv_incoming;
+use crate::ls::response::ErrorResponse;
+use crate::ls::response::Response;
+use crate::ls::send_outgoing;
+use crate::ls::tasks;
+use crate::ls::transport::StdioChannel;
 
 pub fn handle_requests(
     mut g: RunState,

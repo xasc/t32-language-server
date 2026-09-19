@@ -2,7 +2,8 @@
 //
 // SPDX-License-Identifier: EUPL-1.2
 
-use std::{thread, time};
+use std::thread;
+use std::time;
 
 use t32_language_server;
 

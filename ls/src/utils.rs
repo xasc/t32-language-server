@@ -2,29 +2,41 @@
 //
 // SPDX-License-Identifier: EUPL-1.2
 
-use std::{cmp::Ordering, collections::BTreeMap, convert::From, ops::Range, path::PathBuf};
-
+use std::cmp::Ordering;
+use std::collections::BTreeMap;
+use std::convert::From;
+use std::ops::Range;
 #[cfg(test)]
 use std::path;
+use std::path::PathBuf;
 
 use serde_json;
-
 use tree_sitter::Range as TRange;
-
 #[cfg(test)]
 use tree_sitter::Tree;
-
 use url::Url;
 
-use crate::protocol::{Location, Range as LRange, Uri};
-
 #[cfg(test)]
-use crate::{
-    config::T32DefaultDirs,
-    ls::{FileIndex, TextDoc, TextDocs, index_files, read_doc},
-    protocol::TextDocumentItem,
-    t32::{LANGUAGE_ID, LangExpressions},
-};
+use crate::config::T32DefaultDirs;
+#[cfg(test)]
+use crate::ls::FileIndex;
+#[cfg(test)]
+use crate::ls::TextDoc;
+#[cfg(test)]
+use crate::ls::TextDocs;
+#[cfg(test)]
+use crate::ls::index_files;
+#[cfg(test)]
+use crate::ls::read_doc;
+use crate::protocol::Location;
+use crate::protocol::Range as LRange;
+#[cfg(test)]
+use crate::protocol::TextDocumentItem;
+use crate::protocol::Uri;
+#[cfg(test)]
+use crate::t32::LANGUAGE_ID;
+#[cfg(test)]
+use crate::t32::LangExpressions;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BRange(Range<usize>);

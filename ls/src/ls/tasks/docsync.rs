@@ -2,18 +2,24 @@
 //
 // SPDX-License-Identifier: EUPL-1.2
 
-use crate::{
-    ReturnCode,
-    config::T32DefaultDirs,
-    ls::{
-        doc::{TextDoc, TextDocData, TextDocs, import_doc, update_doc},
-        lsp::Message,
-        response::{ErrorResponse, Response},
-        tasks::{Task, Tasks, try_schedule},
-        workspace::FileIndex,
-    },
-    protocol::{DidChangeTextDocumentParams, ErrorCodes, ResponseError, TextDocumentItem},
-};
+use crate::ReturnCode;
+use crate::config::T32DefaultDirs;
+use crate::ls::doc::TextDoc;
+use crate::ls::doc::TextDocData;
+use crate::ls::doc::TextDocs;
+use crate::ls::doc::import_doc;
+use crate::ls::doc::update_doc;
+use crate::ls::lsp::Message;
+use crate::ls::response::ErrorResponse;
+use crate::ls::response::Response;
+use crate::ls::tasks::Task;
+use crate::ls::tasks::Tasks;
+use crate::ls::tasks::try_schedule;
+use crate::ls::workspace::FileIndex;
+use crate::protocol::DidChangeTextDocumentParams;
+use crate::protocol::ErrorCodes;
+use crate::protocol::ResponseError;
+use crate::protocol::TextDocumentItem;
 
 pub fn process_doc_change_notif(
     params: DidChangeTextDocumentParams,

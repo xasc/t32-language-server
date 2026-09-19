@@ -27,23 +27,24 @@
 //! ~~~~
 //!
 
-use std::{
-    env,
-    io::{self, Write},
-    path::{self, Path, PathBuf},
-    str::FromStr,
-    time::Duration,
-};
+use std::env;
+use std::io::Write;
+use std::io::{self};
+use std::path::Path;
+use std::path::PathBuf;
+use std::path::{self};
+use std::str::FromStr;
+use std::time::Duration;
 
 use serde::Serialize;
 
-use crate::{
-    ReturnCode,
-    protocol::{
-        FoldingRangeKind, PositionEncodingKind, SemanticTokensLegend, TraceValue, Uri,
-        WorkspaceFolder,
-    },
-};
+use crate::ReturnCode;
+use crate::protocol::FoldingRangeKind;
+use crate::protocol::PositionEncodingKind;
+use crate::protocol::SemanticTokensLegend;
+use crate::protocol::TraceValue;
+use crate::protocol::Uri;
+use crate::protocol::WorkspaceFolder;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ChannelKind {

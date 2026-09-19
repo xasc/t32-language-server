@@ -3,28 +3,42 @@
 // SPDX-License-Identifier: EUPL-1.2
 
 use serde::Serialize;
-
 use serde_json::json;
 
-use crate::{
-    ls::{
-        ReturnCode,
-        doc::{GlobalMacroDefIndex, TextDocData, TextDocs},
-        lsp::Message,
-        request::Notification,
-        response::{GoToDefinitionResponse, LocationResult, NullResponse, Response},
-        tasks::{
-            ExtMacroDefLookups, FileCallMap, OngoingTask, Task, TaskDone, TaskProgress, Tasks,
-            find_ongoing_task_by_id, trace_doc_unknown, try_schedule,
-        },
-    },
-    protocol::{
-        DefinitionParams, LocationLink, LogTraceParams, NumberOrString, Position, Range as LRange,
-        TraceValue, Uri,
-    },
-    t32::{self, GotoDefLangContext, MacroDefinitionResult, NodeKind, Subroutine},
-    utils::BRange,
-};
+use crate::ls::ReturnCode;
+use crate::ls::doc::GlobalMacroDefIndex;
+use crate::ls::doc::TextDocData;
+use crate::ls::doc::TextDocs;
+use crate::ls::lsp::Message;
+use crate::ls::request::Notification;
+use crate::ls::response::GoToDefinitionResponse;
+use crate::ls::response::LocationResult;
+use crate::ls::response::NullResponse;
+use crate::ls::response::Response;
+use crate::ls::tasks::ExtMacroDefLookups;
+use crate::ls::tasks::FileCallMap;
+use crate::ls::tasks::OngoingTask;
+use crate::ls::tasks::Task;
+use crate::ls::tasks::TaskDone;
+use crate::ls::tasks::TaskProgress;
+use crate::ls::tasks::Tasks;
+use crate::ls::tasks::find_ongoing_task_by_id;
+use crate::ls::tasks::trace_doc_unknown;
+use crate::ls::tasks::try_schedule;
+use crate::protocol::DefinitionParams;
+use crate::protocol::LocationLink;
+use crate::protocol::LogTraceParams;
+use crate::protocol::NumberOrString;
+use crate::protocol::Position;
+use crate::protocol::Range as LRange;
+use crate::protocol::TraceValue;
+use crate::protocol::Uri;
+use crate::t32::GotoDefLangContext;
+use crate::t32::MacroDefinitionResult;
+use crate::t32::NodeKind;
+use crate::t32::Subroutine;
+use crate::t32::{self};
+use crate::utils::BRange;
 
 // TODO: Use dedicated types for GoToExternalMacroDef results. The first two
 // elements do not have to be repeated in this case.
@@ -576,22 +590,25 @@ fn log_conv_goto_macro_ref_req(id: NumberOrString, r#macro: String) -> Message {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    use std::{env, path, time::Instant};
+    use std::env;
+    use std::path;
+    use std::time::Instant;
 
     use tree_sitter::Tree;
-
     use url::Url;
 
-    use crate::{
-        config::T32DefaultDirs,
-        ls::doc::{self, TextDoc},
-        ls::{Task, TaskCounters, TaskSystem, workspace},
-        protocol::{Position, Range as LRange},
-        t32::LangExpressions,
-        utils,
-    };
+    use super::*;
+    use crate::config::T32DefaultDirs;
+    use crate::ls::Task;
+    use crate::ls::TaskCounters;
+    use crate::ls::TaskSystem;
+    use crate::ls::doc::TextDoc;
+    use crate::ls::doc::{self};
+    use crate::ls::workspace;
+    use crate::protocol::Position;
+    use crate::protocol::Range as LRange;
+    use crate::t32::LangExpressions;
+    use crate::utils;
 
     fn find_def(file: &str, position: Position) -> Option<GotoDefinitionResult> {
         let uri = Url::from_file_path(path::absolute(file).expect("File must exist.")).unwrap();

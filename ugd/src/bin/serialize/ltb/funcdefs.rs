@@ -2,20 +2,22 @@
 //
 // SPDX-License-Identifier: EUPL-1.2
 
-use std::{
-    collections::BTreeMap,
-    fs,
-    iter::Peekable,
-    num::NonZeroU32,
-    path::{Path, PathBuf},
-    str::CharIndices,
-};
+use std::collections::BTreeMap;
+use std::fs;
+use std::iter::Peekable;
+use std::num::NonZeroU32;
+use std::path::Path;
+use std::path::PathBuf;
+use std::str::CharIndices;
 
-use t32_language_server_user_guide_data::{
-    CopyrightFields, PracticeFuncArgumentPattern, PracticeFuncNamePattern,
-    PracticeFunctionArguments, PracticeFunctionDefinition, PracticeFunctionName, UserGuideDocs,
-    format_practice_func_name,
-};
+use t32_language_server_user_guide_data::CopyrightFields;
+use t32_language_server_user_guide_data::PracticeFuncArgumentPattern;
+use t32_language_server_user_guide_data::PracticeFuncNamePattern;
+use t32_language_server_user_guide_data::PracticeFunctionArguments;
+use t32_language_server_user_guide_data::PracticeFunctionDefinition;
+use t32_language_server_user_guide_data::PracticeFunctionName;
+use t32_language_server_user_guide_data::UserGuideDocs;
+use t32_language_server_user_guide_data::format_practice_func_name;
 
 use crate::ReturnCode;
 

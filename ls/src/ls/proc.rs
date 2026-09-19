@@ -7,12 +7,12 @@ use std::io::Error;
 
 #[cfg(unix)]
 use libc::kill;
-
 #[cfg(windows)]
-use windows_sys::Win32::{
-    Foundation::STILL_ACTIVE,
-    System::Threading::{GetExitCodeProcess, OpenProcess},
-};
+use windows_sys::Win32::Foundation::STILL_ACTIVE;
+#[cfg(windows)]
+use windows_sys::Win32::System::Threading::GetExitCodeProcess;
+#[cfg(windows)]
+use windows_sys::Win32::System::Threading::OpenProcess;
 
 #[derive(Debug, PartialEq)]
 pub enum ProcState {
@@ -89,9 +89,9 @@ cfg_select! {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use std::process::Command;
+
+    use super::*;
 
     #[test]
     fn detects_pid_alive() {

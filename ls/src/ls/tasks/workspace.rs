@@ -4,25 +4,43 @@
 
 use std::time::Instant;
 
-use crate::{
-    ReturnCode,
-    config::{T32DefaultDirs, Workspace},
-    ls::{
-        FileData, Notification, TaskCounter,
-        doc::{self, TextDocs},
-        lsp::Message,
-        tasks::{
-            self, OngoingTask, RenameFileOperations, Task, TaskDone, TaskProgress, Tasks,
-            WorkDoneProgressPhase, WorkspaceDiscoveryPhase, progress, try_schedule,
-        },
-        workspace::{FileIndex, WorkspaceMembers, index_files, locate_files, rename_files},
-    },
-    protocol::{
-        FileRename, LogTraceParams, NumberOrString, ProgressParams, ProgressToken, TraceValue, Uri,
-        WorkDoneProgressBegin, WorkDoneProgressEnd, WorkDoneProgressReport, WorkDoneProgressValue,
-    },
-    t32::SUFFIXES,
-};
+use crate::ReturnCode;
+use crate::config::T32DefaultDirs;
+use crate::config::Workspace;
+use crate::ls::FileData;
+use crate::ls::Notification;
+use crate::ls::TaskCounter;
+use crate::ls::doc::TextDocs;
+use crate::ls::doc::{self};
+use crate::ls::lsp::Message;
+use crate::ls::tasks::OngoingTask;
+use crate::ls::tasks::RenameFileOperations;
+use crate::ls::tasks::Task;
+use crate::ls::tasks::TaskDone;
+use crate::ls::tasks::TaskProgress;
+use crate::ls::tasks::Tasks;
+use crate::ls::tasks::WorkDoneProgressPhase;
+use crate::ls::tasks::WorkspaceDiscoveryPhase;
+use crate::ls::tasks::progress;
+use crate::ls::tasks::try_schedule;
+use crate::ls::tasks::{self};
+use crate::ls::workspace::FileIndex;
+use crate::ls::workspace::WorkspaceMembers;
+use crate::ls::workspace::index_files;
+use crate::ls::workspace::locate_files;
+use crate::ls::workspace::rename_files;
+use crate::protocol::FileRename;
+use crate::protocol::LogTraceParams;
+use crate::protocol::NumberOrString;
+use crate::protocol::ProgressParams;
+use crate::protocol::ProgressToken;
+use crate::protocol::TraceValue;
+use crate::protocol::Uri;
+use crate::protocol::WorkDoneProgressBegin;
+use crate::protocol::WorkDoneProgressEnd;
+use crate::protocol::WorkDoneProgressReport;
+use crate::protocol::WorkDoneProgressValue;
+use crate::t32::SUFFIXES;
 
 pub fn prepare_workspace_discovery(
     id: NumberOrString,
@@ -420,15 +438,14 @@ fn trace_doc_cannot_read(uri: &str) -> Message {
 
 #[cfg(test)]
 mod tests {
-    use crate::utils;
-
-    use super::*;
-
-    use std::{env, path};
+    use std::env;
+    use std::path;
 
     use url::Url;
 
+    use super::*;
     use crate::ls::tasks;
+    use crate::utils;
 
     fn workspace() -> Workspace {
         let dir = env::current_dir().unwrap().join("tests").join("samples");

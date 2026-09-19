@@ -20,14 +20,16 @@
 mod header;
 mod jsonrpc;
 
-use std::{fmt, num::NonZeroUsize};
-
-use crate::{
-    ls::request::{Notification, Request},
-    ls::response::{ErrorResponse, ReceiveError, Response},
-};
+use std::fmt;
+use std::num::NonZeroUsize;
 
 use header::ScanError;
+
+use crate::ls::request::Notification;
+use crate::ls::request::Request;
+use crate::ls::response::ErrorResponse;
+use crate::ls::response::ReceiveError;
+use crate::ls::response::Response;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum TokenType {

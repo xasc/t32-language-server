@@ -10,46 +10,60 @@ mod parse;
 mod path;
 mod query;
 
-use tree_sitter::{Language, Tree, TreeCursor};
-
-pub use ast::{NodeKind, find_deepest_node, id_into_node};
-pub use cache::{get_macro_scope, locate_calls_to_file_target};
-pub use expressions::{
-    CallExpression, CallExpressions, CallLocations, Command, Label, MacroDefinition,
-    ParameterDeclaration, ParameterDeclarationKind, Subroutine, SubscriptCallKind, SubscriptCalls,
-};
-pub use macros::{MacroDefinitions, MacroScope};
-pub use query::{
-    SemanticToken, do_syntax_highlighting, do_syntax_highlighting_in_range, list_code_folds,
-};
-
+pub use ast::NodeKind;
+pub use ast::find_deepest_node;
+pub use ast::id_into_node;
+pub use cache::get_macro_scope;
+pub use cache::locate_calls_to_file_target;
+pub use expressions::CallExpression;
+pub use expressions::CallExpressions;
+pub use expressions::CallLocations;
+pub use expressions::Command;
+pub use expressions::Label;
+pub use expressions::MacroDefinition;
+pub use expressions::ParameterDeclaration;
+pub use expressions::ParameterDeclarationKind;
+pub use expressions::Subroutine;
+pub use expressions::SubscriptCallKind;
+pub use expressions::SubscriptCalls;
+pub use expressions::find_all_call_expressions as find_call_expressions;
+pub use expressions::find_all_commands_and_parameter_declarations as find_commands_and_parameter_declarations;
+use expressions::find_all_references_for_label;
+use expressions::find_all_references_for_subroutine;
+pub use expressions::find_all_subroutines_and_labels as find_subroutines_and_labels;
+use expressions::find_call_target_definition;
+pub use expressions::find_command_identifier;
+use expressions::find_file_target;
+use expressions::find_label;
+use expressions::find_subroutine;
+use expressions::locate_subscript;
+use expressions::locate_subscript_call_target;
+pub use macros::MacroDefinitions;
 #[cfg(test)]
 pub use macros::MacroDefinitionsImplicit;
+pub use macros::MacroScope;
+pub use macros::defines_named_macro;
+pub use macros::find_all_macro_definitions as find_macro_definitions;
+pub use macros::find_any_macro_references;
+pub use macros::find_external_macro_definition as goto_external_macro_definition;
+pub use macros::find_macro_definition;
+use macros::find_macro_references_at_offset;
+use macros::find_macro_references_in_file;
+pub use parse::parse_full;
+pub use parse::parse_incremental;
+pub use path::PathShorthandDirs;
+pub use path::locate_script as resolve_script;
+pub use query::SemanticToken;
+pub use query::do_syntax_highlighting;
+pub use query::do_syntax_highlighting_in_range;
+pub use query::list_code_folds;
+use tree_sitter::Language;
+use tree_sitter::Tree;
+use tree_sitter::TreeCursor;
 
-pub use expressions::{
-    find_all_call_expressions as find_call_expressions,
-    find_all_commands_and_parameter_declarations as find_commands_and_parameter_declarations,
-    find_all_subroutines_and_labels as find_subroutines_and_labels, find_command_identifier,
-};
-
-pub use macros::{
-    defines_named_macro, find_all_macro_definitions as find_macro_definitions,
-    find_any_macro_references, find_external_macro_definition as goto_external_macro_definition,
-    find_macro_definition,
-};
-
-pub use parse::{parse_full, parse_incremental};
-
-pub use path::{PathShorthandDirs, locate_script as resolve_script};
-
-use crate::{ls::FileIndex, protocol::Uri, utils::BRange};
-
-use expressions::{
-    find_all_references_for_label, find_all_references_for_subroutine, find_call_target_definition,
-    find_file_target, find_label, find_subroutine, locate_subscript, locate_subscript_call_target,
-};
-
-use macros::{find_macro_references_at_offset, find_macro_references_in_file};
+use crate::ls::FileIndex;
+use crate::protocol::Uri;
+use crate::utils::BRange;
 
 pub enum MacroDefinitionResult {
     Final(Vec<MacroDefinition>),

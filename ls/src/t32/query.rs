@@ -99,27 +99,48 @@ mod captures;
 
 use std::sync::LazyLock;
 
-use tree_sitter::{LanguageRef, Query, QueryCaptures, QueryCursor, QueryCursorOptions, StreamingIterator, Tree};
+use captures::CAPTURE_BLOCK;
+use captures::CAPTURE_COMMENT;
+use captures::CAPTURE_CONDITIONAL;
+use captures::CAPTURE_CONDITIONAL_TERNARY;
+use captures::CAPTURE_CONSTANT;
+use captures::CAPTURE_CONSTANT_BUILTIN;
+use captures::CAPTURE_FUNCTION;
+use captures::CAPTURE_FUNCTION_BUILTIN;
+use captures::CAPTURE_FUNCTION_CALL;
+use captures::CAPTURE_KEYWORD;
+use captures::CAPTURE_KEYWORD_FUNCTION;
+use captures::CAPTURE_KEYWORD_OPERATOR;
+use captures::CAPTURE_KEYWORD_RETURN;
+use captures::CAPTURE_LABEL;
+use captures::CAPTURE_NUMBER;
+use captures::CAPTURE_OPERATOR;
+use captures::CAPTURE_REPEAT;
+use captures::CAPTURE_STRING;
+use captures::CAPTURE_STRING_SPECIAL;
+use captures::CAPTURE_TYPE;
+use captures::CAPTURE_VARIABLE;
+use captures::CAPTURE_VARIABLE_BUILTIN;
+use captures::CAPTURE_VARIABLE_PARAMETER;
+use tree_sitter::LanguageRef;
+use tree_sitter::Query;
+use tree_sitter::QueryCaptures;
+use tree_sitter::QueryCursor;
+use tree_sitter::QueryCursorOptions;
+use tree_sitter::StreamingIterator;
+use tree_sitter::Tree;
 use tree_sitter_t32::HIGHLIGHTS_QUERY;
 
-use crate::{
-    ls::TextDoc,
-    protocol::{
-        FoldingRange, FoldingRangeKind, Range as LRange, SemanticTokenModifiers,
-        SemanticTokenTypes, SemanticTokensLegend,
-    },
-    t32::{NodeKind, parse_full},
-    utils::BRange,
-};
-
-use captures::{
-    CAPTURE_BLOCK, CAPTURE_COMMENT, CAPTURE_CONDITIONAL, CAPTURE_CONDITIONAL_TERNARY,
-    CAPTURE_CONSTANT, CAPTURE_CONSTANT_BUILTIN, CAPTURE_FUNCTION, CAPTURE_FUNCTION_BUILTIN,
-    CAPTURE_FUNCTION_CALL, CAPTURE_KEYWORD, CAPTURE_KEYWORD_FUNCTION, CAPTURE_KEYWORD_OPERATOR,
-    CAPTURE_KEYWORD_RETURN, CAPTURE_LABEL, CAPTURE_NUMBER, CAPTURE_OPERATOR, CAPTURE_REPEAT,
-    CAPTURE_STRING, CAPTURE_STRING_SPECIAL, CAPTURE_TYPE, CAPTURE_VARIABLE,
-    CAPTURE_VARIABLE_BUILTIN, CAPTURE_VARIABLE_PARAMETER,
-};
+use crate::ls::TextDoc;
+use crate::protocol::FoldingRange;
+use crate::protocol::FoldingRangeKind;
+use crate::protocol::Range as LRange;
+use crate::protocol::SemanticTokenModifiers;
+use crate::protocol::SemanticTokenTypes;
+use crate::protocol::SemanticTokensLegend;
+use crate::t32::NodeKind;
+use crate::t32::parse_full;
+use crate::utils::BRange;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct SemanticToken {
@@ -847,8 +868,13 @@ fn run_query<'query, 'tree, 'cursor: 'query, 'options, 'text>(
     tree: &'tree Tree,
     doc: &'text TextDoc,
     cursor: &'cursor mut QueryCursor,
-) -> Option<(usize, QueryCaptures<'query, 'tree, 'options, &'text [u8], &'text [u8]>)> {
-    let opts = QueryCursorOptions { progress_callback: None };
+) -> Option<(
+    usize,
+    QueryCaptures<'query, 'tree, 'options, &'text [u8], &'text [u8]>,
+)> {
+    let opts = QueryCursorOptions {
+        progress_callback: None,
+    };
 
     let matches = cursor.captures_with_options(query, tree.root_node(), doc.text.as_bytes(), opts);
     let count = matches.count();
@@ -856,20 +882,24 @@ fn run_query<'query, 'tree, 'cursor: 'query, 'options, 'text>(
         return None;
     }
 
-    let opts = QueryCursorOptions { progress_callback: None };
+    let opts = QueryCursorOptions {
+        progress_callback: None,
+    };
     let matches = cursor.captures_with_options(query, tree.root_node(), doc.text.as_bytes(), opts);
     Some((count, matches))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use std::path;
 
     use url::Url;
 
-    use crate::{config, ls, protocol::Position, utils};
+    use super::*;
+    use crate::config;
+    use crate::ls;
+    use crate::protocol::Position;
+    use crate::utils;
 
     fn create_full_legend() -> SemanticTokensLegend {
         let types = vec![

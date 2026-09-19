@@ -4,33 +4,52 @@
 
 use std::fmt;
 
-use serde::{
-    Deserialize, Serialize,
-    de::{self, DeserializeOwned, Deserializer, MapAccess, Visitor},
-    ser::{SerializeStruct, Serializer},
-};
-use serde_json::{Error, Value, error::Category};
-
+use serde::Deserialize;
+use serde::Serialize;
+use serde::de::DeserializeOwned;
+use serde::de::Deserializer;
+use serde::de::MapAccess;
+use serde::de::Visitor;
+use serde::de::{self};
+use serde::ser::SerializeStruct;
+use serde::ser::Serializer;
+use serde_json::Error;
+use serde_json::Value;
+use serde_json::error::Category;
 #[cfg(debug_assertions)]
 use serde_path_to_error;
 
-use crate::{
-    ls::lsp::Message,
-    ls::request::{Notification, Request},
-    ls::response::{
-        ErrorResponse, FindReferencesResponse, FoldingRangeResponse, GoToDefinitionResponse,
-        InitializeResponse, NullResponse, ReceiveError, Response, SemanticTokensFullResponse,
-        SemanticTokensRangeResponse,
-    },
-    protocol::{
-        DefinitionParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-        DidOpenTextDocumentParams, ErrorCodes, FoldingRangeParams, InitializeParams,
-        InitializedParams, LogTraceParams, NumberOrString, ReferenceParams, RenameFilesParams,
-        ResponseError, SemanticTokensParams, SemanticTokensRangeParams, SetTraceParams,
-        WorkDoneProgressCancelParams,
-    },
-    utils::get_error_offset,
-};
+use crate::ls::lsp::Message;
+use crate::ls::request::Notification;
+use crate::ls::request::Request;
+use crate::ls::response::ErrorResponse;
+use crate::ls::response::FindReferencesResponse;
+use crate::ls::response::FoldingRangeResponse;
+use crate::ls::response::GoToDefinitionResponse;
+use crate::ls::response::InitializeResponse;
+use crate::ls::response::NullResponse;
+use crate::ls::response::ReceiveError;
+use crate::ls::response::Response;
+use crate::ls::response::SemanticTokensFullResponse;
+use crate::ls::response::SemanticTokensRangeResponse;
+use crate::protocol::DefinitionParams;
+use crate::protocol::DidChangeTextDocumentParams;
+use crate::protocol::DidCloseTextDocumentParams;
+use crate::protocol::DidOpenTextDocumentParams;
+use crate::protocol::ErrorCodes;
+use crate::protocol::FoldingRangeParams;
+use crate::protocol::InitializeParams;
+use crate::protocol::InitializedParams;
+use crate::protocol::LogTraceParams;
+use crate::protocol::NumberOrString;
+use crate::protocol::ReferenceParams;
+use crate::protocol::RenameFilesParams;
+use crate::protocol::ResponseError;
+use crate::protocol::SemanticTokensParams;
+use crate::protocol::SemanticTokensRangeParams;
+use crate::protocol::SetTraceParams;
+use crate::protocol::WorkDoneProgressCancelParams;
+use crate::utils::get_error_offset;
 
 /// Serialization formats of `RequestMessage`, `NotificationMessage`, and
 /// `ResponseMessage` when they are sent on the line from client to server or
@@ -268,9 +287,27 @@ pub fn parse_message(buf: &[u8]) -> Result<LineMessage, ResponseError> {
                 Err(err) => {
                     match err.inner().classify() {
                         Category::Io => unreachable!(), // Byte buffer must be valid.
-                        Category::Syntax => return Err(precise_error_syntax(err.path().to_string(), err.into_inner(), Some(buf))),
-                        Category::Data => return Err(precise_error_data(err.path().to_string(), err.into_inner(), Some(buf))),
-                        Category::Eof => return Err(precise_error_incomplete(err.path().to_string(), err.into_inner(), buf.len())),
+                        Category::Syntax => {
+                            return Err(precise_error_syntax(
+                                err.path().to_string(),
+                                err.into_inner(),
+                                Some(buf),
+                            ));
+                        }
+                        Category::Data => {
+                            return Err(precise_error_data(
+                                err.path().to_string(),
+                                err.into_inner(),
+                                Some(buf),
+                            ));
+                        }
+                        Category::Eof => {
+                            return Err(precise_error_incomplete(
+                                err.path().to_string(),
+                                err.into_inner(),
+                                buf.len(),
+                            ));
+                        }
                     }
                 }
             }
@@ -811,8 +848,20 @@ fn request_params<T: DeserializeOwned>(params: Value) -> Result<T, ResponseError
                 Ok(val) => Ok(val),
                 Err(err) => {
                     match err.inner().classify() {
-                        Category::Syntax => return Err(precise_error_syntax(err.path().to_string(), err.into_inner(), None)),
-                        Category::Data => return Err(precise_error_data(err.path().to_string(), err.into_inner(), None)),
+                        Category::Syntax => {
+                            return Err(precise_error_syntax(
+                                err.path().to_string(),
+                                err.into_inner(),
+                                None,
+                            ));
+                        }
+                        Category::Data => {
+                            return Err(precise_error_data(
+                                err.path().to_string(),
+                                err.into_inner(),
+                                None,
+                            ));
+                        }
                         Category::Io => unreachable!(), // Byte buffer must be valid.
                         Category::Eof => unreachable!(), // We already have a valid JSON value.
                     }
@@ -858,17 +907,25 @@ fn notif_err_resp_result_type(id: NumberOrString, res: Value) -> Notification {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    use crate::{
-        ls::response::{GoToDefinitionResponse, InitializeResponse, LocationResult, Response},
-        protocol::{
-            self, Location, LocationLink, LogTraceParams, Position, ProgressParams, Range,
-            WorkDoneProgressBegin, WorkDoneProgressCreateParams, WorkDoneProgressEnd,
-            WorkDoneProgressReport, WorkDoneProgressValue,
-        },
-    };
     use serde_json::json;
+
+    use super::*;
+    use crate::ls::response::GoToDefinitionResponse;
+    use crate::ls::response::InitializeResponse;
+    use crate::ls::response::LocationResult;
+    use crate::ls::response::Response;
+    use crate::protocol::Location;
+    use crate::protocol::LocationLink;
+    use crate::protocol::LogTraceParams;
+    use crate::protocol::Position;
+    use crate::protocol::ProgressParams;
+    use crate::protocol::Range;
+    use crate::protocol::WorkDoneProgressBegin;
+    use crate::protocol::WorkDoneProgressCreateParams;
+    use crate::protocol::WorkDoneProgressEnd;
+    use crate::protocol::WorkDoneProgressReport;
+    use crate::protocol::WorkDoneProgressValue;
+    use crate::protocol::{self};
 
     #[test]
     fn throws_error_on_missing_field() {

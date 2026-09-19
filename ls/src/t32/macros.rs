@@ -92,26 +92,43 @@
 
 use std::ops::Range;
 
-use tree_sitter::{Node, Range as TRange, Tree, TreeCursor};
+use tree_sitter::Node;
+use tree_sitter::Range as TRange;
+use tree_sitter::Tree;
+use tree_sitter::TreeCursor;
 
-use crate::{protocol::Uri, t32::ast::find_deepest_node, utils::BRange};
-
-use super::{
-    FindMacroRefsLangContext, GotoDefLangContext, MacroDefinitionResult,
-    ast::{
-        KEYWORD_GLOBAL, KEYWORD_LOCAL, KEYWORD_PRIVATE, KEYWORD_SUBROUTINE_ENTRY,
-        KEYWORD_SUBROUTINE_PARAMETERS, KEYWORD_SUBROUTINE_RETURNVALUES, NodeKind,
-        get_block_opener_ids, get_control_flow_block_ids, get_macro_container_expr_ids,
-        get_subroutine_ids,
-    },
-    cache::find_subroutine_for_call,
-    expressions::{
-        self, CallExpression, MacroDefResolution, MacroDefinition, ParameterDeclaration,
-        ParameterDeclarationKind, RECURSION_BREAKER_SUBROUTINE_SCAN, Subroutine, SubscriptCalls,
-        assign_lhs_matches_macro, extract_assign_lhs_macro, find_docstring, goto_subroutine,
-        resides_in_subroutine,
-    },
-};
+use super::FindMacroRefsLangContext;
+use super::GotoDefLangContext;
+use super::MacroDefinitionResult;
+use super::ast::KEYWORD_GLOBAL;
+use super::ast::KEYWORD_LOCAL;
+use super::ast::KEYWORD_PRIVATE;
+use super::ast::KEYWORD_SUBROUTINE_ENTRY;
+use super::ast::KEYWORD_SUBROUTINE_PARAMETERS;
+use super::ast::KEYWORD_SUBROUTINE_RETURNVALUES;
+use super::ast::NodeKind;
+use super::ast::get_block_opener_ids;
+use super::ast::get_control_flow_block_ids;
+use super::ast::get_macro_container_expr_ids;
+use super::ast::get_subroutine_ids;
+use super::cache::find_subroutine_for_call;
+use super::expressions::CallExpression;
+use super::expressions::MacroDefResolution;
+use super::expressions::MacroDefinition;
+use super::expressions::ParameterDeclaration;
+use super::expressions::ParameterDeclarationKind;
+use super::expressions::RECURSION_BREAKER_SUBROUTINE_SCAN;
+use super::expressions::Subroutine;
+use super::expressions::SubscriptCalls;
+use super::expressions::assign_lhs_matches_macro;
+use super::expressions::extract_assign_lhs_macro;
+use super::expressions::find_docstring;
+use super::expressions::goto_subroutine;
+use super::expressions::resides_in_subroutine;
+use super::expressions::{self};
+use crate::protocol::Uri;
+use crate::t32::ast::find_deepest_node;
+use crate::utils::BRange;
 
 #[derive(Debug)]
 pub struct MacroReferencesBlockCaptures<'a> {
@@ -2224,10 +2241,10 @@ fn filter_param_declarations_by_name(
 
 #[cfg(test)]
 mod tests {
+    use std::env;
+    use std::fs;
+
     use super::*;
-
-    use std::{env, fs};
-
     use crate::t32;
 
     fn find_param_decl_nodes(tree: &Tree) -> Vec<TreeCursor<'_>> {

@@ -2,12 +2,14 @@
 //
 // SPDX-License-Identifier: EUPL-1.2
 
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
+use std::fs;
+use std::path::Path;
+use std::path::PathBuf;
 
-use crate::{config::T32DefaultDirs, ls::FileIndex, protocol::Uri, t32::SUFFIXES};
+use crate::config::T32DefaultDirs;
+use crate::ls::FileIndex;
+use crate::protocol::Uri;
+use crate::t32::SUFFIXES;
 
 #[derive(Debug, PartialEq)]
 enum PathPrefixDir {

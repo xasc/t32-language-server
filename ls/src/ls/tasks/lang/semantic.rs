@@ -2,23 +2,32 @@
 //
 // SPDX-License-Identifier: EUPL-1.2
 
-use crate::{
-    ReturnCode,
-    config::{SemanticTokenEncoding, SemanticTokenSupport},
-    ls::{
-        TextDocs,
-        doc::{TextDoc, TextDocData},
-        lsp::Message,
-        request::Notification,
-        response::{NullResponse, Response},
-        tasks::{Task, Tasks, trace_doc_unknown, try_schedule},
-    },
-    protocol::{
-        LogTraceParams, NumberOrString, Position, Range, SemanticTokens, SemanticTokensLegend,
-        SemanticTokensParams, SemanticTokensRangeParams, TraceValue,
-    },
-    t32::{SemanticToken, do_syntax_highlighting, do_syntax_highlighting_in_range},
-};
+use crate::ReturnCode;
+use crate::config::SemanticTokenEncoding;
+use crate::config::SemanticTokenSupport;
+use crate::ls::TextDocs;
+use crate::ls::doc::TextDoc;
+use crate::ls::doc::TextDocData;
+use crate::ls::lsp::Message;
+use crate::ls::request::Notification;
+use crate::ls::response::NullResponse;
+use crate::ls::response::Response;
+use crate::ls::tasks::Task;
+use crate::ls::tasks::Tasks;
+use crate::ls::tasks::trace_doc_unknown;
+use crate::ls::tasks::try_schedule;
+use crate::protocol::LogTraceParams;
+use crate::protocol::NumberOrString;
+use crate::protocol::Position;
+use crate::protocol::Range;
+use crate::protocol::SemanticTokens;
+use crate::protocol::SemanticTokensLegend;
+use crate::protocol::SemanticTokensParams;
+use crate::protocol::SemanticTokensRangeParams;
+use crate::protocol::TraceValue;
+use crate::t32::SemanticToken;
+use crate::t32::do_syntax_highlighting;
+use crate::t32::do_syntax_highlighting_in_range;
 
 #[derive(Debug)]
 struct SemanticTokenIntegerEncoded {
@@ -521,8 +530,8 @@ fn log_semantic_tok_range_req(id: NumberOrString) -> Message {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    use crate::{protocol::TextDocumentItem, t32};
+    use crate::protocol::TextDocumentItem;
+    use crate::t32;
 
     #[test]
     fn can_flatten_overlapping_tokens() {

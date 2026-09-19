@@ -15,21 +15,26 @@
 //! that the client does not support will be mapped to a default value.
 //!
 
-use crate::{
-    ReturnCode,
-    config::{CodeFoldingEncoding, CodeFoldingSupport},
-    ls::{
-        Message, Notification, Response, Task, Tasks, TextDocs,
-        doc::TextDocData,
-        response::NullResponse,
-        tasks::{trace_doc_unknown, try_schedule},
-    },
-    protocol::{
-        FoldingRange, FoldingRangeKind, FoldingRangeParams, LogTraceParams, NumberOrString,
-        TraceValue,
-    },
-    t32::list_code_folds,
-};
+use crate::ReturnCode;
+use crate::config::CodeFoldingEncoding;
+use crate::config::CodeFoldingSupport;
+use crate::ls::Message;
+use crate::ls::Notification;
+use crate::ls::Response;
+use crate::ls::Task;
+use crate::ls::Tasks;
+use crate::ls::TextDocs;
+use crate::ls::doc::TextDocData;
+use crate::ls::response::NullResponse;
+use crate::ls::tasks::trace_doc_unknown;
+use crate::ls::tasks::try_schedule;
+use crate::protocol::FoldingRange;
+use crate::protocol::FoldingRangeKind;
+use crate::protocol::FoldingRangeParams;
+use crate::protocol::LogTraceParams;
+use crate::protocol::NumberOrString;
+use crate::protocol::TraceValue;
+use crate::t32::list_code_folds;
 pub fn process_folding_range_req(
     id: NumberOrString,
     params: FoldingRangeParams,
@@ -155,13 +160,14 @@ fn encode_code_folds(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use std::path;
 
     use url::Url;
 
-    use crate::{config, ls, utils};
+    use super::*;
+    use crate::config;
+    use crate::ls;
+    use crate::utils;
 
     #[test]
     fn can_encode_code_folds() {
