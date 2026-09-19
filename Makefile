@@ -2,10 +2,11 @@
 #
 # SPDX-License-Identifier: EUPL-1.2
 
-dir ?= ltb
-outfile ?= data/ugd.dat
+all: build-all
 
-# WebAssembly builds with WASI
+
+# Build WebAssembly binaries with WASI
+
 wasi_os = linux
 wasi_arch = x86_64
 wasi_version = 32
@@ -49,6 +50,45 @@ wasm-install:
 	wget https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${wasi_version}/$(wasi_sdk).tar.gz
 	tar xvf $(wasi_sdk).tar.gz --directory=target/wasi-sdk
 
-.PHONY: ugd-serialize
-ugd-serialize:
-	cargo run --package t32-language-server-user-guide-data -- --output=${outfile} ${dir}
+
+# Build pipeline for data assets
+
+dir ?= ltb
+ugd_asset ?= data/ugd.dat
+
+$(ugd_asset): ugd-build-debug
+	cargo run --package t32-language-server-user-guide-data -- --output=$@ ${dir}
+
+.PHONY: ugd-build-debug
+ugd-build-debug:
+	cargo build --package t32-language-server-user-guide-data --profile=dev --bin t32ls-ugd
+
+.PHONY: ugd-build-release
+ugd-build-release:
+	cargo build --package t32-language-server-user-guide-data --profile=release --bin t32ls-ugd
+
+.PHONY: ugd-build
+ugd-build: ugd-build-debug ugd-build-release
+
+.PHONY: t32ls-build-debug
+t32ls-build-debug: $(ugd_asset)
+	cargo build --package t32-language-server --profile=dev --bin t32ls
+
+
+# Build language server binary
+
+.PHONY: t32ls-build-release
+t32ls-build-release: $(ugd_asset)
+	cargo build --package t32-language-server --profile=release --bin t32ls
+
+.PHONY: t32ls-build
+t32ls-build: t32ls-build-debug t32ls-build-release
+
+.PHONY: build-debug
+build-all: t32ls-build-debug ugd-build-debug
+
+.PHONY: build-release
+build-all: t32ls-build-release ugd-build-release
+
+.PHONY: build-all
+build-all: build-debug build-release wasm-build
