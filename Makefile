@@ -55,40 +55,59 @@ wasm-install:
 
 dir ?= ltb
 ugd_asset ?= data/ugd.dat
+ugd_bin ?= t32ls-ugd
 
-$(ugd_asset): ugd-build-debug
-	cargo run --package t32-language-server-user-guide-data -- --output=$@ ${dir}
+$(ugd_asset): target/release/$(ugd_bin)
+	cargo run --package t32-language-server-user-guide-data --profile=release -- --output=$@ ${dir}
 
-.PHONY: ugd-build-debug
-ugd-build-debug:
+target/debug/$(ugd_bin):
 	cargo build --package t32-language-server-user-guide-data --profile=dev --bin t32ls-ugd
 
-.PHONY: ugd-build-release
-ugd-build-release:
+target/release/$(ugd_bin):
 	cargo build --package t32-language-server-user-guide-data --profile=release --bin t32ls-ugd
+
+.PHONY: ugd-build-debug
+ugd-build-debug: target/debug/$(ugd_bin)
+
+.PHONY: ugd-build-release
+ugd-build-release: target/release/$(ugd_bin)
 
 .PHONY: ugd-build
 ugd-build: ugd-build-debug ugd-build-release
 
-.PHONY: t32ls-build-debug
-t32ls-build-debug: $(ugd_asset)
-	cargo build --package t32-language-server --profile=dev --bin t32ls
-
 
 # Build language server binary
 
-.PHONY: t32ls-build-release
-t32ls-build-release: $(ugd_asset)
+t32ls_bin ?= t32ls
+
+target/debug/$(t32ls_bin): $(ugd_asset)
+	cargo build --package t32-language-server --profile=dev --bin t32ls
+
+target/release/$(t32ls_bin): $(ugd_asset)
 	cargo build --package t32-language-server --profile=release --bin t32ls
+
+.PHONY: t32ls-build-debug
+t32ls-build-debug: target/debug/$(t32ls_bin)
+
+.PHONY: t32ls-build-release
+t32ls-build-release: target/release/$(t32ls_bin)
 
 .PHONY: t32ls-build
 t32ls-build: t32ls-build-debug t32ls-build-release
 
+
+# Build all components
+
 .PHONY: build-debug
-build-all: t32ls-build-debug ugd-build-debug
+build-debug: t32ls-build-debug ugd-build-debug
 
 .PHONY: build-release
-build-all: t32ls-build-release ugd-build-release
+build-release: t32ls-build-release ugd-build-release
 
 .PHONY: build-all
 build-all: build-debug build-release wasm-build
+
+
+.PHONY: clean
+clean:
+	cargo clean
