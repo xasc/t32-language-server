@@ -159,9 +159,9 @@ t32ls --clientProcessId=42 -t messages
 Roadmap
 -------
 
-1.  Code Folds
+1.  Hover information
 2.  Support for autocompletions
-3.  Hover and inlay hints
+3.  Inlay hints
 
 
 Packages

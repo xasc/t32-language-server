@@ -43,7 +43,8 @@ Features
 
 -  Go to definition for PRACTICE macros and subroutines.
 -  Locates PRACTICE macros and file references across all scripts in a project.
--  Semantic token detection for improved syntax highlighting.
+-  Semantic tokens for improved syntax highlighting.
+-  Code folding for PRACTICE blocks and comments.
 
 
 Quick start
@@ -51,7 +52,7 @@ Quick start
 
 ### Dependencies
 
-Builds require [Rust] version **1.95** or newer.
+Builds require [Rust] version **1.99.1** or newer.
 These additional dependencies are required:
  -  [libc] [Unix]
  -  [serde]
@@ -88,6 +89,17 @@ These additional dependencies are required:
 
 [crates.io]: https://crates.io/crates/t32-language-server
 
+#### VS Code & VSCodium
+
+Install the extension "*t32 Language Server*" from
+  -  [Visual Studio Marketplace], or
+  -  [Open VSX Registry].
+
+Check the extension's readme for additional setup instructions.
+
+[Visual Studio Marketplace]: https://marketplace.visualstudio.com/items?itemName=xasc.t32ls-vsc
+[Open VSX Registry]: https://open-vsx.org/extension/xasc/t32ls-vsc
+
 #### Precompiled binaries
 
 Binary releases for Linux, Windows, macOS, and WebAssembly are available on the
@@ -114,14 +126,27 @@ t32ls [OPTIONS]
   -c PID, --clientProcessId=PID
     Process ID of the client that started the server. The server can use the
     PID to monitor the client process and shut itself down if the client
-    process dies.
+    process dies. If the client process ID is not provided, set the value to 0
+    to suppress the warning.
+
+  -s DIR, --t32SystemDir=DIR
+    System directory of your TRACE32 installation. The server will use this
+    path to resolve the path prefix "~~" in script files. This prefix expands
+    to the absolute path of the TRACE32 system directory, e.g. "C:\T32". It is
+    commonly used to reference files from the subdirectory "demo" in the TRACE32
+    system directory.
 
   -t LEVEL, --trace=LEVEL
     Set the initial logging level of the server's execution trace. LEVEL must
     be one of 'off,messages,verbose'.
 
+  -T DIR, --t32TempDir=DIR
+    Selected temporary directory of TRACE32. The server will use this path to
+    resolve the path prefix "~~~" in script files. This prefix expands
+    to the absolute path of the TRACE32 temporary directory, e.g. "/tmp".
+
   -V, --version
-    Print version info and exit.
+    Print version info and exit."
 ~~~~
 
 #### Example
@@ -134,16 +159,23 @@ t32ls --clientProcessId=42 -t messages
 Roadmap
 -------
 
-1.  Extension for VSCode
+1.  Hover information
 2.  Support for autocompletions
+3.  Inlay hints
 
 
 Packages
 --------
 
-| Registry      | Package                                                              | Download                                                                             |
-| ------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| crates.io     | [t32-language-server](https://crates.io/crates/t32-language-server)  | https://crates.io/api/v1/crates/t32-language-server/`major`.`minor`.`patch`/download |
+All packages are published from the [GitHub mirror] repository.
+
+| Registry                  | Package                                                                                   | Download                                                                             |
+| ------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| crates.io                 | [t32-language-server](https://crates.io/crates/t32-language-server)                       | https://crates.io/api/v1/crates/t32-language-server/`major`.`minor`.`patch`/download |
+| Visual Studio Marketplace | [t32 Language Server](https://marketplace.visualstudio.com/items?itemName=xasc.t32ls-vsc) | https://github.com/xasc/t32-language-server/releases/tag/v`major`.`minor`.`patch`    |
+| Open VSX Registry         | [t32 Language Server](https://open-vsx.org/extension/xasc/t32ls-vsc)                      | https://github.com/xasc/t32-language-server/releases/tag/v`major`.`minor`.`patch`    |
+
+[GitHub mirror]: https://github.com/xasc/t32-language-server
 
 
 Mirrors
@@ -218,7 +250,7 @@ This language server implements [version 3.18 of the language server protocol].
 | `textDocument/codeLens`                  | ➖             |
 | `codeLens/resolve`                       | ➖             |
 | `workspace/codeLens/refresh`             | ➖             |
-| `textDocument/foldingRange`              | ➖             |
+| `textDocument/foldingRange`              | ✅             |
 | `workspace/foldingRange/refresh`         | ➖             |
 | `textDocument/selectionRange`            | ➖             |
 | `textDocument/documentSymbol`            | ➖             |
@@ -282,6 +314,6 @@ This language server implements [version 3.18 of the language server protocol].
 | `window/showMessageRequest`       | ➖             |
 | `window/showDocument`             | ➖             |
 | `window/logMessage`               | ➖             |
-| `window/workDoneProgress/create`  | ➖             |
-| `window/workDoneProgress/cancel`  | ➖             |
+| `window/workDoneProgress/create`  | ✅             |
+| `window/workDoneProgress/cancel`  | ✅             |
 | `telemetry/event`                 | ➖             |
