@@ -15,9 +15,9 @@ use t32_language_server_user_guide_data::DATFILE_FIELD_WIDTH_NODE_CHAR;
 use t32_language_server_user_guide_data::DATFILE_FIELD_WIDTH_NODE_TAG;
 use t32_language_server_user_guide_data::DATFILE_FIELD_WIDTH_NODES_TOTAL;
 use t32_language_server_user_guide_data::DATFILE_FIELD_WIDTH_SUCCESSOR;
+use t32_language_server_user_guide_data::UserGuideDataPickled;
 
 use crate::ReturnCode;
-use crate::UserGuideData;
 
 #[derive(Clone, Debug)]
 enum Node {
@@ -293,7 +293,7 @@ impl PriorityQueue {
     }
 }
 
-pub fn write_outfile(ugd: UserGuideData, outfile: &Path) -> Result<(), ReturnCode> {
+pub fn write_outfile(ugd: UserGuideDataPickled, outfile: &Path) -> Result<(), ReturnCode> {
     if let Some(dir) = outfile.parent() {
         if dir.is_file() {
             eprintln!(

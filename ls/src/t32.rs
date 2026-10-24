@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: EUPL-1.2
 
 mod ast;
+mod builtin;
 mod cache;
 mod expressions;
 mod macros;
@@ -13,6 +14,7 @@ mod query;
 pub use ast::NodeKind;
 pub use ast::find_deepest_node;
 pub use ast::id_into_node;
+pub use builtin::BuiltinFunctions;
 pub use cache::get_macro_scope;
 pub use cache::locate_calls_to_file_target;
 pub use expressions::CallExpression;

@@ -14,8 +14,13 @@ use t32_language_server_user_guide_data::DATFILE_FIELD_WIDTH_NODE_CHAR;
 use t32_language_server_user_guide_data::DATFILE_FIELD_WIDTH_NODE_TAG;
 use t32_language_server_user_guide_data::DATFILE_FIELD_WIDTH_NODES_TOTAL;
 use t32_language_server_user_guide_data::DATFILE_FIELD_WIDTH_SUCCESSOR;
+use t32_language_server_user_guide_data::PracticeFunctionDefinition;
+use t32_language_server_user_guide_data::PracticeFunctionName;
+use t32_language_server_user_guide_data::PracticeFunctionNamePickled;
 use t32_language_server_user_guide_data::UserGuideData;
+use t32_language_server_user_guide_data::UserGuideDataPickled;
 
+use crate::t32::BuiltinFunctions;
 use crate::utils::get_error_offset;
 
 #[derive(Clone, Debug)]
@@ -41,7 +46,11 @@ const USER_GUIDE_DATA: [u8; include_bytes!("../../data/ugd.dat").len()] =
 pub fn convert_user_guide_data() -> Result<(UserGuideData, usize), String> {
     let data = inflate(&USER_GUIDE_DATA)?;
 
-    Ok((import(&data)?, USER_GUIDE_DATA.len()))
+    let ugd = import(&data)?;
+
+    let _functions = BuiltinFunctions::from_user_guide(&ugd);
+
+    Ok((ugd, USER_GUIDE_DATA.len()))
 }
 
 fn inflate(data: &[u8]) -> Result<String, String> {
@@ -220,8 +229,8 @@ fn import(text: &str) -> Result<UserGuideData, String> {
     cfg_select! {
         debug_assertions => {
             let des = &mut serde_json::Deserializer::from_str(text);
-            match serde_path_to_error::deserialize(des) {
-                Ok(val) => Ok(val),
+            let ugd = match serde_path_to_error::deserialize(des) {
+                Ok(val) => val,
                 Err(err) => {
                     match err.inner().classify() {
                         Category::Io => unreachable!(), // Byte buffer must be valid.
@@ -248,11 +257,12 @@ fn import(text: &str) -> Result<UserGuideData, String> {
                         }
                     }
                 }
-            }
+            };
+            unpickle(ugd)
         }
         _ => {
-            match serde_json::from_str(text) {
-                Ok(val) => Ok(val),
+            let ugd = match serde_json::from_str(text) {
+                Ok(val) => val,
                 Err(err) => {
                     match err.classify() {
                         Category::Io => unreachable!(), // Byte buffer must be valid.
@@ -265,9 +275,36 @@ fn import(text: &str) -> Result<UserGuideData, String> {
                         Category::Eof => return Err(imprecise_error_incomplete(err, text.len())),
                     }
                 }
-            }
+            };
+            unpickle(ugd)
         }
     }
+}
+
+fn unpickle(ugd: UserGuideDataPickled) -> Result<UserGuideData, String> {
+    let mut funcs: Vec<PracticeFunctionDefinition> = Vec::with_capacity(ugd.functions.len());
+
+    for def in ugd.functions {
+        let PracticeFunctionNamePickled::Sequence(parts) = def.name;
+
+        let Some(name) = PracticeFunctionName::from_parts(&parts) else {
+            return Err("Data error: Function name must not be empty.".to_string());
+        };
+
+        funcs.push(PracticeFunctionDefinition {
+            name,
+            params: def.params,
+            operation: def.operation,
+            copyright: def.copyright,
+            source: def.source,
+        });
+    }
+
+    Ok(UserGuideData {
+        copyrights: ugd.copyrights,
+        docs: ugd.docs,
+        functions: funcs,
+    })
 }
 
 fn error_preamble(offset: u64) -> String {

@@ -47,7 +47,7 @@ fn main() {
         docs,
     };
 
-    if let Err(rc) = persist::write_outfile(ugd, &cfg.outfile) {
+    if let Err(rc) = persist::write_outfile(ugd.into(), &cfg.outfile) {
         process::exit(rc as i32);
     }
     process::exit(0)

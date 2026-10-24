@@ -11,11 +11,11 @@ use std::path::PathBuf;
 use std::str::CharIndices;
 
 use t32_language_server_user_guide_data::CopyrightFields;
-use t32_language_server_user_guide_data::PracticeFuncArgumentPattern;
-use t32_language_server_user_guide_data::PracticeFuncNamePattern;
-use t32_language_server_user_guide_data::PracticeFunctionArguments;
+use t32_language_server_user_guide_data::PracticeFuncParameterPattern;
 use t32_language_server_user_guide_data::PracticeFunctionDefinition;
 use t32_language_server_user_guide_data::PracticeFunctionName;
+use t32_language_server_user_guide_data::PracticeFunctionNamePattern;
+use t32_language_server_user_guide_data::PracticeFunctionParameters;
 use t32_language_server_user_guide_data::UserGuideDocs;
 use t32_language_server_user_guide_data::format_practice_func_name;
 
@@ -160,7 +160,7 @@ pub fn extract_func_defs(
 
 fn create_func_definitions(
     index: PracticeFunctionIndex,
-    desc: Vec<(PracticeFunctionName, PracticeFunctionArguments)>,
+    desc: Vec<(PracticeFunctionName, PracticeFunctionParameters)>,
     copyright_entry: u32,
     source_entry: u32,
 ) -> Vec<PracticeFunctionDefinition> {
@@ -171,7 +171,7 @@ fn create_func_definitions(
     }
 
     let mut defs: Vec<PracticeFunctionDefinition> = Vec::with_capacity(desc.len());
-    for (name, args) in desc {
+    for (name, params) in desc {
         let fmt = format_practice_func_name(&name);
         let entry = map_alias_variants_to_index(fmt);
 
@@ -185,7 +185,7 @@ fn create_func_definitions(
 
         defs.push(PracticeFunctionDefinition {
             name,
-            args,
+            params,
             operation: operation.unwrap().clone(),
             copyright: copyright_entry,
             source: source_entry,
@@ -269,10 +269,10 @@ fn parse_copyright(text: &str) -> String {
     panic!("Cannot detect document copyright.");
 }
 
-fn parse_func_descriptions(text: &str) -> Vec<(PracticeFunctionName, PracticeFunctionArguments)> {
+fn parse_func_descriptions(text: &str) -> Vec<(PracticeFunctionName, PracticeFunctionParameters)> {
     let mut multiline: Option<&str> = None;
 
-    let mut desc: Vec<(PracticeFunctionName, PracticeFunctionArguments)> = Vec::new();
+    let mut desc: Vec<(PracticeFunctionName, PracticeFunctionParameters)> = Vec::new();
 
     for line in text.lines() {
         if line.contains("Syntax:")
@@ -304,7 +304,7 @@ fn parse_func_descriptions(text: &str) -> Vec<(PracticeFunctionName, PracticeFun
     desc
 }
 
-fn parse_signature_line(line: &str) -> Option<(PracticeFunctionName, PracticeFunctionArguments)> {
+fn parse_signature_line(line: &str) -> Option<(PracticeFunctionName, PracticeFunctionParameters)> {
     let mut chars: Peekable<CharIndices> = line.char_indices().peekable();
 
     if !syntax_desc(line, &mut chars) {
@@ -561,7 +561,7 @@ fn syntax_desc(line: &str, chars: &mut Peekable<CharIndices>) -> bool {
 fn signature(
     line: &str,
     chars: &mut Peekable<CharIndices>,
-) -> Option<(PracticeFunctionName, PracticeFunctionArguments)> {
+) -> Option<(PracticeFunctionName, PracticeFunctionParameters)> {
     loop {
         match chars.peek() {
             Some((_, ch)) => match ch {
@@ -575,7 +575,10 @@ fn signature(
                         panic!("Cannot parse function argument patterns.");
                     };
 
-                    return Some((name, args));
+                    return Some((
+                        PracticeFunctionName::from_parts(&name).expect("Cannot be empty."),
+                        args,
+                    ));
                 }
                 _ => (),
             },
@@ -586,16 +589,18 @@ fn signature(
     None
 }
 
-fn expand_name_patterns(mut name: Vec<PracticeFuncNamePattern>) -> Vec<PracticeFuncNamePattern> {
+fn expand_name_patterns(
+    mut name: Vec<PracticeFunctionNamePattern>,
+) -> Vec<PracticeFunctionNamePattern> {
     if name.len() == 2 {
-        if let PracticeFuncNamePattern::Literal(pat) = &name[0]
+        if let PracticeFunctionNamePattern::Literal(pat) = &name[0]
             && pat == "DAP"
-            && let PracticeFuncNamePattern::Literal(pat) = &name[1]
+            && let PracticeFunctionNamePattern::Literal(pat) = &name[1]
             && pat.starts_with("USER")
         {
-            name[1] = PracticeFuncNamePattern::Chained(vec![
-                PracticeFuncNamePattern::Literal("USER".to_string()),
-                PracticeFuncNamePattern::Angled("x".to_string()),
+            name[1] = PracticeFunctionNamePattern::Chained(vec![
+                PracticeFunctionNamePattern::Literal("USER".to_string()),
+                PracticeFunctionNamePattern::Angled("x".to_string()),
             ])
         }
         name
@@ -607,8 +612,8 @@ fn expand_name_patterns(mut name: Vec<PracticeFuncNamePattern>) -> Vec<PracticeF
 fn func_name_pattern(
     line: &str,
     chars: &mut Peekable<CharIndices>,
-) -> Result<Vec<PracticeFuncNamePattern>, ()> {
-    let mut components: Vec<PracticeFuncNamePattern> = Vec::new();
+) -> Result<Vec<PracticeFunctionNamePattern>, ()> {
+    let mut components: Vec<PracticeFunctionNamePattern> = Vec::new();
 
     loop {
         match chars.peek() {
@@ -625,7 +630,8 @@ fn func_name_pattern(
                     let Some(end) = pattern_name(chars) else {
                         return Err(());
                     };
-                    let pat = PracticeFuncNamePattern::Literal(String::from(&line[start..=end]));
+                    let pat =
+                        PracticeFunctionNamePattern::Literal(String::from(&line[start..=end]));
                     components.push(pat);
                 }
                 '.' => (),
@@ -650,7 +656,7 @@ fn func_name_pattern(
 fn args_patterns(
     line: &str,
     chars: &mut Peekable<CharIndices>,
-) -> Result<Vec<PracticeFuncArgumentPattern>, ()> {
+) -> Result<PracticeFunctionParameters, ()> {
     let Some((_, ch)) = chars.next() else {
         return Err(());
     };
@@ -659,8 +665,8 @@ fn args_patterns(
         return Err(());
     }
 
-    let mut args: Vec<PracticeFuncArgumentPattern> = Vec::new();
-    let mut seg: Vec<PracticeFuncArgumentPattern> = Vec::new();
+    let mut params: Vec<PracticeFuncParameterPattern> = Vec::new();
+    let mut seg: Vec<PracticeFuncParameterPattern> = Vec::new();
 
     let mut chained: bool = false;
 
@@ -673,7 +679,7 @@ fn args_patterns(
                 seg.pop().expect("There must be a prior value."),
                 chars,
             );
-            args.push(chain);
+            params.push(chain);
         }
         chained = false;
 
@@ -737,23 +743,23 @@ fn args_patterns(
         if let Some((_, ch)) = chars.next() {
             match ch {
                 ',' => {
-                    args.append(&mut seg);
+                    params.append(&mut seg);
                 }
                 ')' => {
-                    args.append(&mut seg);
-                    return Ok(args);
+                    params.append(&mut seg);
+                    return Ok(params);
                 }
                 _ => (),
             }
         }
     }
-    Ok(args)
+    Ok(params)
 }
 
 fn angled_name_pattern(
     line: &str,
     chars: &mut Peekable<CharIndices>,
-) -> Option<PracticeFuncNamePattern> {
+) -> Option<PracticeFunctionNamePattern> {
     let Some((start, ch)) = chars.next() else {
         return None;
     };
@@ -773,7 +779,7 @@ fn angled_name_pattern(
     if ch != '>' {
         return None;
     }
-    Some(PracticeFuncNamePattern::Angled(String::from(
+    Some(PracticeFunctionNamePattern::Angled(String::from(
         &line[(start + 1)..end],
     )))
 }
@@ -781,7 +787,7 @@ fn angled_name_pattern(
 fn angled_arg_pattern(
     line: &str,
     chars: &mut Peekable<CharIndices>,
-) -> Option<PracticeFuncArgumentPattern> {
+) -> Option<PracticeFuncParameterPattern> {
     let Some((start, ch)) = chars.next() else {
         return None;
     };
@@ -801,7 +807,7 @@ fn angled_arg_pattern(
     if ch != '>' {
         return None;
     }
-    Some(PracticeFuncArgumentPattern::Angled(String::from(
+    Some(PracticeFuncParameterPattern::Angled(String::from(
         &line[(start + 1)..end],
     )))
 }
@@ -809,7 +815,7 @@ fn angled_arg_pattern(
 fn braced_pattern(
     line: &str,
     chars: &mut Peekable<CharIndices>,
-) -> Option<PracticeFuncArgumentPattern> {
+) -> Option<PracticeFuncParameterPattern> {
     let Some((start, ch)) = chars.next() else {
         return None;
     };
@@ -829,7 +835,7 @@ fn braced_pattern(
             return None;
         }
     } else if let Some(end) = pattern_name(chars) {
-        PracticeFuncArgumentPattern::Literal(String::from(&line[(start + 1)..end]))
+        PracticeFuncParameterPattern::Literal(String::from(&line[(start + 1)..end]))
     } else {
         return None;
     };
@@ -841,13 +847,13 @@ fn braced_pattern(
     if ch != '}' {
         return None;
     }
-    Some(PracticeFuncArgumentPattern::Braced(Box::new(pat)))
+    Some(PracticeFuncParameterPattern::Braced(Box::new(pat)))
 }
 
 fn quoted_pattern(
     line: &str,
     chars: &mut Peekable<CharIndices>,
-) -> Option<PracticeFuncArgumentPattern> {
+) -> Option<PracticeFuncParameterPattern> {
     let Some((start, ch)) = chars.next() else {
         return None;
     };
@@ -859,7 +865,7 @@ fn quoted_pattern(
     let Some(pat) = (match chars.peek() {
         Some((_, '<')) => angled_arg_pattern(line, chars),
         Some((_, '{')) => braced_pattern(line, chars),
-        Some((end, '"')) => Some(PracticeFuncArgumentPattern::Literal(String::from(
+        Some((end, '"')) => Some(PracticeFuncParameterPattern::Literal(String::from(
             &line[(start + 1)..*end],
         ))),
         _ => None,
@@ -874,13 +880,13 @@ fn quoted_pattern(
     if ch != '"' {
         return None;
     }
-    Some(PracticeFuncArgumentPattern::Quoted(Box::new(pat)))
+    Some(PracticeFuncParameterPattern::Quoted(Box::new(pat)))
 }
 
 fn optional_pattern(
     line: &str,
     chars: &mut Peekable<CharIndices>,
-) -> Option<PracticeFuncArgumentPattern> {
+) -> Option<PracticeFuncParameterPattern> {
     let Some((_, ch)) = chars.next() else {
         return None;
     };
@@ -900,8 +906,8 @@ fn optional_pattern(
 
     let mut chained: bool = false;
 
-    let mut pat: Option<PracticeFuncArgumentPattern> = None;
-    let mut args: Vec<PracticeFuncArgumentPattern> = Vec::new();
+    let mut pat: Option<PracticeFuncParameterPattern> = None;
+    let mut args: Vec<PracticeFuncParameterPattern> = Vec::new();
 
     loop {
         if chained {
@@ -967,17 +973,17 @@ fn optional_pattern(
     }
 
     if is_other {
-        Some(PracticeFuncArgumentPattern::OptionalOtherArg(args))
+        Some(PracticeFuncParameterPattern::OptionalOtherParameter(args))
     } else {
-        Some(PracticeFuncArgumentPattern::Optional(args))
+        Some(PracticeFuncParameterPattern::Optional(args))
     }
 }
 
 fn choice_pattern(
     line: &str,
-    first: PracticeFuncArgumentPattern,
+    first: PracticeFuncParameterPattern,
     chars: &mut Peekable<CharIndices>,
-) -> Option<PracticeFuncArgumentPattern> {
+) -> Option<PracticeFuncParameterPattern> {
     let Some((_, ch)) = chars.next() else {
         return None;
     };
@@ -994,9 +1000,9 @@ fn choice_pattern(
         return None;
     }
 
-    let mut args: Vec<PracticeFuncArgumentPattern> = vec![first];
+    let mut args: Vec<PracticeFuncParameterPattern> = vec![first];
 
-    let mut pat: Option<PracticeFuncArgumentPattern> = None;
+    let mut pat: Option<PracticeFuncParameterPattern> = None;
     let mut chained: bool = false;
 
     loop {
@@ -1072,17 +1078,17 @@ fn choice_pattern(
     }
 
     if ellipsis {
-        Some(PracticeFuncArgumentPattern::Ellipsis(args))
+        Some(PracticeFuncParameterPattern::Ellipsis(args))
     } else {
-        Some(PracticeFuncArgumentPattern::Choice(args))
+        Some(PracticeFuncParameterPattern::Choice(args))
     }
 }
 
 fn chained_pattern(
     line: &str,
-    first: PracticeFuncArgumentPattern,
+    first: PracticeFuncParameterPattern,
     chars: &mut Peekable<CharIndices>,
-) -> PracticeFuncArgumentPattern {
+) -> PracticeFuncParameterPattern {
     let mut chain = vec![first];
 
     loop {
@@ -1101,7 +1107,7 @@ fn chained_pattern(
                     chain.push(child);
                 }
                 assert!(chain.len() > 1);
-                break PracticeFuncArgumentPattern::Chained(chain);
+                break PracticeFuncParameterPattern::Chained(chain);
             }
             Some((_, '.')) => {
                 // See `AVX512(<register_name>.<column_number>)`
@@ -1117,10 +1123,10 @@ fn chained_pattern(
                     }
                 }
                 assert!(chain.len() > 1);
-                break PracticeFuncArgumentPattern::Segmented(chain);
+                break PracticeFuncParameterPattern::Segmented(chain);
             }
             Some((_, ':')) => {
-                chain.push(PracticeFuncArgumentPattern::Literal(":".to_string()));
+                chain.push(PracticeFuncParameterPattern::Literal(":".to_string()));
 
                 let _ = chars.next();
             }
@@ -1140,14 +1146,14 @@ fn chained_pattern(
                 chain.push(child);
 
                 assert!(chain.len() > 1);
-                break PracticeFuncArgumentPattern::Segmented(chain);
+                break PracticeFuncParameterPattern::Segmented(chain);
             }
             Some((_, ' ')) => {
                 while let Some((_, ' ')) = chars.peek() {
                     let _ = chars.next();
                 }
             }
-            Some((_, ']')) => break PracticeFuncArgumentPattern::Chained(chain),
+            Some((_, ']')) => break PracticeFuncParameterPattern::Chained(chain),
             _ => unreachable!("Other characters are not expected."),
         }
     }
@@ -1156,7 +1162,7 @@ fn chained_pattern(
 fn identifier<'a>(
     line: &'a str,
     chars: &mut Peekable<CharIndices>,
-) -> Option<PracticeFuncArgumentPattern> {
+) -> Option<PracticeFuncParameterPattern> {
     let Some((start, _)) = chars.peek() else {
         return None;
     };
@@ -1174,7 +1180,7 @@ fn identifier<'a>(
         }
         break idx;
     };
-    Some(PracticeFuncArgumentPattern::Literal(String::from(
+    Some(PracticeFuncParameterPattern::Literal(String::from(
         &line[start..end],
     )))
 }

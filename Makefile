@@ -50,6 +50,9 @@ wasm-install:
 	wget https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${wasi_version}/$(wasi_sdk).tar.gz
 	tar xvf $(wasi_sdk).tar.gz --directory=target/wasi-sdk
 
+.PHONY: wasm-build
+wasm-build: wasm-build-debug wasm-build-release
+
 
 # Build pipeline for data assets
 
@@ -57,7 +60,7 @@ dir ?= ltb
 ugd_asset ?= data/ugd.dat
 ugd_bin ?= t32ls-ugd
 
-$(ugd_asset): target/release/$(ugd_bin)
+$(ugd_asset): target/release/$(ugd_bin) ugd/src/lib.rs
 	cargo run --package t32-language-server-user-guide-data --profile=release -- --output=$@ ${dir}
 
 target/debug/$(ugd_bin):
@@ -105,7 +108,7 @@ build-debug: t32ls-build-debug ugd-build-debug
 build-release: t32ls-build-release ugd-build-release
 
 .PHONY: build-all
-build-all: build-debug build-release wasm-build
+build-all: build-debug build-release
 
 
 .PHONY: clean
