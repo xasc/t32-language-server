@@ -5,6 +5,12 @@
 version = 1
 
 [[annotations]]
+path = "assets/t32ls.svg"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2024 Christoph Sax <c_sax@mailbox.org>"
+SPDX-License-Identifier = "EUPL-1.2"
+
+[[annotations]]
 path = "Cargo.lock"
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2024 Christoph Sax <c_sax@mailbox.org>"
