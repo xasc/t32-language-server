@@ -52,7 +52,7 @@ Quick start
 
 ### Dependencies
 
-Builds require [Rust] version **1.95** or newer.
+Builds require [Rust] version **1.99.1** or newer.
 These additional dependencies are required:
  -  [libc] [Unix]
  -  [serde]
