@@ -17,6 +17,9 @@ use crate::protocol::FileOperationPatternOptions;
 use crate::protocol::FileOperationRegistrationOptions;
 use crate::protocol::FoldingRange;
 use crate::protocol::FoldingRangeProvider;
+use crate::protocol::Hover;
+use crate::protocol::HoverOptions;
+use crate::protocol::HoverProvider;
 use crate::protocol::InitializeResult;
 use crate::protocol::Location;
 use crate::protocol::LocationLink;
@@ -41,6 +44,14 @@ use crate::protocol::WorkspaceServerCapabilities;
 use crate::t32::LANGUAGE_ID;
 use crate::t32::SUFFIXES;
 
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(untagged)]
+pub enum LocationResult {
+    Single(Location),
+    Multi(Vec<Location>),
+    ExtMeta(Vec<LocationLink>),
+}
+
 #[derive(Debug)]
 pub enum ReceiveError {
     Response(ErrorResponse),
@@ -54,6 +65,7 @@ pub enum Response {
     FoldingRangeResponse(FoldingRangeResponse),
     FindReferencesResponse(FindReferencesResponse),
     GoToDefinitionResponse(GoToDefinitionResponse),
+    HoverResponse(HoverResponse),
     InitializeResponse(InitializeResponse),
     NullResponse(NullResponse),
     SemanticTokensFullResponse(SemanticTokensFullResponse),
@@ -85,6 +97,12 @@ pub struct GoToDefinitionResponse {
 }
 
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
+pub struct HoverResponse {
+    pub id: NumberOrString,
+    pub result: Option<Hover>,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct SemanticTokensFullResponse {
     pub id: NumberOrString,
     pub result: Option<SemanticTokens>,
@@ -107,14 +125,6 @@ pub struct NullResponse {
     pub id: NumberOrString,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[serde(untagged)]
-pub enum LocationResult {
-    Single(Location),
-    Multi(Vec<Location>),
-    ExtMeta(Vec<LocationLink>),
-}
-
 impl ServerCapabilities {
     pub fn build(semantic_tok_legend: SemanticTokensLegend) -> Self {
         ServerCapabilities {
@@ -130,7 +140,9 @@ impl ServerCapabilities {
             )),
             notebook_document_sync: None,
             completion_provider: None,
-            hover_provider: None,
+            hover_provider: Some(HoverProvider::HoverOptions(HoverOptions {
+                work_done_progress: None,
+            })),
             signature_help_provider: None,
             declaration_provider: None,
             definition_provider: Some(DefinitionProvider::DefinitionOptions(DefinitionOptions {

@@ -14,6 +14,7 @@ use crate::ls::Response;
 use crate::ls::RunState;
 use crate::ls::Tasks;
 use crate::ls::TextDocs;
+use crate::ls::UserGuide;
 use crate::ls::Workspace;
 use crate::ls::tasks::TaskDone;
 use crate::ls::tasks::startup;
@@ -22,6 +23,10 @@ use crate::ls::transport::StdioChannel;
 use crate::ls::{self};
 use crate::protocol::TraceValue;
 
+pub enum StartupTaskDone {
+    LoadUserGuideData(UserGuide),
+    Other,
+}
 pub fn start(
     mut g: InitState,
     channel: &mut StdioChannel,
@@ -40,7 +45,12 @@ pub fn start(
         Workspace::Root(Some(_)) | Workspace::Folders(Some(_)) => (),
         _ => {
             return Ok((
-                RunState::from_init(g, TextDocs::from_workspace(Vec::new()), FileIndex::new()),
+                RunState::from_init(
+                    g,
+                    TextDocs::from_workspace(Vec::new()),
+                    FileIndex::new(),
+                    None,
+                ),
                 Vec::new(),
             ));
         }
@@ -58,6 +68,8 @@ pub fn start(
 
     let mut incoming: Vec<Option<Message>> = Vec::new();
     let mut postponed: Vec<Option<Message>> = Vec::new();
+
+    let mut user_guide: Option<UserGuide> = None;
 
     let rs: RunState = loop {
         g.backoff.idle(&Instant::now());
@@ -78,8 +90,12 @@ pub fn start(
             g.backoff.clear();
         }
 
-        if recv_completed_tasks(&cfg, &mut g.tasks, &mut outgoing)? {
+        if let Some(recv) = recv_completed_tasks(&cfg, &mut g.tasks, &mut outgoing)? {
             g.backoff.clear();
+
+            if let StartupTaskDone::LoadUserGuideData(ug) = recv {
+                user_guide = Some(ug);
+            }
         }
 
         let files = schedule_tasks(&mut incoming, &mut g, cfg, &mut outgoing, &mut postponed)?;
@@ -100,7 +116,7 @@ pub fn start(
         outgoing.clear();
 
         if files.is_some() {
-            break RunState::from_init(g, TextDocs::new(), files.unwrap());
+            break RunState::from_init(g, TextDocs::new(), files.unwrap(), user_guide);
         }
     };
 
@@ -111,7 +127,7 @@ pub fn recv_completed_tasks(
     cfg: &Config,
     ts: &mut Tasks,
     outgoing: &mut Vec<Option<Message>>,
-) -> Result<bool, ReturnCode> {
+) -> Result<Option<StartupTaskDone>, ReturnCode> {
     let mut completed: Vec<TaskDone> = Vec::new();
     for done in ts.runner.rx.try_iter() {
         completed.push(done);
@@ -122,12 +138,16 @@ pub fn recv_completed_tasks(
     }
     ts.completed.clear();
 
-    let compl_recv = !completed.is_empty();
+    let mut recv: Option<StartupTaskDone> = None;
 
     for done in completed {
-        startup::process_completed_task(done, cfg, ts, outgoing);
+        match startup::process_completed_task(done, cfg, ts, outgoing) {
+            Some(ug) => recv = Some(StartupTaskDone::LoadUserGuideData(ug)),
+            None if recv.is_none() => recv = Some(StartupTaskDone::Other),
+            None => (),
+        }
     }
-    Ok(compl_recv)
+    Ok(recv)
 }
 
 fn schedule_tasks(

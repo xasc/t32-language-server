@@ -19,7 +19,6 @@ use std::time::Duration;
 use std::time::Instant;
 
 pub use doc::TextDoc;
-use t32_language_server_user_guide_data::UserGuideData;
 use tree_sitter::Tree;
 use url;
 pub use workspace::FileIndex;
@@ -51,6 +50,7 @@ use crate::protocol::InitializeError;
 use crate::protocol::InitializeParams;
 use crate::protocol::InitializeResult;
 use crate::protocol::LogTraceParams;
+use crate::protocol::MarkupKind;
 use crate::protocol::NumberOrString;
 use crate::protocol::ResponseError;
 use crate::protocol::SemanticTokenModifiers;
@@ -60,6 +60,7 @@ use crate::protocol::ServerCapabilities;
 use crate::protocol::TokenFormat;
 use crate::protocol::TraceValue;
 use crate::t32::LangExpressions;
+use crate::ug::UserGuide;
 
 struct DutyCycleBackoff {
     level: i32,
@@ -82,7 +83,7 @@ struct InitState {
 struct EnvData {
     docs: TextDocs,
     files: FileIndex,
-    user_guide: UserGuideData,
+    user_guide: UserGuide,
 }
 
 struct ProcHeartbeat {
@@ -215,7 +216,12 @@ impl ProcHeartbeat {
 }
 
 impl RunState {
-    fn from_init(s: InitState, docs: TextDocs, files: FileIndex) -> Self {
+    fn from_init(
+        s: InitState,
+        docs: TextDocs,
+        files: FileIndex,
+        user_guide: Option<UserGuide>,
+    ) -> Self {
         Self {
             shutdown_request_recv: s.shutdown_request_recv,
             exit_requested: s.exit_requested,
@@ -225,7 +231,11 @@ impl RunState {
             env: EnvData {
                 docs,
                 files,
-                user_guide: UserGuideData::new(),
+                user_guide: if user_guide.is_some() {
+                    user_guide.unwrap()
+                } else {
+                    UserGuide::new()
+                },
             },
         }
     }
@@ -473,6 +483,23 @@ fn process_initialize_params(
         ws.file_operations
             .is_some_and(|fop| fop.did_rename.unwrap_or(false))
     });
+
+    // We can support both plain text and markdown. The first entry gets the
+    // higher priority. Otherwise, we fall back to plain text.
+    debug_assert_eq!(cfg.markup_format, MarkupKind::PlainText);
+    if let Some(textdoc) = &params.capabilities.text_document
+        && let Some(hover) = &textdoc.hover
+    {
+        cfg.markup_format = if let Some(formats) = &hover.content_format {
+            if formats.is_empty() {
+                MarkupKind::PlainText
+            } else {
+                formats[0]
+            }
+        } else {
+            MarkupKind::PlainText
+        }
+    }
 
     // We ignore the `textDocument/semanticTokens/range`,
     // `textDocument/semanticTokens/full`, and

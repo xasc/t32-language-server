@@ -22,8 +22,8 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@v1
-          with:
-            toolchain: stable
+        with:
+          toolchain: stable
 
       - name: Build language server
         run: cargo build --verbose --bin t32ls

@@ -18,6 +18,7 @@ use crate::utils::BRange;
 type DocumentUri = String;
 type DocumentSelector = Vec<DocumentFilter>;
 
+pub type MarkedString = String;
 pub type ProgressToken = NumberOrString;
 pub type Uri = String;
 
@@ -179,7 +180,7 @@ pub enum TextDocumentSyncKind {
     Incremental = 2,
 }
 
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum MarkupKind {
     PlainText,
@@ -870,7 +871,7 @@ pub struct TextDocumentClientCapabilities {
     completion: Option<CompletionClientCapabilities>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    hover: Option<HoverClientCapabilities>,
+    pub hover: Option<HoverClientCapabilities>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     signature_help: Option<SignatureHelpClientCapabilities>,
@@ -1074,10 +1075,10 @@ pub struct CompletionListCompletionClientCapabilities {
 #[serde(rename_all = "camelCase")]
 pub struct HoverClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
-    dynamic_registration: Option<bool>,
+    pub dynamic_registration: Option<bool>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    content_format: Option<Vec<MarkupKind>>,
+    pub content_format: Option<Vec<MarkupKind>>,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
@@ -1719,7 +1720,7 @@ pub struct CompletionOptionsCompletionItemCapability {
 
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct HoverOptions {
-    work_done_progress: Option<bool>,
+    pub work_done_progress: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
@@ -2604,6 +2605,23 @@ pub struct WorkDoneProgressReport {
 pub struct WorkDoneProgressEnd {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct Hover {
+    pub contents: MarkedString,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub range: Option<Range>,
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct HoverParams {
+    pub text_document: TextDocumentIdentifier,
+    pub position: Position,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub work_done_token: Option<WorkDoneProgressParams>,
 }
 
 impl LocationLink {

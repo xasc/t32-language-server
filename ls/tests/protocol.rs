@@ -946,3 +946,51 @@ fn supports_server_workdone_progress() {
             .contains("\"window/workDoneProgress/create\"")
     );
 }
+
+#[test]
+fn supports_hover_request() {
+    let mut ls = utils::start_ls_with_markdown_hover_format(&[
+        &format!("--clientProcessId={}", process::id().to_string()),
+        &format!("--trace={}", "messages"),
+    ]);
+    let mut stdin = ls.stdin.take().unwrap();
+
+    let file = env::current_dir()
+        .unwrap()
+        .join("tests")
+        .join("samples")
+        .join("func.cmm");
+    let uri = Url::from_file_path(file).expect("Must not fail.");
+
+    let notif = utils::make_did_open_text_doc_notification_with_text(
+        String::from(uri.clone()),
+        "PRINT sYmbol.EXIST(main)\n".to_string(),
+    );
+    utils::to_stdin(&mut stdin, &notif);
+
+    thread::sleep(time::Duration::from_millis(500));
+
+    let req = utils::make_hover_request(1, String::from(uri.clone()), 0, 10);
+    utils::to_stdin(&mut stdin, &req);
+
+    thread::sleep(time::Duration::from_millis(3000));
+
+    utils::stop_ls(&mut ls, Some(&mut stdin), Some(2));
+    let output = ls.wait_with_output().expect("Cannot capture output");
+
+    assert!(
+        std::str::from_utf8(&output.stdout)
+            .unwrap()
+            .contains("sYmbol.EXIST(&lt;symbol>")
+    );
+    assert!(
+        std::str::from_utf8(&output.stdout)
+            .unwrap()
+            .contains("general_func.pdf")
+    );
+    assert!(
+        std::str::from_utf8(&output.stdout)
+            .unwrap()
+            .contains("lauterbach.com/pdf")
+    );
+}

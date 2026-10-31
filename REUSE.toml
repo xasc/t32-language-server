@@ -69,3 +69,9 @@ path = "vscode/yarn.lock"
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2024 Christoph Sax <c_sax@mailbox.org>"
 SPDX-License-Identifier = "EUPL-1.2"
+
+[[annotations]]
+path = ".github/workflows/actions.lock"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2024 Christoph Sax <c_sax@mailbox.org>"
+SPDX-License-Identifier = "EUPL-1.2"

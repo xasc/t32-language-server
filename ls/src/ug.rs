@@ -40,6 +40,23 @@ enum HuffmanNodeSerialized {
     Internal { left: u32, right: u32 },
 }
 
+pub struct UserGuide {
+    pub functions: BuiltinFunctions,
+}
+
+impl UserGuide {
+    pub fn new() -> Self {
+        Self {
+            functions: BuiltinFunctions::new(),
+        }
+    }
+    pub fn from_data(ugd: UserGuideData) -> Self {
+        let functions = BuiltinFunctions::from_user_guide(&ugd);
+
+        Self { functions }
+    }
+}
+
 const USER_GUIDE_DATA: [u8; include_bytes!("../../data/ugd.dat").len()] =
     *include_bytes!("../../data/ugd.dat");
 
@@ -47,8 +64,6 @@ pub fn convert_user_guide_data() -> Result<(UserGuideData, usize), String> {
     let data = inflate(&USER_GUIDE_DATA)?;
 
     let ugd = import(&data)?;
-
-    let _functions = BuiltinFunctions::from_user_guide(&ugd);
 
     Ok((ugd, USER_GUIDE_DATA.len()))
 }

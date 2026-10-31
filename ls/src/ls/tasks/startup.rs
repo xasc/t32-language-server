@@ -13,6 +13,7 @@ use crate::ls::Message;
 use crate::ls::TaskCounter;
 use crate::ls::TaskCounters;
 use crate::ls::TaskSystem;
+use crate::ls::UserGuide;
 use crate::ls::response::NullResponse;
 use crate::ls::tasks::Notification;
 use crate::ls::tasks::OngoingTask;
@@ -80,7 +81,7 @@ pub fn process_completed_task(
     cfg: &Config,
     ts: &mut Tasks,
     outgoing: &mut Vec<Option<Message>>,
-) {
+) -> Option<UserGuide> {
     match done {
         TaskDone::WorkspaceFileDiscoverySync(id, members) => {
             tasks::workspace::recv_workspace_file_discovery_sync(
@@ -98,6 +99,7 @@ pub fn process_completed_task(
                     Some("Workspace has been scanned for files.".to_string()),
                 )));
             }
+            None
         }
         TaskDone::WorkspaceFileIndexSync(id, files) => {
             tasks::workspace::recv_workspace_file_indexing_sync(&id, files, &mut ts.ongoing);
@@ -110,9 +112,25 @@ pub fn process_completed_task(
                     Some("File index for workspace has been created.".to_string()),
                 )));
             }
+            None
         }
-        // Result only evaluated after the boot phase has completed.
-        TaskDone::LoadUserGuideData(..) => (),
+        TaskDone::LoadUserGuideData(id, ug) => match ug {
+            Ok((data, size)) => {
+                if cfg.trace_level != TraceValue::Off {
+                    let onset = tasks::get_task_onset_by_id(&id, &ts.ongoing);
+                    outgoing.push(Some(tasks::ug::trace_user_guide_data_import(
+                        Instant::now() - *onset,
+                        id,
+                        Some(size),
+                    )));
+                }
+                Some(UserGuide::from_data(data))
+            }
+            Err(err) => {
+                outgoing.push(Some(tasks::ug::error_user_guide_data(id, Some(err))));
+                None
+            }
+        },
 
         TaskDone::CodeFolds(..)
         | TaskDone::DidRenameFiles(..)
@@ -124,6 +142,7 @@ pub fn process_completed_task(
         | TaskDone::GoToDefinition(..)
         | TaskDone::GoToExternalMacroDef(..)
         | TaskDone::GoToExternalMacroDefSync(..)
+        | TaskDone::Hover(..)
         | TaskDone::SemanticTokensFull(..)
         | TaskDone::SemanticTokensRange(..)
         | TaskDone::TextDocNew(..)
@@ -178,6 +197,7 @@ pub fn progress_multi_part_tasks(
             | OngoingTask::FindReferences(..)
             | OngoingTask::GoToExternalMacroDef { .. }
             | OngoingTask::GoToDefinition(..)
+            | OngoingTask::Hover { .. }
             | OngoingTask::SemanticTokensFull(..)
             | OngoingTask::SemanticTokensRange(..)
             | OngoingTask::TextDocUpdate { .. } => {
@@ -214,6 +234,7 @@ pub fn process_msg(
         | Message::Request(Request::FindReferences { .. })
         | Message::Request(Request::FoldingRange { .. })
         | Message::Request(Request::GoToDefinition { .. })
+        | Message::Request(Request::Hover { .. })
         | Message::Request(Request::SemanticTokensFull { .. })
         | Message::Request(Request::SemanticTokensRange { .. }) => {
             postponed.push(Some(msg));

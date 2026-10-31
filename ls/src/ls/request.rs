@@ -9,6 +9,7 @@ use crate::protocol::DidChangeTextDocumentParams;
 use crate::protocol::DidCloseTextDocumentParams;
 use crate::protocol::DidOpenTextDocumentParams;
 use crate::protocol::FoldingRangeParams;
+use crate::protocol::HoverParams;
 use crate::protocol::InitializeParams;
 use crate::protocol::InitializedParams;
 use crate::protocol::LogTraceParams;
@@ -36,6 +37,10 @@ pub enum Request {
     GoToDefinition {
         id: NumberOrString,
         params: DefinitionParams,
+    },
+    Hover {
+        id: NumberOrString,
+        params: HoverParams,
     },
     InitializeRequest {
         id: NumberOrString,
@@ -96,6 +101,7 @@ impl Request {
             Request::FindReferences { id, .. } => id,
             Request::FoldingRange { id, .. } => id,
             Request::GoToDefinition { id, .. } => id,
+            Request::Hover { id, .. } => id,
             Request::InitializeRequest { id, .. } => id,
             Request::SemanticTokensFull { id, .. } => id,
             Request::SemanticTokensRange { id, .. } => id,

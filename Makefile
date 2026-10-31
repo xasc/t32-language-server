@@ -9,7 +9,7 @@ all: build-all
 
 wasi_os = linux
 wasi_arch = x86_64
-wasi_version = 32
+wasi_version = 34
 wasi_version_full = $(wasi_version).0
 wasi_sdk = wasi-sdk-${wasi_version_full}-${wasi_arch}-${wasi_os}
 wasi_dir = $(abspath target/wasi-sdk/$(wasi_sdk))
@@ -109,6 +109,13 @@ build-release: t32ls-build-release ugd-build-release
 
 .PHONY: build-all
 build-all: build-debug build-release
+
+
+# GitHub workflows
+
+.PHONY: workflows-lock
+workflows-lock:
+	gh actions-lock
 
 
 .PHONY: clean

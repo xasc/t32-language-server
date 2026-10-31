@@ -156,6 +156,12 @@ pub struct Command {
 }
 
 #[derive(Clone, Debug)]
+pub struct FunctionCallExpression {
+    pub target: BRange,
+    pub call: BRange,
+}
+
+#[derive(Clone, Debug)]
 pub struct ParameterDeclaration {
     pub cmd: BRange,
     pub r#macro: BRange,
@@ -191,6 +197,39 @@ impl PartialOrd for MacroDefinition {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
+}
+
+pub fn extract_function_call(cursor: &mut TreeCursor) -> Option<FunctionCallExpression> {
+    let call = cursor.node();
+    let lang = call.language();
+
+    debug_assert_eq!(
+        cursor.node().kind_id(),
+        NodeKind::CallExpression.into_id(&lang)
+    );
+
+    if !cursor.goto_first_child() {
+        return None;
+    }
+
+    debug_assert_eq!(cursor.node().kind_id(), NodeKind::Identifier.into_id(&lang));
+
+    let name = cursor.node();
+    if name.kind_id() != NodeKind::Identifier.into_id(&lang) {
+        cursor.goto_parent();
+        return None;
+    }
+    cursor.goto_parent();
+
+    debug_assert_eq!(
+        cursor.node().kind_id(),
+        NodeKind::CallExpression.into_id(&cursor.node().language())
+    );
+
+    Some(FunctionCallExpression {
+        target: BRange::from(name.byte_range()),
+        call: BRange::from(call.byte_range()),
+    })
 }
 
 pub fn find_call_target_definition(

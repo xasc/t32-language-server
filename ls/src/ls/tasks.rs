@@ -8,6 +8,7 @@ mod docsync;
 mod lang;
 mod progress;
 mod runners;
+mod ug;
 mod workspace;
 
 use std::time::Duration;
@@ -37,6 +38,7 @@ use crate::ls::response::ErrorResponse;
 use crate::ls::response::FindReferencesResponse;
 use crate::ls::response::FoldingRangeResponse;
 use crate::ls::response::GoToDefinitionResponse;
+use crate::ls::response::HoverResponse;
 use crate::ls::response::LocationResult;
 use crate::ls::response::NullResponse;
 use crate::ls::response::Response;
@@ -53,6 +55,8 @@ use crate::ls::tasks::lang::process_find_references_result;
 use crate::ls::tasks::lang::process_folding_range_req;
 use crate::ls::tasks::lang::process_goto_definition_req;
 use crate::ls::tasks::lang::process_goto_definition_result;
+use crate::ls::tasks::lang::process_hover_req;
+use crate::ls::tasks::lang::process_hover_result;
 use crate::ls::tasks::lang::process_semantic_tokens_full_req;
 use crate::ls::tasks::lang::process_semantic_tokens_range_req;
 use crate::ls::tasks::lang::progress_find_external_macro_definitions;
@@ -63,6 +67,8 @@ use crate::ls::tasks::lang::recv_find_external_definitions_for_macro_reference_s
 use crate::ls::tasks::lang::recv_find_macro_def_references_sync;
 use crate::ls::tasks::lang::recv_find_subscript_macro_references_sync;
 use crate::ls::tasks::lang::recv_goto_external_macro_def_sync;
+use crate::ls::tasks::ug::error_user_guide_data;
+use crate::ls::tasks::ug::trace_user_guide_data_import;
 use crate::ls::tasks::workspace::process_files_did_rename_notif;
 use crate::ls::tasks::workspace::process_rename_files_result;
 use crate::ls::workspace::FileIndex;
@@ -73,6 +79,7 @@ use crate::protocol::DidCloseTextDocumentParams;
 use crate::protocol::DidOpenTextDocumentParams;
 use crate::protocol::ErrorCodes;
 use crate::protocol::FileRename;
+use crate::protocol::Hover;
 use crate::protocol::Location;
 use crate::protocol::LocationLink;
 use crate::protocol::LogTraceParams;
@@ -87,6 +94,7 @@ use crate::protocol::Uri;
 use crate::protocol::WorkDoneProgressCancelParams;
 use crate::t32::LANGUAGE_ID;
 use crate::t32::lang_id_supported;
+use crate::ug::UserGuide;
 use crate::utils::FileLocationMap;
 
 #[derive(Debug, PartialEq)]
@@ -129,6 +137,11 @@ pub enum OngoingTask {
         visited: FileCallMap,
         undone: ExtMacroDefLookups,
         results: Vec<LocationLink>,
+    },
+    Hover {
+        id: NumberOrString,
+        uri: Uri,
+        onset: Instant,
     },
     LoadUserGuideData(NumberOrString, Instant),
     SemanticTokensFull(NumberOrString, Instant),
@@ -302,6 +315,7 @@ impl OngoingTask {
             | OngoingTask::FindReferences(id, ..)
             | OngoingTask::GoToExternalMacroDef { id, .. }
             | OngoingTask::GoToDefinition(id, ..)
+            | OngoingTask::Hover { id, .. }
             | OngoingTask::LoadUserGuideData(id, ..)
             | OngoingTask::SemanticTokensFull(id, ..)
             | OngoingTask::SemanticTokensRange(id, ..)
@@ -321,6 +335,7 @@ impl OngoingTask {
             | OngoingTask::FindReferences(_, onset)
             | OngoingTask::GoToExternalMacroDef { onset, .. }
             | OngoingTask::GoToDefinition(.., onset)
+            | OngoingTask::Hover { onset, .. }
             | OngoingTask::LoadUserGuideData(_, onset)
             | OngoingTask::SemanticTokensFull(_, onset)
             | OngoingTask::SemanticTokensRange(_, onset)
@@ -339,6 +354,7 @@ impl OngoingTask {
             | OngoingTask::DidRenameFiles(..)
             | OngoingTask::FindReferences(..)
             | OngoingTask::GoToDefinition(..)
+            | OngoingTask::Hover { .. }
             | OngoingTask::LoadUserGuideData(..)
             | OngoingTask::SemanticTokensFull { .. }
             | OngoingTask::SemanticTokensRange { .. }
@@ -644,6 +660,7 @@ pub fn recv_responses(
             Response::FoldingRangeResponse(..)
             | Response::FindReferencesResponse(..)
             | Response::GoToDefinitionResponse(..)
+            | Response::HoverResponse(..)
             | Response::InitializeResponse(..)
             | Response::SemanticTokensFullResponse(..)
             | Response::SemanticTokensRangeResponse(..) => {
@@ -841,13 +858,7 @@ fn process_completed_task(
         }
         TaskDone::FindReferences(id, result) => {
             if let Some(resp) = process_find_references_result(
-                cfg,
-                &mut env.docs,
-                &mut env.files,
-                &id,
-                result,
-                ts,
-                outgoing,
+                cfg, &env.docs, &env.files, &id, result, ts, outgoing,
             ) {
                 if cfg.trace_level != TraceValue::Off {
                     let idx = find_ongoing_task_by_id(&id, &ts.ongoing)
@@ -871,7 +882,7 @@ fn process_completed_task(
         }
         TaskDone::GoToDefinition(id, goto_def) => {
             if let Some(resp) = process_goto_definition_result(
-                &mut env.docs,
+                &env.docs,
                 &id,
                 goto_def,
                 cfg.trace_level,
@@ -939,6 +950,27 @@ fn process_completed_task(
             }
             Ok(false)
         }
+        TaskDone::Hover(id, hovered) => {
+            let idx =
+                find_ongoing_task_by_id(&id, &ts.ongoing).expect("Must be a registered task.");
+            let Some(OngoingTask::Hover { uri, onset, .. }) = &ts.ongoing[idx] else {
+                unreachable!("Must not retrieve any other variant.");
+            };
+
+            let resp: HoverResponse =
+                process_hover_result(&id, cfg.markup_format, hovered, &env.user_guide);
+
+            if cfg.trace_level != TraceValue::Off {
+                outgoing.push(Some(trace_hover(
+                    Instant::now() - *onset,
+                    id,
+                    &uri,
+                    resp.result.clone(),
+                )));
+            }
+            outgoing.push(Some(Message::Response(Response::HoverResponse(resp))));
+            Ok(true)
+        }
         TaskDone::LoadUserGuideData(id, ug) => {
             match ug {
                 Ok((data, size)) => {
@@ -950,7 +982,7 @@ fn process_completed_task(
                             Some(size),
                         )));
                     }
-                    env.user_guide = data;
+                    env.user_guide = UserGuide::from_data(data);
                 }
                 Err(err) => {
                     outgoing.push(Some(error_user_guide_data(id, Some(err))));
@@ -1177,6 +1209,16 @@ pub fn process_msg(
                 outgoing,
             )?;
         }
+        Message::Request(Request::Hover { id, params }) => {
+            process_hover_req(
+                id,
+                params,
+                cfg.trace_level,
+                &g.env.docs,
+                &mut g.tasks,
+                outgoing,
+            )?;
+        }
         Message::Request(Request::SemanticTokensFull { id, params }) => {
             process_semantic_tokens_full_req(
                 id,
@@ -1295,6 +1337,7 @@ fn task_blocked(job: &Task, ongoing: &[Option<OngoingTask>]) -> bool {
                     | OngoingTask::FindReferences(..)
                     | OngoingTask::GoToDefinition(..)
                     | OngoingTask::GoToExternalMacroDef { .. }
+                    | OngoingTask::Hover { .. }
                     | OngoingTask::LoadUserGuideData(..)
                     | OngoingTask::SemanticTokensFull { .. }
                     | OngoingTask::SemanticTokensRange { .. }
@@ -1361,6 +1404,14 @@ fn task_blocked(job: &Task, ongoing: &[Option<OngoingTask>]) -> bool {
             },
             ..,
         )
+        | Task::Hover(
+            _,
+            TextDocData {
+                doc: TextDoc { uri, .. },
+                ..
+            },
+            ..,
+        )
         | Task::SemanticTokensFull(
             _,
             _,
@@ -1402,6 +1453,7 @@ fn task_blocked(job: &Task, ongoing: &[Option<OngoingTask>]) -> bool {
                 | OngoingTask::FindReferences(..)
                 | OngoingTask::GoToDefinition(..)
                 | OngoingTask::GoToExternalMacroDef { .. }
+                | OngoingTask::Hover { .. }
                 | OngoingTask::LoadUserGuideData(..)
                 | OngoingTask::SemanticTokensFull { .. }
                 | OngoingTask::SemanticTokensRange { .. }
@@ -1430,6 +1482,18 @@ fn add_task_status_tracking(job: &Task, ongoing: &mut Vec<Option<OngoingTask>>) 
         Task::DidRenameFiles(id, ..) => OngoingTask::DidRenameFiles(id.clone(), Instant::now()),
         Task::FindReferences { id, .. } => OngoingTask::FindReferences(id.clone(), Instant::now()),
         Task::GoToDefinition(id, ..) => OngoingTask::GoToDefinition(id.clone(), Instant::now()),
+        Task::Hover(
+            id,
+            TextDocData {
+                doc: TextDoc { uri, .. },
+                ..
+            },
+            ..,
+        ) => OngoingTask::Hover {
+            id: id.clone(),
+            uri: uri.clone(),
+            onset: Instant::now(),
+        },
         Task::SemanticTokensFull(id, ..) => {
             OngoingTask::SemanticTokensFull(id.clone(), Instant::now())
         }
@@ -1517,6 +1581,7 @@ fn progress_multi_part_tasks(
             | OngoingTask::FindReferences(..)
             | OngoingTask::LoadUserGuideData(..)
             | OngoingTask::GoToDefinition(..)
+            | OngoingTask::Hover { .. }
             | OngoingTask::SemanticTokensFull(..)
             | OngoingTask::SemanticTokensRange(..)
             | OngoingTask::TextDocUpdate { .. } => (),
@@ -1572,6 +1637,7 @@ fn eval_client_success_response(
         | OngoingTask::FindReferences(..)
         | OngoingTask::GoToDefinition(..)
         | OngoingTask::GoToExternalMacroDef { .. }
+        | OngoingTask::Hover { .. }
         | OngoingTask::LoadUserGuideData(..)
         | OngoingTask::SemanticTokensFull(..)
         | OngoingTask::SemanticTokensRange(..)
@@ -1599,6 +1665,7 @@ fn eval_client_error_response(
         | OngoingTask::FindReferences(..)
         | OngoingTask::GoToDefinition(..)
         | OngoingTask::GoToExternalMacroDef { .. }
+        | OngoingTask::Hover { .. }
         | OngoingTask::LoadUserGuideData(..)
         | OngoingTask::SemanticTokensFull(..)
         | OngoingTask::SemanticTokensRange(..)
@@ -1647,6 +1714,7 @@ fn find_ongoing_task_by_id(
         | Some(OngoingTask::FindMacroReferences { id, .. })
         | Some(OngoingTask::GoToDefinition(id, ..))
         | Some(OngoingTask::GoToExternalMacroDef { id, .. })
+        | Some(OngoingTask::Hover { id, .. })
         | Some(OngoingTask::LoadUserGuideData(id, _))
         | Some(OngoingTask::SemanticTokensFull(id, _))
         | Some(OngoingTask::SemanticTokensRange(id, _))
@@ -1674,6 +1742,7 @@ fn find_ongoing_task_by_doc(doc: &str, ongoing: &[Option<OngoingTask>]) -> usize
             | Some(OngoingTask::FindReferences { .. })
             | Some(OngoingTask::GoToDefinition(..))
             | Some(OngoingTask::GoToExternalMacroDef { .. })
+            | Some(OngoingTask::Hover { .. })
             | Some(OngoingTask::LoadUserGuideData(..))
             | Some(OngoingTask::SemanticTokensFull { .. })
             | Some(OngoingTask::SemanticTokensRange { .. })
@@ -1706,15 +1775,6 @@ fn error_lang_id_unsupported(lang_id: &str) -> Message {
             data: None,
         },
     }))
-}
-
-fn error_user_guide_data(id: NumberOrString, details: Option<String>) -> Message {
-    Message::Notification(Notification::LogTraceNotification {
-        params: LogTraceParams {
-            message: format!("ERROR: User guide data import with ID {} has failed.", id,),
-            verbose: details,
-        },
-    })
 }
 
 fn trace_folding_range(duration: Duration, id: NumberOrString) -> Message {
@@ -1877,6 +1937,37 @@ fn trace_goto_def(duration: Duration, id: NumberOrString, defs: Option<LocationR
     })
 }
 
+fn trace_hover(
+    duration: Duration,
+    id: NumberOrString,
+    uri: &Uri,
+    hovered: Option<Hover>,
+) -> Message {
+    Message::Notification(Notification::LogTraceNotification {
+        params: LogTraceParams {
+            message: format!(
+                "INFO: Hover request with ID {} completed in {:.4} seconds.",
+                id,
+                duration.as_secs_f32()
+            ),
+            verbose: if let Some(Hover {
+                range: Some(range), ..
+            }) = hovered
+            {
+                Some(
+                    json!({
+                        uri: uri.to_string(),
+                        "range": range,
+                    })
+                    .to_string(),
+                )
+            } else {
+                None
+            },
+        },
+    })
+}
+
 fn trace_sem_tokens_full(duration: Duration, id: NumberOrString) -> Message {
     Message::Notification(Notification::LogTraceNotification {
         params: LogTraceParams {
@@ -1913,30 +2004,6 @@ fn trace_sem_tokens_range(duration: Duration, id: NumberOrString) -> Message {
                 duration.as_secs_f32()
             ),
             verbose: None,
-        },
-    })
-}
-
-fn trace_user_guide_data_import(
-    duration: Duration,
-    id: NumberOrString,
-    details: Option<usize>,
-) -> Message {
-    Message::Notification(Notification::LogTraceNotification {
-        params: LogTraceParams {
-            message: format!(
-                "INFO: User guide data import with ID {} completed in {:.4} seconds.",
-                id,
-                duration.as_secs_f32()
-            ),
-            verbose: if let Some(size) = details {
-                Some(format!(
-                    "User guide data with a total size of {} KB was loaded.",
-                    size / 1024
-                ))
-            } else {
-                None
-            },
         },
     })
 }

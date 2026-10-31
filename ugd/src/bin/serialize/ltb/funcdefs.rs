@@ -17,7 +17,6 @@ use t32_language_server_user_guide_data::PracticeFunctionName;
 use t32_language_server_user_guide_data::PracticeFunctionNamePattern;
 use t32_language_server_user_guide_data::PracticeFunctionParameters;
 use t32_language_server_user_guide_data::UserGuideDocs;
-use t32_language_server_user_guide_data::format_practice_func_name;
 
 use crate::ReturnCode;
 
@@ -172,14 +171,13 @@ fn create_func_definitions(
 
     let mut defs: Vec<PracticeFunctionDefinition> = Vec::with_capacity(desc.len());
     for (name, params) in desc {
-        let fmt = format_practice_func_name(&name);
-        let entry = map_alias_variants_to_index(fmt);
+        let entry = map_alias_variants_to_index(name.to_string());
 
         let operation = map.get(&entry);
         if operation.is_none() {
             panic!(
                 "There is no index entry for function \"{}\".",
-                format_practice_func_name(&name)
+                &name.to_string()
             );
         }
 

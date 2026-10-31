@@ -5,6 +5,7 @@
 /data
 /ltb
 /target
+/vscode/.vscode-test/
 /vscode/.vscode-test-web/
 /vscode/dist
 

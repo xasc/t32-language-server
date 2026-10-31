@@ -62,6 +62,7 @@ enum FunctionTrieNode {
     },
 }
 
+#[derive(Debug)]
 pub struct BuiltinFunctions {
     trie: FunctionNameTrie,
     desc: Vec<FunctionDescription>,
@@ -70,6 +71,7 @@ pub struct BuiltinFunctions {
     docs: UserGuideDocs,
 }
 
+#[derive(Debug)]
 pub struct FunctionDescription {
     name: PracticeFunctionName,
     params: PracticeFunctionParameters,
@@ -77,25 +79,27 @@ pub struct FunctionDescription {
 }
 
 #[derive(Debug)]
-pub struct TrieNodeInsertionPoint {
+pub struct TrieNodeInsertionPoint<'a> {
     node: Rc<RefCell<FunctionTrieNode>>,
     prefix_len: u32,
+    rest: &'a str,
 }
 
+#[derive(Debug)]
 pub struct FunctionMetaData {
     copyright: u32,
     doc: u32,
 }
 
 pub struct FunctionMetaDescription<'a> {
-    name: &'a PracticeFunctionName,
-    params: &'a PracticeFunctionParameters,
-    operation: &'a str,
-    copyright: &'a str,
-    doc: &'a str,
+    pub name: &'a PracticeFunctionName,
+    pub params: &'a PracticeFunctionParameters,
+    pub operation: &'a str,
+    pub copyright: &'a str,
+    pub doc: &'a str,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct FunctionNameSlot(u32);
 
 #[derive(Debug)]
@@ -112,6 +116,15 @@ struct FunctionTrieNodeLabel {
 }
 
 impl BuiltinFunctions {
+    pub fn new() -> Self {
+        Self {
+            trie: FunctionNameTrie::new(0),
+            desc: Vec::new(),
+            meta: Vec::new(),
+            copyrights: Vec::new(),
+            docs: Vec::new(),
+        }
+    }
     pub fn from_user_guide(ug: &UserGuideData) -> Self {
         let functions: &[PracticeFunctionDefinition] = &ug.functions;
 
@@ -178,10 +191,17 @@ impl BuiltinFunctions {
         meta.shrink_to_fit();
 
         let mut names: Vec<PracticeFunctionName> = Vec::new();
-        for PracticeFunctionDefinition { name, .. } in functions {
-            names.append(&mut permutate_long_and_short_forms(name));
+        let mut slots: Vec<FunctionNameSlot> = Vec::new();
+        for (ii, PracticeFunctionDefinition { name, .. }) in functions.iter().enumerate() {
+            let mut forms = permutate_long_and_short_forms(name);
+
+            slots.reserve(forms.len());
+            for _ in 0..forms.len() {
+                slots.push(FunctionNameSlot(ii as u32));
+            }
+            names.append(&mut forms);
         }
-        let trie = FunctionNameTrie::from_user_guide(&names);
+        let trie = FunctionNameTrie::from_user_guide(&names, &slots);
 
         Self {
             trie: trie.expect("Embedded data must contain funtion information."),
@@ -216,7 +236,11 @@ impl FunctionNameTrie {
             data: String::with_capacity(capacity),
         }
     }
-    pub fn from_user_guide(names: &[PracticeFunctionName]) -> Option<Self> {
+    pub fn from_user_guide(
+        names: &[PracticeFunctionName],
+        slots: &[FunctionNameSlot],
+    ) -> Option<Self> {
+        debug_assert_eq!(names.len(), slots.len());
         if names.is_empty() {
             return None;
         }
@@ -229,17 +253,19 @@ impl FunctionNameTrie {
 
         let mut trie = Self::new(total);
 
-        for (ii, name) in names.iter().enumerate() {
+        for (name, slot) in names.iter().zip(slots.iter()) {
             if name.has_wildcard() {
                 // unimplemented!();
             } else {
-                trie.insert_regular_function_name(name, FunctionNameSlot(ii as u32));
+                trie.insert_regular_function_name(name, *slot);
             }
         }
         Some(trie)
     }
 
     pub fn get(&self, name: &str) -> Option<FunctionNameSlot> {
+        let key = name.to_ascii_lowercase();
+
         let mut offset: usize = 0;
         let mut node: Rc<RefCell<FunctionTrieNode>> = self.root.clone();
 
@@ -253,7 +279,7 @@ impl FunctionNameTrie {
                         Self::common_prefix_len(
                             &self.data
                                 [(label.offset as usize)..((label.offset + label.len) as usize)],
-                            &name[offset..]
+                            &key[offset..]
                         ),
                         label.len
                     );
@@ -269,7 +295,7 @@ impl FunctionNameTrie {
                         let prefix_len = Self::common_prefix_len(
                             &self.data
                                 [(label.offset as usize)..((label.offset + label.len) as usize)],
-                            &name[offset..],
+                            &key[offset..],
                         );
                         debug_assert!(prefix_len <= label.len);
 
@@ -286,6 +312,13 @@ impl FunctionNameTrie {
                                 visit_child = true;
                                 break;
                             }
+                        } else if key[offset..].is_empty()
+                            && label.len == 0
+                            && let FunctionTrieNode::Leaf { .. } = successor
+                        {
+                            next = child.clone();
+                            visit_child = true;
+                            break;
                         }
                     }
 
@@ -312,12 +345,13 @@ impl FunctionNameTrie {
         prefix
     }
 
-    fn find_child_with_longest_common_prefix(
-        data: &str,
-        string: &str,
-        root: &Rc<RefCell<FunctionTrieNode>>,
-    ) -> TrieNodeInsertionPoint {
+    fn find_child_with_longest_common_prefix<'a>(
+        data: &'_ str,
+        string: &'a str,
+        root: &'_ Rc<RefCell<FunctionTrieNode>>,
+    ) -> TrieNodeInsertionPoint<'a> {
         let mut node: Rc<RefCell<FunctionTrieNode>> = root.clone();
+        let mut offset: usize = 0;
 
         loop {
             let mut next: Rc<RefCell<FunctionTrieNode>> = node.clone();
@@ -333,10 +367,14 @@ impl FunctionNameTrie {
 
                         let len = Self::common_prefix_len(
                             &data[(label.offset as usize)..((label.offset + label.len) as usize)],
-                            string,
+                            &string[(offset as usize)..],
                         );
                         debug_assert!(len as usize <= string.len());
                         debug_assert!(len <= label.len);
+
+                        if len > 0 {
+                            offset += len as usize;
+                        }
 
                         match successor {
                             FunctionTrieNode::Internal { .. } => {
@@ -350,6 +388,7 @@ impl FunctionNameTrie {
                                     return TrieNodeInsertionPoint {
                                         node: child.clone(),
                                         prefix_len: len,
+                                        rest: &string[offset..],
                                     };
                                 }
                             }
@@ -358,6 +397,7 @@ impl FunctionNameTrie {
                                     return TrieNodeInsertionPoint {
                                         node: child.clone(),
                                         prefix_len: len,
+                                        rest: &string[offset..],
                                     };
                                 }
                             }
@@ -378,6 +418,7 @@ impl FunctionNameTrie {
                 return TrieNodeInsertionPoint {
                     node,
                     prefix_len: 0,
+                    rest: &string[offset..],
                 };
             }
         }
@@ -398,8 +439,11 @@ impl FunctionNameTrie {
         let str_repr = key.to_string();
         let str_repr_len: u32 = key.len() as u32;
 
-        let TrieNodeInsertionPoint { node, prefix_len } =
-            Self::find_child_with_longest_common_prefix(&self.data, &str_repr, &self.root);
+        let TrieNodeInsertionPoint {
+            node,
+            prefix_len,
+            rest,
+        } = Self::find_child_with_longest_common_prefix(&self.data, &str_repr, &self.root);
 
         if let FunctionTrieNode::Root { childs } = &mut *node.borrow_mut() {
             childs.push(Rc::new(RefCell::new(FunctionTrieNode::Leaf {
@@ -415,14 +459,10 @@ impl FunctionNameTrie {
         } else {
             let old = &mut *node.borrow_mut();
 
-            let label = match old {
-                FunctionTrieNode::Internal { label, .. } => label,
-                FunctionTrieNode::Leaf { label, .. } => label,
-                FunctionTrieNode::Wildcard { .. } => todo!(),
-                FunctionTrieNode::Root { .. } => {
-                    unreachable!("The root node is handled elsewhere.")
-                }
-            };
+            let label = old
+                .get_label()
+                .expect("The root node cannot be the child of an internal node.");
+
             debug_assert!(label.border <= label.offset);
 
             debug_assert!(prefix_len <= label.len);
@@ -448,8 +488,8 @@ impl FunctionNameTrie {
                 let b = FunctionTrieNode::Leaf {
                     label: FunctionTrieNodeLabel {
                         border: data_len,
-                        offset: data_len + prefix_len,
-                        len: str_repr_len - prefix_len,
+                        offset: data_len + str_repr_len - (rest.len() as u32),
+                        len: rest.len() as u32,
                     },
                     value: slot,
                 };
@@ -475,20 +515,18 @@ impl FunctionNameTrie {
                 *old = inner;
             } else if let FunctionTrieNode::Internal { label, childs } = old {
                 if prefix_len == 0 {
-                    // No need to modify the label of the parent node
-                    let shift = label.len + prefix_len;
-
                     // The remaining suffix of the new data entry
                     let a = FunctionTrieNode::Leaf {
                         label: FunctionTrieNodeLabel {
                             border: data_len,
-                            offset: data_len + shift,
-                            len: str_repr_len - shift,
+                            offset: data_len + str_repr_len - (rest.len() as u32),
+                            len: rest.len() as u32,
                         },
                         value: slot,
                     };
                     debug_assert!((data_len + str_repr_len) as usize <= self.data.len());
 
+                    // No need to modify the label of the parent node
                     childs.push(Rc::new(RefCell::new(a)));
                 } else {
                     let childs = childs.clone();
@@ -497,12 +535,23 @@ impl FunctionNameTrie {
                     let a = FunctionTrieNode::Internal {
                         label: FunctionTrieNodeLabel {
                             border: label.border,
-                            offset: label.border + prefix_len,
+                            offset: label.offset + prefix_len,
                             len: label.len - prefix_len,
                         },
                         childs,
                     };
                     debug_assert!((label.border + label.len) as usize <= self.data.len());
+
+                    // The remaining suffix of the new data entry
+                    let b = FunctionTrieNode::Leaf {
+                        label: FunctionTrieNodeLabel {
+                            border: data_len,
+                            offset: data_len + str_repr_len - (rest.len() as u32),
+                            len: rest.len() as u32,
+                        },
+                        value: slot,
+                    };
+                    debug_assert!((data_len + str_repr_len) as usize <= self.data.len());
 
                     // The new parent node with the common prefix
                     let inner = FunctionTrieNode::Internal {
@@ -511,7 +560,7 @@ impl FunctionNameTrie {
                             offset: data_len + label.offset - label.border,
                             len: prefix_len,
                         },
-                        childs: vec![Rc::new(RefCell::new(a))],
+                        childs: vec![Rc::new(RefCell::new(a)), Rc::new(RefCell::new(b))],
                     };
                     debug_assert!(
                         (data_len + label.offset - label.border - prefix_len) as usize
@@ -656,16 +705,14 @@ fn kept_in_short_form(letter: char) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use t32_language_server_user_guide_data::format_practice_func_name;
-
     use super::*;
     use crate::ug::convert_user_guide_data;
 
     #[test]
     fn can_import_builtin_functions() {
-        let (ug, _) = convert_user_guide_data().expect("Must not fail.");
+        let (ugd, _) = convert_user_guide_data().expect("Must not fail.");
 
-        let functions = BuiltinFunctions::from_user_guide(&ug);
+        let functions = BuiltinFunctions::from_user_guide(&ugd);
 
         for meta in functions.meta {
             assert!((meta.copyright as usize) < functions.copyrights.len());
@@ -686,7 +733,7 @@ mod tests {
             for l1 in ["B", "aBc"] {
                 for l2 in ["C", "abC"] {
                     let cmd = format!("{}.{}.{}", l0, l1, l2);
-                    assert!(variants.iter().any(|v| format_practice_func_name(v) == cmd));
+                    assert!(variants.iter().any(|v| v.to_string() == cmd));
                 }
             }
         }
@@ -705,7 +752,7 @@ mod tests {
             for l1 in ["ABC"] {
                 for l2 in ["C", "abC"] {
                     let cmd = format!("{}.{}.{}", l0, l1, l2);
-                    assert!(variants.iter().any(|v| format_practice_func_name(v) == cmd));
+                    assert!(variants.iter().any(|v| v.to_string() == cmd));
                 }
             }
         }
@@ -810,6 +857,8 @@ mod tests {
                 PracticeFunctionNamePattern::Literal("2".to_string()),
                 PracticeFunctionNamePattern::Literal("3".to_string()),
             ),
+            funcname!(PracticeFunctionNamePattern::Literal("a".to_string()),),
+            funcname!(PracticeFunctionNamePattern::Literal("a.4".to_string()),),
             funcname!(
                 PracticeFunctionNamePattern::Literal("0".to_string()),
                 PracticeFunctionNamePattern::Literal("b".to_string()),
@@ -835,10 +884,11 @@ mod tests {
             trie.insert_regular_function_name(name, FunctionNameSlot(ii as u32));
         }
 
-        for (_ii, name) in names.iter().enumerate() {
-            let Some(FunctionNameSlot(_ii)) = trie.get(&name.to_string()) else {
-                panic!();
-            };
+        for (ii, name) in names.iter().enumerate() {
+            assert_eq!(
+                trie.get(&name.to_string()).unwrap(),
+                FunctionNameSlot(ii as u32)
+            );
         }
     }
 
@@ -869,5 +919,21 @@ mod tests {
         }
 
         assert!(trie.get(&"UNKNOWN".to_string()).is_none());
+    }
+
+    #[test]
+    fn can_lookup_builtin_functions() {
+        let (ugd, _) = convert_user_guide_data().expect("Must not fail.");
+
+        let functions = BuiltinFunctions::from_user_guide(&ugd);
+
+        let BuiltinFunctions { desc, trie, .. } = functions;
+
+        for FunctionDescription { name, .. } in desc {
+            if name.has_wildcard() {
+                continue;
+            }
+            assert!(trie.get(&name.to_string()).is_some());
+        }
     }
 }

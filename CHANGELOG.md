@@ -19,6 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 -  Import information for PRACTICE functions from user guide.
+-  Add support for hover requests. Information for PRACTICE function calls
+   with direct links to the official reference manual can be retrieved.
+
+### Changed
+
+-  Switch to *tree-sitter-t32* v10.0.0.
 
 
 [0.14.2] - 2026-06-20

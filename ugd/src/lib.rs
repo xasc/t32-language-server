@@ -211,6 +211,20 @@ impl UserGuideData {
     }
 }
 
+impl fmt::Display for PracticeFunctionName {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut iter = self.iter();
+
+        let first = iter.next().expect("Cannot be empty.");
+        write!(f, "{}", first)?;
+
+        for part in iter {
+            write!(f, ".{}", part)?;
+        }
+        Ok(())
+    }
+}
+
 impl fmt::Display for PracticeFuncParameterPattern {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -413,18 +427,6 @@ pub fn format_practice_func_args(args: &PracticeFunctionParameters) -> String {
             PracticeFuncParameterPattern::OptionalOtherParameter(_) => out += &arg.to_string(),
             _ => out += &format!(", {}", arg),
         }
-    }
-    out
-}
-
-pub fn format_practice_func_name(name: &PracticeFunctionName) -> String {
-    let mut iter = name.iter();
-
-    let mut out: String = iter.next().expect("Cannot be empty.").to_string();
-
-    for part in iter {
-        out += ".";
-        out += &part.to_string();
     }
     out
 }

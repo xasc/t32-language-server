@@ -40,6 +40,7 @@ use serde::Serialize;
 
 use crate::ReturnCode;
 use crate::protocol::FoldingRangeKind;
+use crate::protocol::MarkupKind;
 use crate::protocol::PositionEncodingKind;
 use crate::protocol::SemanticTokensLegend;
 use crate::protocol::TraceValue;
@@ -89,6 +90,7 @@ pub struct Config {
     pub position_encoding: PositionEncodingKind,
     pub semantic_tokens: SemanticTokenSupport,
     pub server_progress_supported: bool,
+    pub markup_format: MarkupKind,
     pub t32_dirs: T32DefaultDirs,
     pub trace_level: TraceValue,
     pub workspace: Workspace,
@@ -246,6 +248,7 @@ impl Config {
                 definitions_supported: false,
             },
             did_rename_files_supported: false,
+            markup_format: MarkupKind::PlainText,
             mode,
             parent_pid: ppid,
             pid_check_interval: Duration::from_secs(5),

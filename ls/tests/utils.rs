@@ -74,6 +74,28 @@ pub fn start_ls_and_capture_stderr(args: &[&str], try_initialize: bool) -> Child
 }
 
 #[allow(dead_code)]
+pub fn start_ls_with_markdown_hover_format(args: &[&str]) -> Child {
+    let mut params = vec!["run", "--quiet", "--"];
+    params.extend_from_slice(&args);
+
+    let mut ls = Command::new("cargo")
+        .args(params)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("Must be able to start language server.");
+
+    if let Some(cin) = &mut ls.stdin {
+        let pid = process::id();
+
+        let init = make_initialize_request_with_markdown_hover_format(1, pid);
+
+        to_stdin(cin, &init);
+    }
+    ls
+}
+
+#[allow(dead_code)]
 pub fn start_ls_with_workspace(args: &[&str]) -> Child {
     let mut params = vec!["run", "--quiet", "--"];
     params.extend_from_slice(&args);
@@ -327,6 +349,29 @@ pub fn make_initialize_request_with_semantic_tokens(id: isize, pid: u32) -> Stri
     build_msg(&content.to_string())
 }
 
+pub fn make_initialize_request_with_markdown_hover_format(id: isize, pid: u32) -> String {
+    let content = json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "method": "initialize",
+        "params": {
+            "processId": pid,
+            "capabilities": {
+                "textDocument": {
+                    "hover": {
+                        "contentFormat": [
+                            "markdown",
+                            "plaintext"
+                        ]
+                    },
+                },
+            },
+        },
+    });
+
+    build_msg(&content.to_string())
+}
+
 fn make_exit_notification() -> String {
     let content = json!({
         "jsonrpc": "2.0",
@@ -479,6 +524,51 @@ pub fn make_did_close_text_doc_notification() -> String {
 }
 
 #[allow(dead_code)]
+pub fn make_folding_range_request(id: isize, uri: String) -> String {
+    let content = json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "method": "textDocument/foldingRange",
+        "params": {
+            "textDocument": {
+                "uri": uri,
+            },
+            "range": {
+                "start": {
+                    "line": 1,
+                    "character": 0,
+                },
+                "end": {
+                    "line": 2,
+                    "character": 0,
+                }
+
+            }
+        }
+    });
+    build_msg(&content.to_string())
+}
+
+#[allow(dead_code)]
+pub fn make_hover_request(id: isize, uri: String, line: u32, character: u32) -> String {
+    let content = json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "method": "textDocument/hover",
+        "params": {
+            "textDocument": {
+                "uri": uri,
+            },
+            "position": {
+                "line": line,
+                "character": character,
+            }
+        }
+    });
+    build_msg(&content.to_string())
+}
+
+#[allow(dead_code)]
 pub fn make_set_trace_notification(level: TraceValue) -> String {
     let content = json!({
         "jsonrpc": "2.0",
@@ -515,32 +605,6 @@ pub fn make_semantic_tokens_doc_range_request(id: isize, uri: String) -> String 
         "jsonrpc": "2.0",
         "id": id,
         "method": "textDocument/semanticTokens/range",
-        "params": {
-            "textDocument": {
-                "uri": uri,
-            },
-            "range": {
-                "start": {
-                    "line": 1,
-                    "character": 0,
-                },
-                "end": {
-                    "line": 2,
-                    "character": 0,
-                }
-
-            }
-        }
-    });
-    build_msg(&content.to_string())
-}
-
-#[allow(dead_code)]
-pub fn make_folding_range_request(id: isize, uri: String) -> String {
-    let content = json!({
-        "jsonrpc": "2.0",
-        "id": id,
-        "method": "textDocument/foldingRange",
         "params": {
             "textDocument": {
                 "uri": uri,

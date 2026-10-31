@@ -220,7 +220,7 @@ pub fn process_find_references_req(
     id: NumberOrString,
     params: ReferenceParams,
     trace_level: TraceValue,
-    docs: &mut TextDocs,
+    docs: &TextDocs,
     ts: &mut Tasks,
     outgoing: &mut Vec<Option<Message>>,
 ) -> Result<(), ReturnCode> {
@@ -1338,6 +1338,7 @@ mod tests {
     use crate::ls::doc;
     use crate::ls::tasks::TaskProgress;
     use crate::ls::workspace;
+    use crate::protocol::MarkupKind;
     use crate::protocol::Position;
     use crate::protocol::Range;
     use crate::protocol::{self};
@@ -1355,6 +1356,7 @@ mod tests {
             location_links: config::LocationLinkSupport {
                 definitions_supported: false,
             },
+            markup_format: MarkupKind::PlainText,
             mode: config::OperationMode::StdioTransport,
             parent_pid: Some(0u32),
             pid_check_interval: Duration::from_secs(5),

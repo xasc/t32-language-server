@@ -26,6 +26,7 @@ use crate::ls::response::ErrorResponse;
 use crate::ls::response::FindReferencesResponse;
 use crate::ls::response::FoldingRangeResponse;
 use crate::ls::response::GoToDefinitionResponse;
+use crate::ls::response::HoverResponse;
 use crate::ls::response::InitializeResponse;
 use crate::ls::response::NullResponse;
 use crate::ls::response::ReceiveError;
@@ -38,6 +39,7 @@ use crate::protocol::DidCloseTextDocumentParams;
 use crate::protocol::DidOpenTextDocumentParams;
 use crate::protocol::ErrorCodes;
 use crate::protocol::FoldingRangeParams;
+use crate::protocol::HoverParams;
 use crate::protocol::InitializeParams;
 use crate::protocol::InitializedParams;
 use crate::protocol::LogTraceParams;
@@ -359,6 +361,7 @@ fn deserialize_request(msg: RequestMessage) -> Result<Message, ReceiveError> {
     const SHUTDOWN: &'static str = "shutdown";
     const TEXTDOC_DEFINITION: &'static str = "textDocument/definition";
     const TEXTDOC_FOLDING_RANGE: &'static str = "textDocument/foldingRange";
+    const TEXTDOC_HOVER: &'static str = "textDocument/hover";
     const TEXTDOC_REFERENCES: &'static str = "textDocument/references";
     const TEXTDOC_SEMANTIC_TOKENS_FULL: &'static str = "textDocument/semanticTokens/full";
     const TEXTDOC_SEMANTIC_TOKENS_RANGE: &'static str = "textDocument/semanticTokens/range";
@@ -390,6 +393,13 @@ fn deserialize_request(msg: RequestMessage) -> Result<Message, ReceiveError> {
                 id: msg.id,
                 params,
             })),
+            Err(err) => Err(ReceiveError::Response(ErrorResponse {
+                id: Some(msg.id),
+                error: err,
+            })),
+        },
+        TEXTDOC_HOVER => match deserialize_msg_params::<HoverParams>(msg.params) {
+            Ok(params) => Ok(Message::Request(Request::Hover { id: msg.id, params })),
             Err(err) => Err(ReceiveError::Response(ErrorResponse {
                 id: Some(msg.id),
                 error: err,
@@ -597,6 +607,11 @@ fn serialize_response(msg: Response) -> LineMessage {
                 None,
             ),
             Response::FindReferencesResponse(FindReferencesResponse { id, result }) => (
+                Some(id),
+                Some(serde_json::to_value(result).expect("Serialization must not fail.")),
+                None,
+            ),
+            Response::HoverResponse(HoverResponse { id, result }) => (
                 Some(id),
                 Some(serde_json::to_value(result).expect("Serialization must not fail.")),
                 None,

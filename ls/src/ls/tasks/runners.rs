@@ -58,6 +58,7 @@ use crate::protocol::Uri;
 use crate::t32::FindMacroRefsLangContext;
 use crate::t32::FindRefsLangContext;
 use crate::t32::GotoDefLangContext;
+use crate::t32::HoverTarget;
 use crate::t32::LangExpressions;
 
 #[derive(Debug, Clone)]
@@ -143,6 +144,12 @@ pub enum Task {
             Uri,
         ) -> (Option<GotoDefinitionResult>, Vec<Uri>),
     },
+    Hover(
+        NumberOrString,
+        TextDocData,
+        Position,
+        fn(TextDocData, Position) -> Option<HoverTarget>,
+    ),
     LoadUserGuideData(
         NumberOrString,
         fn() -> Result<(UserGuideData, usize), String>,
@@ -208,6 +215,7 @@ pub enum TaskDone {
     GoToDefinition(NumberOrString, Option<GotoDefinitionResult>),
     GoToExternalMacroDef(NumberOrString, Vec<LocationLink>),
     GoToExternalMacroDefSync(NumberOrString, Option<GotoDefinitionResult>, Uri, Vec<Uri>),
+    Hover(NumberOrString, Option<HoverTarget>),
 
     LoadUserGuideData(NumberOrString, Result<(UserGuideData, usize), String>),
     SemanticTokensFull(NumberOrString, SemanticTokens),
@@ -250,6 +258,7 @@ impl TaskDone {
             | TaskDone::GoToDefinition(id, ..)
             | TaskDone::GoToExternalMacroDef(id, ..)
             | TaskDone::GoToExternalMacroDefSync(id, ..)
+            | TaskDone::Hover(id, ..)
             | TaskDone::LoadUserGuideData(id, ..)
             | TaskDone::SemanticTokensFull(id, ..)
             | TaskDone::SemanticTokensRange(id, ..)
@@ -455,6 +464,9 @@ impl TaskSystem {
                 let defs = (find)(textdoc, t32, callers, origin, backtrace);
 
                 TaskDone::GoToExternalMacroDefSync(id, defs.0, uri, defs.1)
+            }
+            Task::Hover(id, textdoc, loc, hover_text) => {
+                TaskDone::Hover(id, hover_text(textdoc, loc))
             }
             Task::LoadUserGuideData(id, loader) => TaskDone::LoadUserGuideData(id, loader()),
             Task::SemanticTokensFull(id, legend, encoding, textdoc, tokenize) => {

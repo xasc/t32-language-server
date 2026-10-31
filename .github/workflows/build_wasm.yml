@@ -28,15 +28,15 @@ jobs:
       - name: Set up repository
         uses: actions/checkout@v7.0.1
 
-      - uses: actions/download-artifact@v8.0.1
+      - uses: actions/download-artifact@v8.0.2
         with:
           name: ugd.dat
           path: data/
 
       - name: Build WebAssembly module
-        uses: ./.github/actions/build_steps_wasm
+        uses: $/.github/actions/build_steps_wasm
         with:
           profile: release
-          wasi-version: 32
+          wasi-version: 34
           wasi-os: linux
           wasi-arch: x86_64

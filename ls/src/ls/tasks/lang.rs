@@ -4,6 +4,7 @@
 
 mod definitions;
 mod folds;
+mod hover;
 mod references;
 mod semantic;
 
@@ -14,6 +15,8 @@ pub use definitions::process_goto_definition_result;
 pub use definitions::progress_goto_external_macro_def;
 pub use definitions::recv_goto_external_macro_def_sync;
 pub use folds::process_folding_range_req;
+pub use hover::process_hover_req;
+pub use hover::process_hover_result;
 pub use references::FindDefintionsForMacroRefResult;
 pub use references::FindMacroReferencesResult;
 pub use references::FindReferencesResult;

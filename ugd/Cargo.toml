@@ -23,7 +23,7 @@ categories = [
 license = "EUPL-1.2"
 repository = "https://codeberg.org/xasc/t32-language-server"
 edition = "2024"
-rust-version = "1.99.1"
+rust-version = "1.100.0"
 include = [
   "/src/",
   "/tests/",
@@ -37,9 +37,6 @@ path = "src/lib.rs"
 [[bin]]
 name = "t32ls-ugd"
 path = "src/bin/serialize/main.rs"
-
-[build-dependencies]
-cc=">=1.2.60"
 
 [dependencies]
 serde = { version = ">=1.0.215", features = ["derive"] }
