@@ -45,6 +45,7 @@ Features
 -  Locates PRACTICE macros and file references across all scripts in a project.
 -  Semantic tokens for improved syntax highlighting.
 -  Code folding for PRACTICE blocks and comments.
+-  Brief description for PRACTICE functions with link to documentation on hover.
 
 
 Quick start
@@ -246,7 +247,7 @@ This language server implements [version 3.18 of the language server protocol].
 | `typeHierarchy/subtypes`                 | ➖             |
 | `textDocument/documentHighlight`         | ➖             |
 | `documentLink/resolve`                   | ➖             |
-| `textDocument/hover`                     | ➖             |
+| `textDocument/hover`                     | ✅             |
 | `textDocument/codeLens`                  | ➖             |
 | `codeLens/resolve`                       | ➖             |
 | `workspace/codeLens/refresh`             | ➖             |
