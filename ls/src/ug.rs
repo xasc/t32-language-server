@@ -57,8 +57,8 @@ impl UserGuide {
     }
 }
 
-const USER_GUIDE_DATA: [u8; include_bytes!("../../data/ugd.dat").len()] =
-    *include_bytes!("../../data/ugd.dat");
+const USER_GUIDE_DATA: [u8; include_bytes!(env!("CARGO_WORKSPACE_DIR")).len()] =
+    *include_bytes!(env!("CARGO_WORKSPACE_DIR"));
 
 pub fn convert_user_guide_data() -> Result<(UserGuideData, usize), String> {
     let data = inflate(&USER_GUIDE_DATA)?;
