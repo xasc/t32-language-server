@@ -69,7 +69,7 @@ trap 'on_error $LINENO' ERR
 do_functions=false
 do_commands=false
 
-while getopts "cf" arg; do
+while getopts ":cf" arg; do
     case $arg in
         f) do_functions=true ;;
         c) do_commands=true ;;
