@@ -30,6 +30,11 @@ jobs:
       - name: Set up repository
         uses: actions/checkout@v7.0.1
 
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+
       - name: Build generator
         run: cargo build --verbose --profile ${{ inputs.profile }} --bin t32ls-ugd --package t32-language-server-user-guide-data
 
