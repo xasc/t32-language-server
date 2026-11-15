@@ -60,6 +60,7 @@ These additional dependencies are required:
  -  [serde_json]
  -  [serde_path_to_error]
  -  [serde_repr]
+ -  [t32-language-server-user-guide-data]
  -  [tree-sitter]
  -  [tree-sitter-t32]
  -  [url]
@@ -72,6 +73,7 @@ These additional dependencies are required:
 [serde_json]: https://github.com/serde-rs/json
 [serde_repr]: https://github.com/dtolnay/serde-repr
 [serde_path_to_error]: https://github.com/dtolnay/path-to-error
+[t32-language-server-user-guide-data]: https://crates.io/crates/t32-language-server-user-guide-data
 [tree-sitter]: https://github.com/tree-sitter/tree-sitter
 [tree-sitter-t32]: https://codeberg.org/xasc/tree-sitter-t32
 [url]: https://github.com/servo/rust-url
