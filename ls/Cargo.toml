@@ -40,7 +40,7 @@ serde = { version = ">=1.0.215", features = ["derive"] }
 serde_json = ">=1.0"
 serde_path_to_error = "0.1.20"
 serde_repr = ">=0.1.19"
-t32-language-server-user-guide-data = { path = "../ugd", version = "0.1.0" }
+t32-language-server-user-guide-data = { path = "../ugd", version = "0.2.0" }
 tree-sitter = ">=0.27.2"
 tree-sitter-t32 = ">=9.0.3"
 url = ">=2.5.4"
