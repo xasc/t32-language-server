@@ -32,6 +32,12 @@ commands, and scripts in your project.
 
 ![Sample screenshot for cross-references](https://raw.githubusercontent.com/xasc/t32-language-server/main/vscode/images/sample_xrefs.png)
 
+### Hover
+
+Tooltips appear when hovering over PRACTICE functions.
+
+![Sample screenshot for hover](https://raw.githubusercontent.com/xasc/t32-language-server/main/vscode/images/hover.png)
+
 ### Semantic tokens
 
 Semantic tokens augment the editor syntax highlighting.
@@ -50,8 +56,8 @@ This extension contributes the following language:
 
 This extension contributes the following settings:
 
--  `t32ls.t32.systemDirectory`: TRACE32 system directory
--  `t32ls.t32.temporaryDirectory`: TRACE32 temporary directory
+-  `t32ls.t32.systemDirectory`: TRACE32® system directory
+-  `t32ls.t32.temporaryDirectory`: TRACE32® temporary directory
 -  `t32ls.trace.server`: Trace server communication with VS Code.
 
 This default setting is overridden by the extension:
