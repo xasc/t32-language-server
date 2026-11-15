@@ -27,6 +27,11 @@ runs:
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
 
+    - uses: actions/download-artifact@v8.0.2
+      with:
+        name: ugd.dat
+        path: data/
+
     - name: Install WebAssembly cross-compiler
       run: rustup target add wasm32-wasip1-threads
       shell: bash
