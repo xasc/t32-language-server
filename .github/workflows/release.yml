@@ -14,8 +14,20 @@ permissions:
   attestations: write
 
 jobs:
+  import_data:
+    name: Import data assets
+    uses: ./.github/workflows/build_data.yml
+    with:
+      runner: ubuntu-latest
+      profile: release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+
   release_t32ls_bin_linux_primary:
     name: Create Linux release
+    needs: import_data
     strategy:
       matrix:
         os: [ {img: ubuntu-latest, flavor: x86_64 } ]
