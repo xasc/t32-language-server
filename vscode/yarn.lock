@@ -1057,7 +1057,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/vscode@npm:^1.145.0":
+"@types/vscode@npm:^1.118.0":
   version: 1.145.0
   resolution: "@types/vscode@npm:1.145.0"
   checksum: 10/c4a89f77e670f1022342a94b7dedfd4ff6fda7b8d3a2e028d6433bc317c78376323f77439704f4d4267672510222e773650da02680f958be80e06965e40f5a42
@@ -4128,7 +4128,7 @@ __metadata:
   dependencies:
     "@types/mocha": "npm:^10.0.10"
     "@types/node": "npm:^26.6.6"
-    "@types/vscode": "npm:^1.145.0"
+    "@types/vscode": "npm:^1.118.0"
     "@vscode/test-cli": "npm:^0.0.15"
     "@vscode/test-electron": "npm:^3.1.0"
     "@vscode/vsce": "npm:^4.1.0"
