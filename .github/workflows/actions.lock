@@ -23,6 +23,7 @@ workflows:
     '.github/workflows/publish.yml':
         - 'actions/checkout@v7.0.1'
         - 'dtolnay/rust-toolchain@v1'
+        - 'rust-lang/crates-io-auth-action@v1.0.6'
     '.github/workflows/release.yml':
         - 'actions/attest@v4.2.2'
         - 'actions/checkout@v7.0.1'
@@ -67,7 +68,7 @@ dependencies:
         repo_id: 192625955
     'dtolnay/rust-toolchain@stable':
         ref: 'stable'
-        commit: 'sha1-b725eda525362e7cf34af9a7243cac1e3f01a7ec'
+        commit: 'sha1-39008827e6b4319a349e9a42dfc90579dd25f1ca'
         owner_id: 1940490
         repo_id: 260749683
     'dtolnay/rust-toolchain@v1':
@@ -75,6 +76,11 @@ dependencies:
         commit: 'sha1-683b588c487a69d01f6c6ddf40f036ff682cc2c8'
         owner_id: 1940490
         repo_id: 260749683
+    'rust-lang/crates-io-auth-action@v1.0.6':
+        ref: 'v1.0.6'
+        commit: 'sha1-3268eb413133e2960fa4ae0e963ca76380c54cd9'
+        owner_id: 5430905
+        repo_id: 1008931044
     'taiki-e/install-action@v2.90.4':
         ref: 'v2.90.4'
         commit: 'sha1-4a76afe23f9e08d2d9550fb56e556444e8611d21'
